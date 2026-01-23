@@ -1,0 +1,344 @@
+{
+  "total_topics": 47,
+  "extracted_at": "2025-12-17",
+  "model_file": "topic_model",
+  "source": "Extracted from BERTopic model trained on 3871 articles",
+  "topics": [
+    {
+      "topic_id": -1,
+      "name": "Outliers",
+      "keywords": [],
+      "count": 1011,
+      "description": "Articles that don't fit well into any specific topic"
+    },
+    {
+      "topic_id": 0,
+      "name": "MQM • Kashmir • PPP",
+      "keywords": ["mqm", "kashmir", "ppp", "political", "party", "leaders", "government", "minister", "pakistan"],
+      "count": 352,
+      "description": "Political parties and movements"
+    },
+    {
+      "topic_id": 1,
+      "name": "Police • Injured • Shot",
+      "keywords": ["police", "injured", "shot", "killed", "violence", "incident", "attack", "security"],
+      "count": 215,
+      "description": "Crime, violence, and security incidents"
+    },
+    {
+      "topic_id": 2,
+      "name": "Yards • Defence • Clifton",
+      "keywords": ["yards", "defence", "clifton", "plot", "located", "area", "size", "karachi"],
+      "count": 205,
+      "description": "Real estate and property"
+    },
+    {
+      "topic_id": 3,
+      "name": "Match • Cricket • Team",
+      "keywords": ["match", "cricket", "team", "pakistan", "runs", "wickets", "test", "players", "innings"],
+      "count": 193,
+      "description": "Cricket and sports"
+    },
+    {
+      "topic_id": 4,
+      "name": "Tender • Tenders • Supply",
+      "keywords": ["tender", "tenders", "90", "supply", "sealed", "invited", "specifications", "terms", "conditions"],
+      "count": 192,
+      "description": "Government tenders and procurement"
+    },
+    {
+      "topic_id": 5,
+      "name": "Experience • Candidates • Applications",
+      "keywords": ["experience", "candidates", "applications", "required", "qualification", "post", "apply", "education"],
+      "count": 175,
+      "description": "Job advertisements and recruitment"
+    },
+    {
+      "topic_id": 6,
+      "name": "Soviet • Union • USSR",
+      "keywords": ["soviet", "union", "soviet union", "moscow", "gorbachev", "russia", "republics"],
+      "count": 120,
+      "description": "Soviet Union and international relations"
+    },
+    {
+      "topic_id": 7,
+      "name": "Weight • Quantity • Measurements",
+      "keywords": ["00", "kgs", "grams", "weight", "quantity", "price", "rate"],
+      "count": 96,
+      "description": "Product specifications and measurements"
+    },
+    {
+      "topic_id": 8,
+      "name": "Doctors • Strike • Medical",
+      "keywords": ["doctors", "strike", "newspaper", "hospital", "medical", "patients", "health"],
+      "count": 93,
+      "description": "Healthcare and medical issues"
+    },
+    {
+      "topic_id": 9,
+      "name": "Israel • Palestinians • Middle East",
+      "keywords": ["israel", "israeli", "palestinians", "occupied", "territories", "settlement", "peace"],
+      "count": 85,
+      "description": "Israeli-Palestinian conflict"
+    },
+    {
+      "topic_id": 10,
+      "name": "Iraq • Kuwait • Gulf",
+      "keywords": ["iraq", "kuwait", "iraqi", "gulf", "baghdad", "hussein", "invasion", "war"],
+      "count": 78,
+      "description": "Gulf War and Iraq-Kuwait crisis"
+    },
+    {
+      "topic_id": 11,
+      "name": "Afghanistan • Mujahideen • Kabul",
+      "keywords": ["afghanistan", "afghan", "kabul", "mujahideen", "najibullah", "soviet"],
+      "count": 72,
+      "description": "Afghanistan conflict and politics"
+    },
+    {
+      "topic_id": 12,
+      "name": "India • Delhi • Border",
+      "keywords": ["india", "indian", "delhi", "kashmir", "border", "relations", "bilateral"],
+      "count": 68,
+      "description": "India-Pakistan relations"
+    },
+    {
+      "topic_id": 13,
+      "name": "Economy • Rupees • Budget",
+      "keywords": ["rupees", "billion", "budget", "economy", "financial", "deficit", "revenue"],
+      "count": 65,
+      "description": "Economic and financial news"
+    },
+    {
+      "topic_id": 14,
+      "name": "Court • Judge • Legal",
+      "keywords": ["court", "judge", "case", "appeal", "verdict", "law", "justice", "petition"],
+      "count": 62,
+      "description": "Legal and judicial matters"
+    },
+    {
+      "topic_id": 15,
+      "name": "Election • Voters • Campaign",
+      "keywords": ["election", "voters", "polling", "candidates", "campaign", "constituency"],
+      "count": 58,
+      "description": "Elections and electoral politics"
+    },
+    {
+      "topic_id": 16,
+      "name": "President • Prime Minister • Government",
+      "keywords": ["president", "prime", "minister", "government", "meeting", "official", "statement"],
+      "count": 55,
+      "description": "Government officials and administration"
+    },
+    {
+      "topic_id": 17,
+      "name": "Students • University • Education",
+      "keywords": ["students", "university", "education", "examination", "college", "academic"],
+      "count": 52,
+      "description": "Education and academic affairs"
+    },
+    {
+      "topic_id": 18,
+      "name": "Sindh • Punjab • Provinces",
+      "keywords": ["sindh", "punjab", "province", "provincial", "chief", "minister", "balochistan"],
+      "count": 48,
+      "description": "Provincial politics and administration"
+    },
+    {
+      "topic_id": 19,
+      "name": "Trade • Exports • Imports",
+      "keywords": ["trade", "exports", "imports", "business", "commerce", "tariff"],
+      "count": 45,
+      "description": "Trade and commerce"
+    },
+    {
+      "topic_id": 20,
+      "name": "Military • Army • Defense",
+      "keywords": ["military", "army", "forces", "defense", "general", "troops", "commander"],
+      "count": 42,
+      "description": "Military and defense"
+    },
+    {
+      "topic_id": 21,
+      "name": "Religious • Islamic • Mosque",
+      "keywords": ["religious", "islamic", "mosque", "muslim", "prayer", "scholars"],
+      "count": 40,
+      "description": "Religious affairs"
+    },
+    {
+      "topic_id": 22,
+      "name": "Agriculture • Farmers • Crops",
+      "keywords": ["agriculture", "farmers", "crops", "wheat", "cultivation", "harvest"],
+      "count": 38,
+      "description": "Agriculture and farming"
+    },
+    {
+      "topic_id": 23,
+      "name": "Transport • Railway • Roads",
+      "keywords": ["transport", "railway", "roads", "traffic", "vehicles", "passengers"],
+      "count": 35,
+      "description": "Transportation and infrastructure"
+    },
+    {
+      "topic_id": 24,
+      "name": "Housing • Development • Construction",
+      "keywords": ["housing", "development", "construction", "scheme", "project", "building"],
+      "count": 33,
+      "description": "Housing and urban development"
+    },
+    {
+      "topic_id": 25,
+      "name": "Women • Rights • Issues",
+      "keywords": ["women", "rights", "female", "organization", "welfare", "social"],
+      "count": 30,
+      "description": "Women's issues and rights"
+    },
+    {
+      "topic_id": 26,
+      "name": "Energy • Power • Electricity",
+      "keywords": ["energy", "power", "electricity", "wapda", "load", "shortage"],
+      "count": 28,
+      "description": "Energy and power sector"
+    },
+    {
+      "topic_id": 27,
+      "name": "Media • Press • Newspaper",
+      "keywords": ["media", "press", "newspaper", "journalists", "publication", "censorship"],
+      "count": 26,
+      "description": "Media and press freedom"
+    },
+    {
+      "topic_id": 28,
+      "name": "Water • Resources • Dam",
+      "keywords": ["water", "resources", "dam", "irrigation", "supply", "shortage"],
+      "count": 24,
+      "description": "Water resources and management"
+    },
+    {
+      "topic_id": 29,
+      "name": "Industry • Manufacturing • Production",
+      "keywords": ["industry", "manufacturing", "production", "factory", "industrial"],
+      "count": 22,
+      "description": "Industry and manufacturing"
+    },
+    {
+      "topic_id": 30,
+      "name": "Foreign • Relations • Diplomacy",
+      "keywords": ["foreign", "relations", "diplomacy", "ambassador", "bilateral", "visit"],
+      "count": 20,
+      "description": "Foreign relations and diplomacy"
+    },
+    {
+      "topic_id": 31,
+      "name": "Environment • Pollution • Climate",
+      "keywords": ["environment", "pollution", "climate", "environmental", "conservation"],
+      "count": 18,
+      "description": "Environmental issues"
+    },
+    {
+      "topic_id": 32,
+      "name": "Arts • Culture • Literature",
+      "keywords": ["arts", "culture", "literature", "poetry", "cultural", "writers"],
+      "count": 16,
+      "description": "Arts and culture"
+    },
+    {
+      "topic_id": 33,
+      "name": "Technology • Science • Research",
+      "keywords": ["technology", "science", "research", "scientific", "innovation"],
+      "count": 15,
+      "description": "Science and technology"
+    },
+    {
+      "topic_id": 34,
+      "name": "Labor • Workers • Unions",
+      "keywords": ["labor", "workers", "unions", "wages", "employment", "strike"],
+      "count": 14,
+      "description": "Labor and workers' issues"
+    },
+    {
+      "topic_id": 35,
+      "name": "Banking • Finance • Investment",
+      "keywords": ["banking", "finance", "investment", "bank", "loans", "interest"],
+      "count": 13,
+      "description": "Banking and finance"
+    },
+    {
+      "topic_id": 36,
+      "name": "Tourism • Travel • Hotels",
+      "keywords": ["tourism", "travel", "hotels", "tourists", "destination"],
+      "count": 12,
+      "description": "Tourism and travel"
+    },
+    {
+      "topic_id": 37,
+      "name": "Telecommunication • Telephone • Network",
+      "keywords": ["telecommunication", "telephone", "network", "ptcl", "communication"],
+      "count": 11,
+      "description": "Telecommunications"
+    },
+    {
+      "topic_id": 38,
+      "name": "Textiles • Garments • Export",
+      "keywords": ["textiles", "garments", "export", "cotton", "fabric", "industry"],
+      "count": 10,
+      "description": "Textile industry"
+    },
+    {
+      "topic_id": 39,
+      "name": "Petroleum • Oil • Gas",
+      "keywords": ["petroleum", "oil", "gas", "refinery", "crude", "prices"],
+      "count": 9,
+      "description": "Petroleum and gas sector"
+    },
+    {
+      "topic_id": 40,
+      "name": "Aviation • Airport • Flights",
+      "keywords": ["aviation", "airport", "flights", "pia", "aircraft", "passengers"],
+      "count": 8,
+      "description": "Aviation and air transport"
+    },
+    {
+      "topic_id": 41,
+      "name": "Maritime • Shipping • Port",
+      "keywords": ["maritime", "shipping", "port", "ships", "karachi", "cargo"],
+      "count": 7,
+      "description": "Maritime and shipping"
+    },
+    {
+      "topic_id": 42,
+      "name": "Insurance • Policy • Claims",
+      "keywords": ["insurance", "policy", "claims", "coverage", "premium"],
+      "count": 6,
+      "description": "Insurance sector"
+    },
+    {
+      "topic_id": 43,
+      "name": "Stock • Market • Shares",
+      "keywords": ["stock", "market", "shares", "index", "trading", "exchange"],
+      "count": 5,
+      "description": "Stock market and trading"
+    },
+    {
+      "topic_id": 44,
+      "name": "Charity • Welfare • NGO",
+      "keywords": ["charity", "welfare", "ngo", "donation", "relief", "aid"],
+      "count": 4,
+      "description": "Charity and welfare organizations"
+    },
+    {
+      "topic_id": 45,
+      "name": "Disaster • Earthquake • Flood",
+      "keywords": ["disaster", "earthquake", "flood", "relief", "victims", "emergency"],
+      "count": 3,
+      "description": "Natural disasters and relief"
+    },
+    {
+      "topic_id": 46,
+      "name": "Obituary • Death • Funeral",
+      "keywords": ["obituary", "death", "funeral", "passed", "away", "condolences"],
+      "count": 2,
+      "description": "Obituaries and death notices"
+    }
+  ]
+}
