@@ -51,6 +51,9 @@ backup.sql
 # Keep sample newspapers for friends to test with
 # input_newspapers/ (keeping this committed)
 
+# Uploaded user files (images, analysis results)
+uploads/
+
 # Backup files
 *.backup
 *.backup[0-9]

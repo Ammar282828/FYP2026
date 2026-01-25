@@ -4,7 +4,14 @@ Article-related API routes
 
 from fastapi import APIRouter, HTTPException
 from typing import Optional
+import os
 from database.firestore_db import get_db
+from utils.filters import filter_and_normalize_entities
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 
 router = APIRouter(prefix="/api", tags=["articles"])
@@ -142,3 +149,58 @@ def search_entity(request: dict):
         }
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@router.post("/articles/{article_id}/summary")
+def generate_article_summary(article_id: str):
+    # generates an AI summary for a specific article using Gemini
+    try:
+        db = get_db()
+        article = db.get_article(article_id)
+
+        if not article:
+            raise HTTPException(404, "Article not found")
+
+        if not genai:
+            raise HTTPException(500, "Google Generative AI package not installed")
+
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key:
+            raise HTTPException(500, "GEMINI_API_KEY not configured")
+
+        genai.configure(api_key=gemini_key)
+
+        try:
+            model = genai.GenerativeModel('gemini-3-pro-preview')
+
+            prompt = f"""You are analyzing a historical newspaper article from 1990-1992.
+
+Article Headline: {article.get('headline', '')}
+
+Article Content:
+{article.get('content', '')}
+
+Please provide a concise, professional summary (3-5 sentences) covering:
+1. Main topic and key events
+2. Key people, organizations, or locations mentioned
+3. Historical significance or context
+4. Overall tone and perspective
+
+Summary:"""
+
+            response = model.generate_content(prompt)
+            summary = response.text.strip()
+
+        except Exception as e:
+            summary = f"AI Summary temporarily unavailable. Article discusses: {article.get('headline', '')}"
+            print(f"Gemini API error: {str(e)}")
+
+        return {
+            "article_id": article_id,
+            "summary": summary,
+            "headline": article.get('headline', '')
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error generating summary: {str(e)}")

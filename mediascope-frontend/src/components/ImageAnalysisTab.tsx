@@ -5,13 +5,10 @@ const API_BASE = 'http://localhost:8000/api';
 
 interface AdAnalysis {
   detected_text: string;
-  brands: string[];
-  sentiment: string;
-  sentiment_score: number;
-  categories: string[];
-  colors: string[];
-  dominant_emotion: string;
-  target_demographic: string;
+  timestamp: string;
+  model: string;
+  file_id: string;
+  file_path: string;
 }
 
 interface UploadedAd {
@@ -139,67 +136,58 @@ const ImageAnalysisTab: React.FC = () => {
         )}
       </div>
 
-      {analysis && (
+      {analyzing && (
+        <div className="analysis-loading">
+          <div className="loading-spinner"></div>
+          <p>Analyzing advertisement with AI...</p>
+          <p className="loading-subtext">This may take a few moments</p>
+        </div>
+      )}
+
+      {analysis && !analyzing && (
         <div className="analysis-results">
-          <h3>Analysis Results</h3>
-
-          <div className="results-grid">
-            <div className="result-card">
-              <div className="result-label">Detected Text</div>
-              <div className="result-value">{analysis.detected_text}</div>
+          <div className="analysis-header-section">
+            <h3>Advertisement Analysis</h3>
+            <div className="analysis-meta">
+              <span className="model-badge">{analysis.model}</span>
+              <span className="timestamp-badge">
+                {new Date(analysis.timestamp).toLocaleString()}
+              </span>
             </div>
+          </div>
 
-            <div className="result-card">
-              <div className="result-label">Sentiment</div>
-              <div className="result-value sentiment">
-                <span className={`sentiment-badge ${analysis.sentiment}`}>
-                  {analysis.sentiment.toUpperCase()}
-                </span>
-                <span className="score">Score: {(analysis.sentiment_score * 100).toFixed(0)}%</span>
-              </div>
-            </div>
+          <div className="analysis-content-structured">
+            {analysis.detected_text.split('##').map((section, idx) => {
+              if (idx === 0 || !section.trim()) return null;
 
-            <div className="result-card">
-              <div className="result-label">Dominant Emotion</div>
-              <div className="result-value">{analysis.dominant_emotion}</div>
-            </div>
+              const lines = section.trim().split('\n');
+              const title = lines[0].trim();
+              const content = lines.slice(1).join('\n').trim();
 
-            <div className="result-card">
-              <div className="result-label">Target Demographic</div>
-              <div className="result-value">{analysis.target_demographic}</div>
-            </div>
+              return (
+                <div key={idx} className="analysis-section">
+                  <h4 className="section-title">{title}</h4>
+                  <div className="section-content">
+                    {content.split('\n').map((line, lineIdx) => {
+                      if (!line.trim()) return null;
 
-            <div className="result-card full-width">
-              <div className="result-label">Detected Brands</div>
-              <div className="tags-list">
-                {analysis.brands.map((brand, idx) => (
-                  <span key={idx} className="tag brand-tag">{brand}</span>
-                ))}
-              </div>
-            </div>
+                      // Check if it's a key-value pair (e.g., "Brand Name: XYZ")
+                      const kvMatch = line.match(/^([^:]+):\s*(.+)$/);
+                      if (kvMatch) {
+                        return (
+                          <div key={lineIdx} className="kv-pair">
+                            <span className="kv-key">{kvMatch[1]}:</span>
+                            <span className="kv-value">{kvMatch[2]}</span>
+                          </div>
+                        );
+                      }
 
-            <div className="result-card full-width">
-              <div className="result-label">Categories</div>
-              <div className="tags-list">
-                {analysis.categories.map((cat, idx) => (
-                  <span key={idx} className="tag category-tag">{cat}</span>
-                ))}
-              </div>
-            </div>
-
-            <div className="result-card full-width">
-              <div className="result-label">Color Palette</div>
-              <div className="color-palette">
-                {analysis.colors.map((color, idx) => (
-                  <div
-                    key={idx}
-                    className="color-swatch"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </div>
+                      return <p key={lineIdx}>{line}</p>;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

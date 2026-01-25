@@ -9,6 +9,7 @@ import os
 import uuid
 from datetime import datetime
 from database.firestore_db import get_firestore_db
+from utils.filters import extract_date_from_image
 
 
 router = APIRouter(prefix="/api", tags=["newspapers", "ocr"])

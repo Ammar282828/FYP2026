@@ -18,6 +18,7 @@ import {
 } from './components/AdvancedAnalytics';
 import ImageAnalysisTab from './components/ImageAnalysisTab';
 import OCRTab from './components/OCRTab';
+import AdBrowserTab from './components/AdBrowserTab';
 import { API_BASE } from './config';
 
 const api = {
@@ -219,7 +220,7 @@ const EntityCooccurrence: React.FC = () => {
 
 const MediaScopeDashboard: React.FC = () => {
   const [searchResults, setSearchResults] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'search' | 'analytics' | 'image-analysis' | 'ocr'>('search');
+  const [activeTab, setActiveTab] = useState<'search' | 'analytics' | 'image-analysis' | 'ocr' | 'ad-browser'>('search');
   const [searchFilters, setSearchFilters] = useState<any>(null);
 
   useEffect(() => {
@@ -268,6 +269,12 @@ const MediaScopeDashboard: React.FC = () => {
             onClick={() => setActiveTab('ocr')}
           >
             OCR
+          </button>
+          <button
+            className={activeTab === 'ad-browser' ? 'active' : ''}
+            onClick={() => setActiveTab('ad-browser')}
+          >
+            Ad Browser
           </button>
         </nav>
       </header>
@@ -349,6 +356,8 @@ const MediaScopeDashboard: React.FC = () => {
         {activeTab === 'image-analysis' && <ImageAnalysisTab />}
 
         {activeTab === 'ocr' && <OCRTab />}
+
+        {activeTab === 'ad-browser' && <AdBrowserTab />}
       </main>
     </div>
   );

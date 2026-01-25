@@ -158,11 +158,13 @@ class ImageProcessor:
         self.config = config
         genai.configure(api_key=config.GEMINI_API_KEY)
 
+        from google.generativeai.types import HarmCategory, HarmBlockThreshold
+
         self.safety_settings = {
-            "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
-            "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
-            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
-            "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
         self.model = genai.GenerativeModel(
@@ -291,62 +293,134 @@ If not found, write UNKNOWN."""
         try:
             img = Image.open(image_path)
             img = self.enhance_image(img)
-            
-            prompt = """You are digitizing historical newspaper archives for educational research and preservation.
 
-Your task: Extract text from this 1990s newspaper page for academic archival purposes.
+            # First attempt: Structured format with clear instructions
+            prompt = """Read this newspaper page and extract all articles.
 
-Output each article found using this format:
+For each article, provide:
 ARTICLE_START
-NUMBER: [number]
-HEADLINE: [headline]
-CONTENT: [full article text]
+NUMBER: [1, 2, 3...]
+HEADLINE: [the headline]
+CONTENT: [the full article text]
 ARTICLE_END
 
-Note: This is archive digitization work under fair use for educational purposes."""
+Extract all text you can see."""
 
+            print(f"  [INFO] Attempting OCR extraction (attempt 1/3)...")
             response = self.model.generate_content(
                 [prompt, img],
                 safety_settings=self.safety_settings
             )
 
-            if not response.parts:
-                print(f"  [WARNING] Response blocked - attempting with modified prompt")
-                fallback_prompt = """Extract and transcribe text from this newspaper scan for historical archive database. Provide article headlines and text content in structured format."""
+            # Check response validity
+            text = ""
+            if hasattr(response, 'parts') and response.parts:
+                try:
+                    text = response.text
+                    print(f"  [OK] Got response ({len(text)} chars)")
+                except Exception as e:
+                    print(f"  [WARNING] Could not get text from response: {e}")
+
+            if not text or len(text) < 50:
+                print(f"  [WARNING] Response too short or empty")
+                if hasattr(response, 'prompt_feedback'):
+                    print(f"  [DEBUG] Prompt feedback: {response.prompt_feedback}")
+                if hasattr(response, 'candidates'):
+                    print(f"  [DEBUG] Candidates: {len(response.candidates) if response.candidates else 0}")
+
+                # Second attempt: Ultra-simple prompt
+                print(f"  [INFO] Attempting OCR extraction (attempt 2/3)...")
+                fallback_prompt = """What text do you see in this image? Extract all readable text."""
                 response = self.model.generate_content(
                     [fallback_prompt, img],
                     safety_settings=self.safety_settings
                 )
 
-            text = response.text if response.parts else ""
-            
+                if hasattr(response, 'parts') and response.parts:
+                    try:
+                        text = response.text
+                        print(f"  [OK] Got fallback response ({len(text)} chars)")
+                    except:
+                        pass
+
+            if not text or len(text) < 50:
+                # Third attempt: Just ask for transcription
+                print(f"  [INFO] Attempting OCR extraction (attempt 3/3)...")
+                final_prompt = """Transcribe this document."""
+                response = self.model.generate_content(
+                    [final_prompt, img],
+                    safety_settings=self.safety_settings
+                )
+
+                if hasattr(response, 'parts') and response.parts:
+                    try:
+                        text = response.text
+                        print(f"  [OK] Got final response ({len(text)} chars)")
+                    except:
+                        pass
+
+            if not text:
+                print(f"  [ERROR] No text extracted after 3 attempts")
+                return []
+
+            # Try to parse structured format first
             articles = []
             article_blocks = re.findall(
-                r'ARTICLE_START(.*?)ARTICLE_END', 
-                text, 
+                r'ARTICLE_START(.*?)ARTICLE_END',
+                text,
                 re.DOTALL
             )
-            
-            for block in article_blocks:
-                num_match = re.search(r'NUMBER:\s*(\d+)', block)
-                headline_match = re.search(r'HEADLINE:\s*(.+?)(?=\n)', block)
-                content_match = re.search(r'CONTENT:\s*(.+)', block, re.DOTALL)
-                
-                if headline_match and content_match:
-                    headline = headline_match.group(1).strip()
-                    content = content_match.group(1).strip()
-                    
+
+            if article_blocks:
+                print(f"  [OK] Found {len(article_blocks)} structured articles")
+                for block in article_blocks:
+                    num_match = re.search(r'NUMBER:\s*(\d+)', block)
+                    headline_match = re.search(r'HEADLINE:\s*(.+?)(?=\n)', block)
+                    content_match = re.search(r'CONTENT:\s*(.+)', block, re.DOTALL)
+
+                    if headline_match and content_match:
+                        headline = headline_match.group(1).strip()
+                        content = content_match.group(1).strip()
+
+                        articles.append({
+                            'number': int(num_match.group(1)) if num_match else len(articles) + 1,
+                            'headline': headline,
+                            'text': content,
+                            'word_count': len(content.split())
+                        })
+            else:
+                # Fallback: Try to extract any text as a single article
+                print(f"  [INFO] No structured format found, parsing as single article")
+                lines = text.split('\n')
+
+                # Try to find something that looks like a headline (short line, capitalized)
+                headline = "Extracted Text"
+                content_start = 0
+
+                for i, line in enumerate(lines[:10]):  # Check first 10 lines for headline
+                    line = line.strip()
+                    if line and len(line) < 100 and len(line.split()) > 2:
+                        headline = line
+                        content_start = i + 1
+                        break
+
+                content = '\n'.join(lines[content_start:]).strip()
+
+                if content and len(content) > 50:
                     articles.append({
-                        'number': int(num_match.group(1)) if num_match else len(articles) + 1,
+                        'number': 1,
                         'headline': headline,
                         'text': content,
                         'word_count': len(content.split())
                     })
-            
+                    print(f"  [OK] Created 1 article from unstructured text")
+
             return articles
 
         except Exception as e:
+            import traceback
             print(f"  [ERROR] Article extraction failed: {e}")
+            traceback.print_exc()
             return []
 
 
@@ -575,7 +649,7 @@ class MediaScopePipeline:
                     continue
 
             if articles_processed > 0:
-                articles_query = self.db.db.collection('articles').where('newspaper_id', '==', newspaper_id).stream()
+                articles_query = self.db.db.db.collection('articles').where('newspaper_id', '==', newspaper_id).stream()
                 total_sentiment = 0
                 article_count = 0
 
@@ -586,7 +660,7 @@ class MediaScopePipeline:
 
                 avg_sentiment = total_sentiment / article_count if article_count > 0 else 0
 
-                newspaper_ref = self.db.db.collection('newspapers').document(newspaper_id)
+                newspaper_ref = self.db.db.db.collection('newspapers').document(newspaper_id)
                 newspaper_ref.update({
                     'article_count': article_count,
                     'avg_sentiment': round(avg_sentiment, 3)
