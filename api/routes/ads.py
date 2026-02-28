@@ -87,6 +87,9 @@ async def analyze_ad_image(request: dict):
 
         # Load and convert image to RGB if needed
         img = Image.open(file_path)
+        
+        # Use full resolution for better ad analysis
+        print(f"Processing ad image at full resolution: {img.size[0]}x{img.size[1]}")
 
         # Convert MPO or other unsupported formats to JPEG
         if img.format in ['MPO', 'WEBP'] or img.mode not in ['RGB', 'RGBA']:
@@ -105,49 +108,84 @@ async def analyze_ad_image(request: dict):
             file_path = temp_path
             img = Image.open(file_path)
 
-        prompt = """Analyze this historical advertisement image in detail. Structure your response EXACTLY in this format:
+        prompt = """Analyze this historical advertisement image in detail. Provide a comprehensive analysis in JSON format.
 
-## TEXT CONTENT
-[List all visible text: headlines, body copy, slogans, taglines, phone numbers, addresses]
+Return ONLY valid JSON (no markdown, no code blocks) in this exact structure:
 
-## BRAND AND PRODUCT
-Brand Name: [Brand name if visible]
-Product/Service: [What's being advertised]
-Category: [Product category, e.g., automotive, food and beverage, retail, etc.]
+{
+  "textContent": {
+    "headlines": ["list of headlines"],
+    "bodyCopy": ["list of body text paragraphs"],
+    "brandElements": ["logos, trademarks, brand names"],
+    "contactInfo": {"phone": "", "address": "", "other": ""}
+  },
+  "brand": {
+    "name": "Brand name",
+    "product": "Product/service being advertised",
+    "category": "Product category"
+  },
+  "visualAnalysis": {
+    "colors": ["list of dominant colors"],
+    "imagery": "Description of key visual elements",
+    "designStyle": "Overall aesthetic",
+    "layout": "How elements are arranged"
+  },
+  "targetAudience": {
+    "demographics": "Age, gender, income level, location",
+    "psychographics": "Interests, lifestyle, values"
+  },
+  "advertisingStrategy": {
+    "mainMessage": "Core value proposition",
+    "emotionalAppeal": "Emotion being evoked",
+    "persuasionTechniques": ["list of techniques used"],
+    "callToAction": "What action is requested"
+  },
+  "culturalContext": {
+    "timePeriod": "Era (1990-1992)",
+    "timePeriodIndicators": ["specific indicators"],
+    "culturalReferences": ["cultural themes"]
+  },
+  "assessment": {
+    "sentiment": "Positive/Neutral/Negative",
+    "effectiveness": "Assessment of likely impact",
+    "keyInsights": ["3-5 most important insights"]
+  }
+}
 
-## VISUAL ANALYSIS
-Colors: [Dominant colors used]
-Imagery: [Key visual elements, photos, illustrations]
-Design Style: [Overall aesthetic - modern, vintage, minimalist, etc.]
-Layout: [How elements are arranged]
+Be thorough and specific. Return ONLY the JSON object, nothing else."""
 
-## TARGET AUDIENCE
-Demographics: [Age group, gender, income level, etc.]
-Psychographics: [Interests, lifestyle, values being appealed to]
-
-## ADVERTISING STRATEGY
-Main Message: [Core value proposition]
-Emotional Appeal: [What emotion is being evoked]
-Persuasion Techniques: [Scarcity, social proof, authority, etc.]
-Call to Action: [What action is the ad requesting]
-
-## CULTURAL AND HISTORICAL CONTEXT
-Time Period Indicators: [1990-1992 era references, style, technology]
-Cultural References: [Any cultural themes or references]
-
-## OVERALL ASSESSMENT
-Sentiment: [Positive/Neutral/Negative]
-Effectiveness: [Brief assessment of the ad's likely impact]
-
-Be thorough and specific in your analysis."""
-
-        model = genai.GenerativeModel('gemini-3-pro-preview')
+        # Configure model with generation settings
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.2,
+        )
+        
+        model = genai.GenerativeModel(
+            'gemini-3-pro-preview',
+            generation_config=generation_config
+        )
+        
         response = model.generate_content([prompt, img])
 
-        analysis_text = response.text
+        analysis_text = response.text.strip()
+        
+        # Try to extract JSON from response
+        try:
+            # Remove markdown code blocks if present
+            if '```json' in analysis_text:
+                analysis_text = analysis_text.split('```json')[1].split('```')[0].strip()
+            elif '```' in analysis_text:
+                analysis_text = analysis_text.split('```')[1].split('```')[0].strip()
+            
+            analysis_json = json.loads(analysis_text)
+        except json.JSONDecodeError:
+            # Fallback: wrap raw text
+            analysis_json = {
+                "rawAnalysis": analysis_text,
+                "error": "Could not parse structured format"
+            }
 
         analysis_data = {
-            "detected_text": analysis_text,
+            "analysis": analysis_json,
             "timestamp": datetime.now().isoformat(),
             "model": "gemini-3-pro-preview",
             "file_id": file_id,

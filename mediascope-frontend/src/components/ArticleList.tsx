@@ -20,10 +20,37 @@ interface Article {
 
 interface ArticleListProps {
   articles: Article[];
+  onArticleDeleted?: () => void; // Callback after successful deletion
 }
 
-const ArticleList: React.FC<ArticleListProps> = ({ articles }) => {
+const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted }) => {
   const navigate = useNavigate();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (articleId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation when clicking delete
+    
+    if (!window.confirm('Are you sure you want to delete this article? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingId(articleId);
+    
+    try {
+      await axios.delete(`${API_BASE}/articles/${articleId}`);
+      alert('Article deleted successfully');
+      
+      // Trigger callback to refresh the list
+      if (onArticleDeleted) {
+        onArticleDeleted();
+      }
+    } catch (error: any) {
+      console.error('Failed to delete article:', error);
+      alert(`Failed to delete article: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const getSentimentColor = (label: string) => {
     switch (label) {
@@ -71,9 +98,38 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles }) => {
             <h3 className="article-headline">
               {article.headline}
             </h3>
-            <span className="article-date">
-              {formatDate(article.publication_date)}
-            </span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span className="article-date">
+                {formatDate(article.publication_date)}
+              </span>
+              <button
+                onClick={(e) => handleDelete(article.id, e)}
+                disabled={deletingId === article.id}
+                style={{
+                  background: deletingId === article.id ? '#9ca3af' : '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  padding: '4px 12px',
+                  borderRadius: '4px',
+                  cursor: deletingId === article.id ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  transition: 'background 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (deletingId !== article.id) {
+                    e.currentTarget.style.background = '#dc2626';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (deletingId !== article.id) {
+                    e.currentTarget.style.background = '#ef4444';
+                  }
+                }}
+              >
+                {deletingId === article.id ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           </div>
 
           <div className="article-content-preview">

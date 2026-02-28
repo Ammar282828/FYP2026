@@ -437,3 +437,45 @@ def update_newspaper_date(newspaper_id: str, new_date: str = Body(..., embed=Tru
         raise
     except Exception as e:
         raise HTTPException(500, f"Failed to update date: {str(e)}")
+
+
+@router.delete("/newspapers/{newspaper_id}")
+def delete_newspaper(newspaper_id: str, delete_articles: bool = True):
+    """
+    Delete a newspaper and optionally its associated articles.
+    
+    Query params:
+        delete_articles: If true (default), also delete all articles from this newspaper
+    """
+    try:
+        db = get_firestore_db()
+        
+        # Check if newspaper exists
+        newspaper_ref = db.db.collection('newspapers').document(newspaper_id)
+        newspaper_doc = newspaper_ref.get()
+        
+        if not newspaper_doc.exists:
+            raise HTTPException(404, "Newspaper not found")
+        
+        # Count articles before deletion
+        articles_query = db.db.collection('articles').where('newspaper_id', '==', newspaper_id).stream()
+        article_count = len(list(articles_query))
+        
+        # Delete the newspaper (and articles if specified)
+        success = db.delete_newspaper(newspaper_id, delete_articles=delete_articles)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Newspaper {newspaper_id} deleted successfully",
+                "newspaper_id": newspaper_id,
+                "articles_deleted": article_count if delete_articles else 0
+            }
+        else:
+            raise HTTPException(500, "Failed to delete newspaper")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete newspaper: {str(e)}")
+

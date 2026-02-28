@@ -204,3 +204,35 @@ Summary:"""
         raise
     except Exception as e:
         raise HTTPException(500, f"Error generating summary: {str(e)}")
+
+
+@router.delete("/articles/{article_id}")
+def delete_article(article_id: str):
+    """
+    Delete a specific article by ID.
+    """
+    try:
+        db = get_db()
+        
+        # Check if article exists
+        article = db.get_article(article_id)
+        if not article:
+            raise HTTPException(404, "Article not found")
+        
+        # Delete the article
+        success = db.delete_article(article_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Article {article_id} deleted successfully",
+                "article_id": article_id
+            }
+        else:
+            raise HTTPException(500, "Failed to delete article")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error deleting article: {str(e)}")
+

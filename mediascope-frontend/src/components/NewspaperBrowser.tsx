@@ -43,6 +43,7 @@ const NewspaperBrowser: React.FC = () => {
   const [endDate, setEndDate] = useState('1992-12-31');
   const [editingDate, setEditingDate] = useState(false);
   const [newDate, setNewDate] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadNewspapers = async () => {
     setLoading(true);
@@ -132,6 +133,37 @@ const NewspaperBrowser: React.FC = () => {
     }
   };
 
+  const deleteNewspaper = async (newspaperId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation(); // Prevent card click when clicking delete button
+    }
+    
+    if (!window.confirm('Are you sure you want to delete this newspaper? This will also delete all associated articles. This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingId(newspaperId);
+    
+    try {
+      await axios.delete(`${API_BASE}/newspapers/${newspaperId}?delete_articles=true`);
+      alert('Newspaper and all articles deleted successfully');
+      
+      // Go back to list if we're in detail view
+      if (selectedPage && selectedPage.newspaper.id === newspaperId) {
+        setSelectedPage(null);
+        setSummary('');
+      }
+      
+      // Reload the newspaper list
+      loadNewspapers();
+    } catch (error: any) {
+      console.error('Failed to delete newspaper:', error);
+      alert(`Failed to delete newspaper: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="newspaper-browser">
       {!selectedPage ? (
@@ -172,7 +204,28 @@ const NewspaperBrowser: React.FC = () => {
                   key={newspaper.id}
                   className="newspaper-card"
                   onClick={() => handleNewspaperClick(newspaper)}
+                  style={{ position: 'relative' }}
                 >
+                  <button
+                    onClick={(e) => deleteNewspaper(newspaper.id, e)}
+                    disabled={deletingId === newspaper.id}
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      background: deletingId === newspaper.id ? '#9ca3af' : '#ef4444',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      cursor: deletingId === newspaper.id ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      fontWeight: '500',
+                      zIndex: 10
+                    }}
+                  >
+                    {deletingId === newspaper.id ? 'Deleting...' : '✕'}
+                  </button>
                   <div className="newspaper-date">
                     {new Date(newspaper.publication_date).toLocaleDateString('en-US', {
                       year: 'numeric',
@@ -196,9 +249,27 @@ const NewspaperBrowser: React.FC = () => {
         </div>
       ) : (
         <div className="newspaper-page-view">
-          <button className="back-button" onClick={handleBackToList}>
-            Back to List
-          </button>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '1rem' }}>
+            <button className="back-button" onClick={handleBackToList}>
+              Back to List
+            </button>
+            <button
+              onClick={() => deleteNewspaper(selectedPage.newspaper.id)}
+              disabled={deletingId === selectedPage.newspaper.id}
+              style={{
+                padding: '8px 16px',
+                background: deletingId === selectedPage.newspaper.id ? '#9ca3af' : '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: deletingId === selectedPage.newspaper.id ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}
+            >
+              {deletingId === selectedPage.newspaper.id ? 'Deleting...' : 'Delete Newspaper'}
+            </button>
+          </div>
 
           <div className="page-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>

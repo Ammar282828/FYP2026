@@ -335,6 +335,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
   const [entityType, setEntityType] = useState<string>('');
   const [cooccurrences, setCooccurrences] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expandedPair, setExpandedPair] = useState<number | null>(null);
 
   const loadCooccurrences = async () => {
     setLoading(true);
@@ -346,6 +347,8 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
           limit: 20
         }
       });
+      console.log('Entity cooccurrence response:', response.data);
+      console.log('First pair:', response.data.pairs?.[0]);
       setCooccurrences(response.data.pairs || []);
     } catch (error) {
       console.error('Error loading entity co-occurrences:', error);
@@ -359,15 +362,39 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
     loadCooccurrences();
   }, [entityType]);
 
+  const ENTITY_TYPE_INFO: Record<string, { label: string; icon: string; color: string }> = {
+    'PERSON': { label: 'Person', icon: '👤', color: '#3b82f6' },
+    'ORG': { label: 'Organization', icon: '🏢', color: '#8b5cf6' },
+    'GPE': { label: 'Location', icon: '🌍', color: '#10b981' },
+    'NORP': { label: 'Group', icon: '🏳️', color: '#f59e0b' },
+    'LOC': { label: 'Place', icon: '🗺️', color: '#06b6d4' },
+    'EVENT': { label: 'Event', icon: '📅', color: '#ef4444' }
+  };
+
   return (
     <div className="entity-cooccurrence-network">
-      <h3>Entity Relationships</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '8px 0 16px 0' }}>
-        People, organizations, and places that frequently appear together in articles
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+        <h3 style={{ margin: 0 }}>🔗 Entity Relationships</h3>
+      </div>
+      <div style={{
+        padding: '12px 16px',
+        background: '#eff6ff',
+        border: '1px solid #dbeafe',
+        borderRadius: '8px',
+        marginBottom: '16px',
+        fontSize: '13px',
+        lineHeight: '1.6',
+        color: '#1e40af'
+      }}>
+        <strong>What this shows:</strong> Entities (people, organizations, locations) that frequently appear together in the same articles.
+        This helps you understand relationships and connections mentioned in the news.
+        <div style={{ marginTop: '8px', fontSize: '12px' }}>
+          <strong>Example:</strong> If "Pakistan" and "India" appear together 15 times, they were mentioned in 15 articles together.
+        </div>
+      </div>
 
       <div style={{ marginBottom: '20px' }}>
-        <label style={{ marginRight: '10px', fontWeight: 500 }}>Filter by type:</label>
+        <label style={{ marginRight: '10px', fontWeight: 500, fontSize: '14px' }}>Filter by type:</label>
         <select
           value={entityType}
           onChange={(e) => setEntityType(e.target.value)}
@@ -375,156 +402,229 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
             padding: '8px 12px',
             borderRadius: '6px',
             border: '1px solid #d1d5db',
-            fontSize: '14px'
+            fontSize: '14px',
+            cursor: 'pointer'
           }}
         >
           <option value="">All Types</option>
-          <option value="PERSON">People</option>
-          <option value="ORG">Organizations</option>
-          <option value="GPE">Locations</option>
+          <option value="PERSON">👤 People Only</option>
+          <option value="ORG">🏢 Organizations Only</option>
+          <option value="GPE">🌍 Locations Only</option>
         </select>
       </div>
 
       {loading ? (
-        <p style={{ margin: '2rem 0', fontSize: '14px' }}>Loading relationships...</p>
+        <p style={{ margin: '2rem 0', fontSize: '14px', color: '#6b7280' }}>Loading relationships...</p>
       ) : cooccurrences.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {cooccurrences.map((pair, idx) => {
-            const getTypeColor = (type: string) => {
-              switch(type) {
-                case 'PERSON': return '#3b82f6';
-                case 'ORG': return '#f59e0b';
-                case 'GPE': return '#10b981';
-                default: return '#6b7280';
-              }
-            };
-
-            const getTypeIcon = (type: string) => {
-              switch(type) {
-                case 'PERSON': return '👤';
-                case 'ORG': return '🏢';
-                case 'GPE': return '📍';
-                default: return '🏷️';
-              }
-            };
-
+            const entity1Info = ENTITY_TYPE_INFO[pair.entity1_type] || { label: pair.entity1_type, icon: '🏷️', color: '#6b7280' };
+            const entity2Info = ENTITY_TYPE_INFO[pair.entity2_type] || { label: pair.entity2_type, icon: '🏷️', color: '#6b7280' };
+            const isExpanded = expandedPair === idx;
+            
             return (
-              <div
-                key={idx}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '16px',
-                  background: 'white',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  gap: '16px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                  e.currentTarget.style.borderColor = '#d1d5db';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.borderColor = '#e5e7eb';
-                }}
-              >
-                {/* Rank */}
-                <div style={{
-                  minWidth: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: '#f3f4f6',
-                  borderRadius: '50%',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: '#6b7280'
-                }}>
-                  {idx + 1}
-                </div>
+              <div key={idx} style={{ marginBottom: '8px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '16px',
+                    background: 'white',
+                    border: '2px solid #e5e7eb',
+                    borderRadius: '10px',
+                    gap: '16px',
+                    transition: 'all 0.2s',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                  onClick={() => setExpandedPair(isExpanded ? null : idx)}
+                >
+                  {/* Rank Badge */}
+                  <div style={{
+                    minWidth: '36px',
+                    height: '36px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    color: 'white',
+                    boxShadow: '0 2px 4px rgba(102,126,234,0.3)'
+                  }}>
+                    #{idx + 1}
+                  </div>
 
-                {/* Entity 1 */}
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '20px' }}>{getTypeIcon(pair.type1)}</span>
-                  <div>
-                    <div style={{ fontWeight: '600', fontSize: '14px', color: '#111827' }}>
+                  {/* Entity 1 */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '18px' }}>{entity1Info.icon}</span>
+                      <span style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        background: entity1Info.color,
+                        color: 'white',
+                        borderRadius: '4px',
+                        fontWeight: '600'
+                      }}>
+                        {entity1Info.label}
+                      </span>
+                    </div>
+                    <div style={{
+                      fontSize: '15px',
+                      fontWeight: '600',
+                      color: '#111827'
+                    }}>
                       {pair.entity1}
                     </div>
+                  </div>
+
+                  {/* Connection Arrow */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
                     <div style={{
-                      fontSize: '11px',
-                      color: getTypeColor(pair.type1),
-                      fontWeight: '500',
-                      marginTop: '2px'
+                      fontSize: '20px',
+                      color: '#9ca3af'
                     }}>
-                      {pair.type1}
+                      ↔️
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      color: '#3b82f6',
+                      background: '#eff6ff',
+                      padding: '4px 10px',
+                      borderRadius: '12px',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {pair.cooccurrence_count} articles
                     </div>
                   </div>
-                </div>
 
-                {/* Connection */}
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '0 12px'
-                }}>
-                  <div style={{
-                    fontSize: '24px',
-                    color: '#9ca3af',
-                    lineHeight: '1'
-                  }}>
-                    ↔
-                  </div>
-                  <div style={{
-                    background: '#eff6ff',
-                    color: '#3b82f6',
-                    padding: '4px 10px',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {pair.cooccurrence_count} articles
-                  </div>
-                </div>
-
-                {/* Entity 2 */}
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '20px' }}>{getTypeIcon(pair.type2)}</span>
-                  <div>
-                    <div style={{ fontWeight: '600', fontSize: '14px', color: '#111827' }}>
+                  {/* Entity 2 */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '18px' }}>{entity2Info.icon}</span>
+                      <span style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        background: entity2Info.color,
+                        color: 'white',
+                        borderRadius: '4px',
+                        fontWeight: '600'
+                      }}>
+                        {entity2Info.label}
+                      </span>
+                    </div>
+                    <div style={{
+                      fontSize: '15px',
+                      fontWeight: '600',
+                      color: '#111827'
+                    }}>
                       {pair.entity2}
                     </div>
-                    <div style={{
-                      fontSize: '11px',
-                      color: getTypeColor(pair.type2),
-                      fontWeight: '500',
-                      marginTop: '2px'
-                    }}>
-                      {pair.type2}
-                    </div>
+                  </div>
+
+                  {/* Expand indicator */}
+                  <div style={{
+                    fontSize: '18px',
+                    color: '#9ca3af',
+                    transition: 'transform 0.2s',
+                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+                  }}>
+                    ▼
                   </div>
                 </div>
+
+                {/* Relationship Evidence - Expanded Section */}
+                {isExpanded && pair.examples && pair.examples.length > 0 && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '16px',
+                    background: '#f9fafb',
+                    border: '2px solid #e5e7eb',
+                    borderRadius: '8px'
+                  }}>
+                    <div style={{
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <span style={{ fontSize: '16px' }}>📰</span>
+                      Evidence of Relationship ({pair.examples.length} example{pair.examples.length > 1 ? 's' : ''})
+                    </div>
+                    {pair.examples.map((example: any, exIdx: number) => (
+                      <div
+                        key={exIdx}
+                        style={{
+                          padding: '12px',
+                          background: 'white',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '6px',
+                          marginBottom: exIdx < pair.examples.length - 1 ? '10px' : '0',
+                          fontSize: '13px',
+                          lineHeight: '1.6'
+                        }}
+                      >
+                        <div style={{
+                          fontWeight: '600',
+                          color: '#1e40af',
+                          marginBottom: '6px',
+                          fontSize: '12px'
+                        }}>
+                          {example.headline}
+                        </div>
+                        <div style={{
+                          color: '#4b5563',
+                          fontStyle: 'italic',
+                          background: '#fef3c7',
+                          padding: '8px',
+                          borderRadius: '4px',
+                          borderLeft: '3px solid #f59e0b'
+                        }}>
+                          {example.context}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       ) : (
         <div style={{
-          margin: '2rem 0',
-          padding: '2rem',
-          background: '#fef3c7',
-          borderRadius: '8px',
+          padding: '40px 20px',
           textAlign: 'center',
-          fontSize: '13px'
+          background: '#f9fafb',
+          borderRadius: '8px',
+          border: '1px dashed #d1d5db'
         }}>
-          <strong>No entity relationships found.</strong>
-          <br />
-          Try a different filter or add more articles to discover connections.
+          <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔍</div>
+          <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#374151' }}>
+            No Entity Relationships Found
+          </div>
+          <div style={{ fontSize: '13px', color: '#6b7280' }}>
+            Try selecting a different entity type or add more articles to the database
+          </div>
         </div>
       )}
     </div>
@@ -731,9 +831,11 @@ export const TopicTrendsOverTime: React.FC = () => {
       if (endDate) params.end_date = endDate;
 
       const response = await axios.get(`${API_BASE}/topics/trends-over-time`, { params });
+      console.log('Topic trends raw response:', response.data);
       const trendsData = response.data.trends || [];
+      console.log('Trends data length:', trendsData.length);
 
-      // Transform data for Recharts
+      // Transform data for Recharts BarChart
       // Each period should be an object with period key and topic counts as values
       const transformedData = trendsData.map((periodData: any) => {
         const dataPoint: any = { period: periodData.period };
@@ -745,6 +847,7 @@ export const TopicTrendsOverTime: React.FC = () => {
         return dataPoint;
       });
 
+      console.log('Transformed data:', transformedData.slice(0, 2));
       setData(transformedData);
     } catch (error) {
       console.error('Failed to load topic trends:', error);
@@ -869,8 +972,8 @@ export const TopicTrendsOverTime: React.FC = () => {
 
       {/* Chart */}
       {data.length > 0 ? (
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={data}>
+        <ResponsiveContainer width="100%" height={500}>
+          <BarChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               dataKey="period"
@@ -893,21 +996,17 @@ export const TopicTrendsOverTime: React.FC = () => {
             />
             <Legend
               wrapperStyle={{ fontSize: '12px' }}
-              iconType="line"
+              iconType="square"
             />
-            {topicNames.map((topicName, idx) => (
-              <Line
+            {topicNames.slice(0, 10).map((topicName, idx) => (
+              <Bar
                 key={topicName}
-                type="monotone"
                 dataKey={topicName}
-                stroke={TOPIC_COLORS[idx % TOPIC_COLORS.length]}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                activeDot={{ r: 5 }}
+                fill={TOPIC_COLORS[idx % TOPIC_COLORS.length]}
                 name={topicName}
               />
             ))}
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
       ) : (
         <div style={{
@@ -920,7 +1019,11 @@ export const TopicTrendsOverTime: React.FC = () => {
         }}>
           <strong>No trend data available.</strong>
           <br />
-          Make sure topics are trained and articles have publication dates.
+          Articles don't have topic labels assigned. Upload newspapers and run topic extraction to see trends.
+          <br />
+          <small style={{ marginTop: '8px', display: 'block', color: '#92400e' }}>
+            Topics are automatically assigned during newspaper processing.
+          </small>
         </div>
       )}
     </div>

@@ -6,7 +6,13 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from datetime import datetime
 from database.firestore_db import get_db, get_firestore_db
+import os
+import google.generativeai as genai
+from collections import Counter
 
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCfNJ89hLJAPqrklHqk7sE-83czHYBIM_U")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -380,3 +386,117 @@ def get_location_analytics(
         return data
     except Exception as e:
         raise HTTPException(500, f"Failed to get location analytics: {str(e)}")
+
+
+@router.post("/ai-summary")
+def generate_date_range_summary(request: dict):
+    """Generate AI-powered summary for articles in date range"""
+    try:
+        from datetime import datetime as dt, timezone
+        print("[AI-SUMMARY] Starting...")
+        
+        start_date_str = request.get("start_date", "1990-01-01")
+        end_date_str = request.get("end_date", "2030-12-31")
+        topic_filter = request.get("topic")
+        
+        # Convert string dates to timezone-aware datetime objects for filtering
+        start_date = dt.fromisoformat(start_date_str.replace('Z', '+00:00'))
+        end_date = dt.fromisoformat(end_date_str.replace('Z', '+00:00'))
+        
+        # Ensure timezone awareness
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=timezone.utc)
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+        
+        print(f"[AI-SUMMARY] Date range: {start_date_str} to {end_date_str}")
+        
+        # Query all articles (Firestore doesn't like range queries on publication_date)
+        db = get_firestore_db()
+        all_docs = db.db.collection('articles').stream()
+        
+        articles = []
+        for doc in all_docs:
+            data = doc.to_dict()
+            pub_date = data.get('publication_date')
+            
+            # Filter by date range in Python
+            if pub_date and start_date <= pub_date <= end_date:
+                if topic_filter and data.get('topic_label') != topic_filter:
+                    continue
+                articles.append(data)
+        
+        print(f"[AI-SUMMARY] Found {len(articles)} articles")
+        
+        if not articles:
+            return {
+                "summary": "No articles found in the specified date range.",
+                "article_count": 0,
+                "sentiment_breakdown": {},
+                "top_entities": []
+            }
+        
+        # Extract key information
+        sentiments = [a.get('sentiment', 'neutral') for a in articles]
+        sentiment_counts = Counter(sentiments)
+        
+        # Extract entities (handle both dict and string formats)
+        all_entities = []
+        for article in articles:
+            entities = article.get('entities', [])
+            if isinstance(entities, list):
+                for ent in entities:
+                    if isinstance(ent, dict):
+                        # Extract entity name from dict
+                        entity_name = ent.get('text') or ent.get('name') or ent.get('entity')
+                        if entity_name:
+                            all_entities.append(entity_name)
+                    elif isinstance(ent, str):
+                        all_entities.append(ent)
+        
+        entity_counts = Counter(all_entities)
+        top_entities = [{"entity": ent, "count": count} for ent, count in entity_counts.most_common(10)]
+        
+        print(f"[AI-SUMMARY] Building context with {len(top_entities)} entities")
+        
+        # Build context for Gemini
+        sample_articles = articles[:5]
+        context = f"Date Range: {start_date_str} to {end_date_str}\n"
+        context += f"Total Articles: {len(articles)}\n"
+        context += f"Sentiment Distribution: {dict(sentiment_counts)}\n"
+        context += f"Top Entities: {[e['entity'] for e in top_entities[:10]]}\n\n"
+        context += "Sample Headlines:\n"
+        for i, a in enumerate(sample_articles, 1):
+            context += f"{i}. {a.get('headline', 'Untitled')}\n"
+        
+        print("[AI-SUMMARY] Calling Gemini...")
+        # Generate summary with Gemini
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        prompt = f"""You are analyzing newspaper articles from {start_date_str} to {end_date_str}.
+
+{context}
+
+Please provide a comprehensive summary (4-6 paragraphs) covering:
+1. Main themes and topics discussed
+2. Key events and developments
+3. Notable trends and patterns
+4. Significant entities and their roles
+5. Overall sentiment and tone of coverage
+
+Be specific and reference the data provided above."""
+
+        response = model.generate_content(prompt)
+        summary = response.text
+        print(f"[AI-SUMMARY] Got summary: {len(summary)} chars")
+        
+        return {
+            "summary": summary,
+            "article_count": len(articles),
+            "sentiment_breakdown": dict(sentiment_counts),
+            "top_entities": top_entities
+        }
+        
+    except Exception as e:
+        print(f"[AI-SUMMARY] ERROR: {str(e)}")
+        raise HTTPException(500, f"Failed to generate summary: {str(e)}")

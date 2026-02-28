@@ -16,6 +16,7 @@ import {
   KeywordFrequencyOverTime,
   EntityMentionsOverTime
 } from './components/AdvancedAnalytics';
+import { InteractiveKeywords, InteractiveEntityExplorer } from './components/ProfessionalAnalytics';
 import ImageAnalysisTab from './components/ImageAnalysisTab';
 import OCRTab from './components/OCRTab';
 import AdBrowserTab from './components/AdBrowserTab';
@@ -223,18 +224,19 @@ const MediaScopeDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'search' | 'analytics' | 'image-analysis' | 'ocr' | 'ad-browser'>('search');
   const [searchFilters, setSearchFilters] = useState<any>(null);
 
+  const loadArticles = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/articles`);
+      setSearchResults({
+        total: response.data.articles.length,
+        articles: response.data.articles
+      });
+    } catch (error) {
+      console.error('Failed to load articles:', error);
+    }
+  };
+
   useEffect(() => {
-    const loadArticles = async () => {
-      try {
-        const response = await axios.get(`${API_BASE}/articles`);
-        setSearchResults({
-          total: response.data.articles.length,
-          articles: response.data.articles
-        });
-      } catch (error) {
-        console.error('Failed to load articles:', error);
-      }
-    };
     loadArticles();
   }, []);
 
@@ -292,7 +294,10 @@ const MediaScopeDashboard: React.FC = () => {
                   totalResults={searchResults.total}
                   filters={searchFilters}
                 />
-                <ArticleList articles={searchResults.articles || []} />
+                <ArticleList 
+                  articles={searchResults.articles || []} 
+                  onArticleDeleted={loadArticles}
+                />
               </div>
             )}
           </div>
@@ -303,12 +308,22 @@ const MediaScopeDashboard: React.FC = () => {
             {/* Summary Cards */}
             <AnalyticsSummary />
 
-            {/* Single streamlined analytics page */}
+            {/* Professional Interactive Analytics */}
             <div className="analytics-section">
-              <h2 className="analytics-section-title">Archive Analytics</h2>
+              <h2 className="analytics-section-title">Interactive Analytics Dashboard</h2>
               <p className="analytics-section-subtitle">
-                Comprehensive analysis of the newspaper archive
+                Click on any item to explore related articles and insights
               </p>
+
+              {/* Interactive Keywords - Click to see articles */}
+              <div className="analytics-card full-width" style={{ marginBottom: '24px' }}>
+                <InteractiveKeywords />
+              </div>
+
+              {/* Interactive Entity Explorer - Click to see articles */}
+              <div className="analytics-card full-width" style={{ marginBottom: '24px' }}>
+                <InteractiveEntityExplorer />
+              </div>
 
               {/* Row 1: Topics */}
               <div className="analytics-card full-width">

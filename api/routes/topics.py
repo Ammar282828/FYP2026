@@ -117,8 +117,19 @@ def train_topic_model():
             for article_id, topic_id in zip(article_ids[i:i+batch_size], topic_assignments[i:i+batch_size]):
                 if article_id:
                     try:
+                        # Get topic label (keywords)
+                        if topic_id == -1:
+                            topic_label = 'Uncategorized'
+                        else:
+                            topic_words = pipeline.nlp_processor.topic_model.get_topic(topic_id)
+                            keywords = [word for word, _ in topic_words[:5]]
+                            topic_label = '_'.join(keywords)
+                        
                         article_ref = db.db.collection('articles').document(article_id)
-                        batch.update(article_ref, {'topic_id': int(topic_id)})
+                        batch.update(article_ref, {
+                            'topic_id': int(topic_id),
+                            'topic_label': topic_label
+                        })
                         batch_items += 1
                     except Exception as e:
                         print(f"Warning: Failed to add article {article_id} to batch: {e}")
@@ -289,14 +300,21 @@ def get_topic_trends_over_time(
         articles_stream = articles_query.stream()
 
         time_topic_counts = defaultdict(lambda: defaultdict(int))
+        
+        articles_processed = 0
+        articles_with_topics = 0
 
         for article_doc in articles_stream:
+            articles_processed += 1
             article_data = article_doc.to_dict()
             pub_date = article_data.get('publication_date')
-            topic_id = article_data.get('topic_id')
+            topic_label = article_data.get('topic_label', '')
 
-            if not pub_date or topic_id is None or topic_id == -1:
+            # Skip articles without dates or topics
+            if not pub_date or not topic_label or topic_label == 'Uncategorized':
                 continue
+
+            articles_with_topics += 1
 
             if hasattr(pub_date, 'strftime'):
                 date_obj = pub_date
@@ -313,11 +331,18 @@ def get_topic_trends_over_time(
             else:
                 period = date_obj.strftime('%Y-%m-%d')
 
-            time_topic_counts[period][topic_id] += 1
+            time_topic_counts[period][topic_label] += 1
 
-        topic_names = {}
-        for topic in topics_data['topics']:
-            topic_names[topic['topic_id']] = topic['name']
+        print(f"[DEBUG] Topic trends: processed {articles_processed} articles, {articles_with_topics} with topics")
+        print(f"[DEBUG] Found {len(time_topic_counts)} periods")
+        if time_topic_counts:
+            first_period = list(time_topic_counts.keys())[0]
+            print(f"[DEBUG] First period: {first_period}, topics: {list(time_topic_counts[first_period].keys())[:3]}")
+
+        # Get all unique topics from the data
+        all_topics = set()
+        for period_topics in time_topic_counts.values():
+            all_topics.update(period_topics.keys())
 
         periods = sorted(time_topic_counts.keys())
         trends = []
@@ -328,10 +353,10 @@ def get_topic_trends_over_time(
                 'topics': []
             }
 
-            for topic_id, count in time_topic_counts[period].items():
+            for topic_label, count in time_topic_counts[period].items():
                 period_data['topics'].append({
-                    'topic_id': topic_id,
-                    'topic_name': topic_names.get(topic_id, f'Topic {topic_id}'),
+                    'topic_id': topic_label,  # Keep for compatibility
+                    'topic_name': topic_label,
                     'count': count
                 })
 

@@ -507,10 +507,14 @@ class FirestoreDB:
             articles = self.db.collection('articles').stream()
 
             pair_counts = defaultdict(int)
+            pair_articles = defaultdict(list)  # Store article info for each pair
 
             for doc in articles:
                 data = doc.to_dict()
                 entities = data.get('entities', [])
+                article_id = data.get('id', '')
+                headline = data.get('headline', '')
+                content = data.get('content', '')
 
                 filtered_entities = []
                 for entity in entities:
@@ -529,7 +533,8 @@ class FirestoreDB:
                     normalized_text = self._normalize_entity_name(entity_text)
                     filtered_entities.append({
                         'text': normalized_text,
-                        'type': entity_type_val
+                        'type': entity_type_val,
+                        'original': entity_text
                     })
 
                 for e1, e2 in combinations(filtered_entities, 2):
@@ -538,20 +543,39 @@ class FirestoreDB:
 
                     if e1['text'] < e2['text']:
                         pair = (e1['text'], e1['type'], e2['text'], e2['type'])
+                        entity1_orig = e1['original']
+                        entity2_orig = e2['original']
                     else:
                         pair = (e2['text'], e2['type'], e1['text'], e1['type'])
+                        entity1_orig = e2['original']
+                        entity2_orig = e1['original']
 
                     pair_counts[pair] += 1
+                    
+                    # Extract context snippet showing both entities
+                    context = self._extract_relationship_context(content, entity1_orig, entity2_orig)
+                    if context:
+                        pair_articles[pair].append({
+                            'article_id': article_id,
+                            'headline': headline,
+                            'context': context
+                        })
 
             results = []
             for (entity1, type1, entity2, type2), count in pair_counts.items():
                 if count >= min_count:
+                    # Get up to 3 example contexts
+                    examples = pair_articles[(entity1, type1, entity2, type2)][:3]
+                    print(f"[DEBUG] Pair: {entity1}-{entity2}, Count: {count}, Examples: {len(examples)}")
+                    if examples:
+                        print(f"[DEBUG] First example: headline={examples[0].get('headline')[:50]}, context_len={len(examples[0].get('context', ''))}")
                     results.append({
                         'entity1': entity1,
-                        'type1': type1,
+                        'entity1_type': type1,
                         'entity2': entity2,
-                        'type2': type2,
-                        'cooccurrence_count': count
+                        'entity2_type': type2,
+                        'cooccurrence_count': count,
+                        'examples': examples
                     })
 
             results.sort(key=lambda x: x['cooccurrence_count'], reverse=True)
@@ -560,6 +584,41 @@ class FirestoreDB:
         except Exception as e:
             print(f"[ERROR] Entity co-occurrence analysis failed: {e}")
             return []
+
+    def _extract_relationship_context(self, text: str, entity1: str, entity2: str, window: int = 150) -> str:
+        """Extract a snippet of text showing both entities in context"""
+        try:
+            text_lower = text.lower()
+            e1_lower = entity1.lower()
+            e2_lower = entity2.lower()
+            
+            # Find positions of both entities
+            e1_pos = text_lower.find(e1_lower)
+            e2_pos = text_lower.find(e2_lower)
+            
+            if e1_pos == -1 or e2_pos == -1:
+                return ""
+            
+            # Get the span between entities plus some context
+            start_pos = min(e1_pos, e2_pos)
+            end_pos = max(e1_pos + len(entity1), e2_pos + len(entity2))
+            
+            # Add context before and after
+            context_start = max(0, start_pos - window)
+            context_end = min(len(text), end_pos + window)
+            
+            snippet = text[context_start:context_end].strip()
+            
+            # Add ellipsis if we cut off text
+            if context_start > 0:
+                snippet = "..." + snippet
+            if context_end < len(text):
+                snippet = snippet + "..."
+                
+            return snippet
+            
+        except Exception as e:
+            return ""
 
     def get_topic_distribution(self) -> List[Dict]:
         try:
@@ -924,6 +983,68 @@ class FirestoreDB:
             print(f"[ERROR] Failed to upload image to Storage: {e}")
             print(f"[ERROR] Traceback: {traceback.format_exc()}")
             return None
+
+    def delete_article(self, article_id: str) -> bool:
+        """
+        Delete an article from Firestore.
+        Returns True if successful, False otherwise.
+        """
+        try:
+            # Delete the article document
+            self.db.collection('articles').document(article_id).delete()
+            print(f"[OK] Deleted article: {article_id}")
+            
+            # Clear cache if it exists
+            cache_key = f"article_{article_id}"
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+                if cache_key in self._cache_timestamp:
+                    del self._cache_timestamp[cache_key]
+            
+            return True
+        except Exception as e:
+            print(f"[ERROR] Failed to delete article: {e}")
+            return False
+    
+    def delete_newspaper(self, newspaper_id: str, delete_articles: bool = True) -> bool:
+        """
+        Delete a newspaper and optionally its associated articles.
+        
+        Args:
+            newspaper_id: The ID of the newspaper to delete
+            delete_articles: If True, also delete all articles belonging to this newspaper
+        
+        Returns True if successful, False otherwise.
+        """
+        try:
+            # Delete associated articles if requested
+            if delete_articles:
+                articles_ref = self.db.collection('articles').where(filter=FieldFilter('newspaper_id', '==', newspaper_id))
+                articles_docs = list(articles_ref.stream())
+                
+                for doc in articles_docs:
+                    doc.reference.delete()
+                
+                print(f"[OK] Deleted {len(articles_docs)} articles for newspaper: {newspaper_id}")
+            
+            # Delete the newspaper document
+            self.db.collection('newspapers').document(newspaper_id).delete()
+            print(f"[OK] Deleted newspaper: {newspaper_id}")
+            
+            # Try to delete associated image from Storage
+            if self.bucket:
+                try:
+                    blobs = self.bucket.list_blobs(prefix=f"newspapers/{newspaper_id}/")
+                    for blob in blobs:
+                        blob.delete()
+                        print(f"[OK] Deleted storage file: {blob.name}")
+                except Exception as e:
+                    print(f"[WARNING] Could not delete storage files: {e}")
+            
+            return True
+        except Exception as e:
+            print(f"[ERROR] Failed to delete newspaper: {e}")
+            return False
 
     def close(self):
         print("[OK] Firestore connection closed")

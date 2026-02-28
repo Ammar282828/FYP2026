@@ -1,0 +1,553 @@
+/* Modern Material Design Structured Analysis */
+
+.structured-analysis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 24px;
+  padding: 32px 0;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.insight-card {
+  background: white;
+  border-radius: 16px;
+  padding: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  position: relative;
+}
+
+.insight-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.insight-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+}
+
+.insight-card:hover::before {
+  opacity: 1;
+}
+
+.insight-card.brand-card::before {
+  background: linear-gradient(90deg, #f093fb 0%, #f5576c 100%);
+}
+
+.insight-card.visual-card::before {
+  background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.insight-card.strategy-card {
+  grid-column: span 2;
+}
+
+.insight-card.strategy-card::before {
+  background: linear-gradient(90deg, #f093fb 0%, #f5576c 100%);
+}
+
+.insight-card.audience-card::before {
+  background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.insight-card.cultural-card::before {
+  background: linear-gradient(90deg, #f59e0b 0%, #f97316 100%);
+}
+
+.insight-card.assessment-card {
+  grid-column: span 2;
+}
+
+.insight-card.assessment-card::before {
+  background: linear-gradient(90deg, #a8edea 0%, #fed6e3 100%);
+}
+
+.insight-card.text-card {
+  grid-column: span 2;
+}
+
+.insight-card.text-card::before {
+  background: linear-gradient(90deg, #e0c3fc 0%, #8ec5fc 100%);
+}
+
+.card-title {
+  padding: 20px 24px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(to bottom, #fafafa, #ffffff);
+}
+
+.card-content {
+  padding: 24px;
+  color: #2c3e50;
+}
+
+/* Brand Card Specific */
+.brand-info {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.brand-name {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.product-info {
+  font-size: 16px;
+  margin-bottom: 16px;
+  color: #5a6c7d;
+  font-weight: 500;
+}
+
+.category-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+/* Visual Card */
+.visual-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.visual-item {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 12px;
+  border-left: 4px solid #4facfe;
+  transition: all 0.2s ease;
+}
+
+.visual-item:hover {
+  background: #f0f7ff;
+  transform: translateX(4px);
+}
+
+.visual-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.visual-label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #2c3e50;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.visual-item span:not(.visual-label) {
+  color: #5a6c7d;
+  font-weight: 500;
+}
+
+.visual-item p {
+  color: #5a6c7d;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.color-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.color-tag {
+  background: white;
+  color: #4facfe;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 2px solid #4facfe;
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.color-tag:hover {
+  background: #4facfe;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Strategy Card */
+.strategy-item {
+  background: #f8f9fa;
+  padding: 18px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.strategy-item:hover {
+  background: #f0f7ff;
+  transform: translateX(4px);
+}
+
+.strategy-item:last-child {
+  margin-bottom: 0;
+}
+
+.strategy-item.highlight {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(249, 115, 22, 0.1));
+  border-left: 4px solid #f59e0b;
+  padding-left: 20px;
+}
+
+.strategy-item.cta {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(236, 72, 153, 0.15));
+  border: 2px solid #8b5cf6;
+  padding: 20px;
+}
+
+.strategy-item strong {
+  display: block;
+  color: #2c3e50;
+  font-size: 14px;
+  margin-bottom: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.strategy-item p {
+  color: #5a6c7d;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.cta-text {
+  font-size: 20px !important;
+  font-weight: 600 !important;
+  margin-top: 12px !important;
+  text-align: center;
+  color: #8b5cf6 !important;
+  font-style: italic;
+}
+
+.technique-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.technique-tag {
+  background: white;
+  color: #f59e0b;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 2px solid #f59e0b;
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.technique-tag:hover {
+  background: #f59e0b;
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Audience Card */
+.audience-item {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border-left: 4px solid #fa709a;
+  transition: all 0.2s ease;
+}
+
+.audience-item:hover {
+  background: #fff5f8;
+  transform: translateX(4px);
+}
+
+.audience-item:last-child {
+  margin-bottom: 0;
+}
+
+.audience-label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #2c3e50;
+}
+
+.audience-item p {
+  color: #5a6c7d;
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* Cultural Card */
+.cultural-item {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.cultural-item:hover {
+  background: #f0f1ff;
+  transform: translateX(4px);
+}
+
+.cultural-item:last-child {
+  margin-bottom: 0;
+}
+
+.cultural-item strong {
+  color: #2c3e50;
+  font-weight: 700;
+}
+
+.period-badge {
+  background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  margin-left: 12px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(48, 207, 208, 0.3);
+}
+
+.cultural-item ul {
+  margin: 12px 0;
+  padding-left: 24px;
+  color: #5a6c7d;
+}
+
+.cultural-item li {
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+/* Assessment Card */
+.assessment-header {
+  text-align: center;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.sentiment-badge {
+  display: inline-block;
+  padding: 12px 32px;
+  border-radius: 28px;
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.sentiment-badge.sentiment-positive {
+  background: linear-gradient(135deg, #4caf50, #66bb6a);
+  color: white;
+}
+
+.sentiment-badge.sentiment-neutral {
+  background: linear-gradient(135deg, #ffc107, #ffb300);
+  color: white;
+}
+
+.sentiment-badge.sentiment-negative {
+  background: linear-gradient(135deg, #f44336, #e53935);
+  color: white;
+}
+
+.assessment-item {
+  background: #f8f9fa;
+  padding: 18px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.assessment-item:hover {
+  background: #f0f7ff;
+  transform: translateX(4px);
+}
+
+.assessment-item:last-child {
+  margin-bottom: 0;
+}
+
+.assessment-item strong {
+  display: block;
+  color: #2c3e50;
+  font-size: 14px;
+  margin-bottom: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.assessment-item p {
+  color: #5a6c7d;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.insights-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0 0;
+}
+
+.insight-item {
+  background: white;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border-left: 4px solid #a8edea;
+  font-weight: 500;
+  color: #2c3e50;
+  line-height: 1.6;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.insight-item:hover {
+  transform: translateX(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Text Content (Collapsible) */
+.text-card {
+  cursor: pointer;
+}
+
+.text-card summary {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.text-card summary:hover {
+  background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+}
+
+.text-card[open] summary {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.text-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 12px;
+}
+
+.text-section:last-child {
+  margin-bottom: 0;
+}
+
+.text-section strong {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #2c3e50;
+  font-weight: 700;
+}
+
+.text-section ul {
+  margin: 0;
+  padding-left: 24px;
+  color: #5a6c7d;
+}
+
+.text-section li {
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+.text-section p {
+  background: white;
+  padding: 14px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  color: #5a6c7d;
+  line-height: 1.7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .structured-analysis {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    padding: 24px 0;
+  }
+  
+  .insight-card.strategy-card,
+  .insight-card.assessment-card,
+  .insight-card.text-card {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .structured-analysis {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px 0;
+  }
+
+  .brand-name {
+    font-size: 28px;
+  }
+
+  .card-title {
+    font-size: 16px;
+    padding: 16px 20px;
+  }
+
+  .card-content {
+    padding: 20px;
+  }
+}

@@ -29,7 +29,7 @@ app.add_middleware(
     max_age=3600
 )
 
-app.mount("/input_newspapers", StaticFiles(directory="input_newspapers"), name="newspapers")
+app.mount("/uploads/newspapers", StaticFiles(directory="uploads/newspapers"), name="newspapers")
 
 app.include_router(articles.router)
 app.include_router(analytics.router)
