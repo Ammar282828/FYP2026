@@ -1,0 +1,61 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Node/Frontend
+node_modules/
+mediascope-frontend/node_modules/
+mediascope-frontend/build/
+
+# Environment & Secrets (IMPORTANT - never commit!)
+.env
+.env.local
+.env.production.local
+mediascope-frontend/.env.local
+firebase-service-account.json
+
+# Database
+postgres_data/
+elasticsearch_data/
+*.db
+*.sqlite3
+backup.sql
+
+# Logs
+*.log
+
+# System
+.DS_Store
+
+# Backups
+*.bak*
+
+# Firebase
+.firebase/
+.firebaserc
+
+# IDE
+.vscode/
+.idea/
+
+
+# Keep sample newspapers for friends to test with
+# input_newspapers/ (keeping this committed)
+
+# Uploaded user files (images, analysis results)
+uploads/
+
+# Backup files
+*.backup
+*.backup[0-9]
+*.backup[0-9][0-9]
+topic_model
