@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -177,19 +178,16 @@ export const SentimentDistribution: React.FC = () => {
 export const TopicDistribution: React.FC = () => {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedTopic, setExpandedTopic] = useState<number | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/topics`);
+        const response = await axios.get(`${API_BASE}/topics/`);
         const topics = response.data.topics || [];
-
-        // Filter out generic topics and sort by count
         const meaningfulTopics = topics
-          .filter((topic: any) => topic.count >= 30)  // Only show substantial topics
+          .filter((topic: any) => topic.count >= 30)
           .sort((a: any, b: any) => b.count - a.count);
-
         setData(meaningfulTopics);
       } catch (error) {
         console.error('Failed to load topics:', error);
@@ -203,125 +201,62 @@ export const TopicDistribution: React.FC = () => {
   if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px' }}>Loading topics...</p>;
   if (data.length === 0) return (
     <div style={{ margin: '1rem 0', padding: '1rem', background: '#fef3c7', borderRadius: '6px', fontSize: '13px' }}>
-      <strong>No topics found.</strong> Train the topic model first by clicking the "Train Topics" button, or topics may need more articles (minimum 30 per topic).
+      <strong>No topics found.</strong> Train the topic model first, or topics may need more articles (minimum 30 per topic).
     </div>
   );
 
   return (
     <div>
       <h3 style={{ marginBottom: '0.75rem' }}>Discovered Topics ({data.length})</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {data.map((topic, idx) => {
-          const isExpanded = expandedTopic === topic.topic_id;
           const topicColor = `hsl(${(idx * 137.5) % 360}, 65%, 50%)`;
-
           return (
-            <div key={topic.topic_id} style={{
-              border: `2px solid ${isExpanded ? topicColor : '#e5e7eb'}`,
-              borderRadius: '8px',
-              background: 'white',
-              transition: 'all 0.2s',
-              overflow: 'hidden'
-            }}>
-              {/* Topic Header */}
-              <div
-                onClick={() => setExpandedTopic(isExpanded ? null : topic.topic_id)}
-                style={{
-                  padding: '12px',
-                  cursor: 'pointer',
-                  background: isExpanded ? `${topicColor}15` : 'white'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isExpanded) e.currentTarget.style.background = '#f9fafb';
-                }}
-                onMouseLeave={(e) => {
-                  if (!isExpanded) e.currentTarget.style.background = 'white';
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '16px' }}>{isExpanded ? '▼' : '▶'}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <span style={{
-                        background: topicColor,
-                        width: '10px',
-                        height: '10px',
-                        borderRadius: '50%',
-                        flexShrink: 0
-                      }}></span>
-                      <span style={{ fontWeight: '700', color: '#1f2937', fontSize: '14px' }}>
-                        {topic.name}
-                      </span>
-                      <span style={{
-                        background: topicColor,
-                        color: 'white',
-                        padding: '2px 10px',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        fontWeight: '600'
-                      }}>
-                        {topic.count} articles
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                      {topic.keywords.slice(0, 8).join(' • ')}
-                    </div>
-                  </div>
+            <div
+              key={topic.topic_id}
+              onClick={() => navigate(`/topic/${topic.topic_id}`)}
+              style={{
+                border: '1px solid #e5e7eb',
+                borderLeft: `4px solid ${topicColor}`,
+                borderRadius: '8px',
+                background: 'white',
+                padding: '12px 16px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                transition: 'background 0.15s, box-shadow 0.15s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#f9fafb';
+                e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'white';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: '700', color: '#1f2937', fontSize: '14px' }}>
+                    {topic.name}
+                  </span>
+                  <span style={{
+                    background: topicColor,
+                    color: 'white',
+                    padding: '2px 10px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                  }}>
+                    {topic.count} articles
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                  {topic.keywords.slice(0, 8).join(' • ')}
                 </div>
               </div>
-
-              {/* Expanded Details */}
-              {isExpanded && (
-                <div style={{ padding: '12px', borderTop: '1px solid #e5e7eb', background: '#fafafa' }}>
-                  {/* Keyword Scores */}
-                  <div style={{ marginBottom: '12px' }}>
-                    <h4 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: '#374151' }}>
-                      Top Keywords (with relevance scores)
-                    </h4>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {topic.keyword_scores?.map(([word, score]: [string, number], kidx: number) => (
-                        <div key={kidx} style={{
-                          padding: '4px 10px',
-                          background: 'white',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px'
-                        }}>
-                          <span style={{ fontWeight: '600', color: '#374151' }}>{word}</span>
-                          <span style={{ fontSize: '11px', color: '#9ca3af' }}>({score})</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Representative Documents */}
-                  {topic.representative_docs && topic.representative_docs.length > 0 && (
-                    <div>
-                      <h4 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: '#374151' }}>
-                        Sample Articles
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {topic.representative_docs.map((doc: any, didx: number) => (
-                          <div key={didx} style={{
-                            padding: '8px 10px',
-                            background: 'white',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            color: '#374151'
-                          }}>
-                            <span style={{ color: '#9ca3af', marginRight: '8px' }}>{didx + 1}.</span>
-                            {doc.headline}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              <span style={{ color: '#9ca3af', fontSize: '16px' }}>→</span>
             </div>
           );
         })}
@@ -336,19 +271,19 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
   const [cooccurrences, setCooccurrences] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedPair, setExpandedPair] = useState<number | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const loadCooccurrences = async () => {
     setLoading(true);
+    setHasLoaded(true);
     try {
       const response = await axios.get(`${API_BASE}/analytics/entity-cooccurrence`, {
         params: {
           entity_type: entityType || undefined,
-          min_count: 2,  // Lower threshold for more connections
+          min_count: 2,
           limit: 20
         }
       });
-      console.log('Entity cooccurrence response:', response.data);
-      console.log('First pair:', response.data.pairs?.[0]);
       setCooccurrences(response.data.pairs || []);
     } catch (error) {
       console.error('Error loading entity co-occurrences:', error);
@@ -359,7 +294,9 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
   };
 
   useEffect(() => {
-    loadCooccurrences();
+    if (hasLoaded) {
+      loadCooccurrences();
+    }
   }, [entityType]);
 
   const ENTITY_TYPE_INFO: Record<string, { label: string; icon: string; color: string }> = {
@@ -413,8 +350,29 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
         </select>
       </div>
 
-      {loading ? (
-        <p style={{ margin: '2rem 0', fontSize: '14px', color: '#6b7280' }}>Loading relationships...</p>
+      {!hasLoaded ? (
+        <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+          <button
+            onClick={loadCooccurrences}
+            style={{
+              padding: '10px 24px',
+              fontSize: '14px',
+              fontWeight: '600',
+              background: '#667eea',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer'
+            }}
+          >
+            Load Entity Relationships
+          </button>
+          <p style={{ marginTop: '8px', fontSize: '12px', color: '#9ca3af' }}>
+            This query scans all 4,200+ articles and may take 1–2 minutes on first load.
+          </p>
+        </div>
+      ) : loading ? (
+        <p style={{ margin: '2rem 0', fontSize: '14px', color: '#6b7280' }}>Loading relationships... (this may take a minute)</p>
       ) : cooccurrences.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {cooccurrences.map((pair, idx) => {
@@ -835,13 +793,26 @@ export const TopicTrendsOverTime: React.FC = () => {
       const trendsData = response.data.trends || [];
       console.log('Trends data length:', trendsData.length);
 
+      // First, collect all unique topic names across all periods
+      const allTopicNames = new Set<string>();
+      trendsData.forEach((periodData: any) => {
+        periodData.topics.forEach((topic: any) => {
+          if (topic.topic_name) allTopicNames.add(topic.topic_name);
+        });
+      });
+
       // Transform data for Recharts BarChart
       // Each period should be an object with period key and topic counts as values
       const transformedData = trendsData.map((periodData: any) => {
         const dataPoint: any = { period: periodData.period };
 
+        // Initialize all topics to 0 to ensure stacked bars render correctly
+        allTopicNames.forEach(name => {
+          dataPoint[name] = 0;
+        });
+
         periodData.topics.forEach((topic: any) => {
-          dataPoint[topic.topic_name] = topic.count;
+          if (topic.topic_name) dataPoint[topic.topic_name] = topic.count;
         });
 
         return dataPoint;
@@ -1002,6 +973,7 @@ export const TopicTrendsOverTime: React.FC = () => {
               <Bar
                 key={topicName}
                 dataKey={topicName}
+                stackId="a"
                 fill={TOPIC_COLORS[idx % TOPIC_COLORS.length]}
                 name={topicName}
               />
@@ -1042,7 +1014,7 @@ export const TopicSentimentOverTime: React.FC = () => {
   useEffect(() => {
     const fetchTopics = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/topics`);
+        const response = await axios.get(`${API_BASE}/topics/`);
         setTopics(response.data.topics || []);
       } catch (error) {
         console.error('Failed to load topics:', error);

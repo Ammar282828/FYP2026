@@ -206,6 +206,65 @@ Summary:"""
         raise HTTPException(500, f"Error generating summary: {str(e)}")
 
 
+@router.get("/articles/{article_id}/related")
+def get_related_articles(article_id: str):
+    """
+    Return articles related to this one via the shared story.
+
+    If the article belongs to a story (has a story_id), returns:
+      - Other articles in that story, sorted chronologically
+      - The story title, narrative (context), and key entities
+
+    If no story is assigned, returns an empty result.
+    """
+    try:
+        db = get_db()
+        article = db.get_article(article_id)
+        if not article:
+            raise HTTPException(404, "Article not found")
+
+        story_id = article.get('story_id')
+        if not story_id:
+            return {"related_articles": [], "story_id": None, "story_context": None}
+
+        story = db.get_story(story_id)
+        if not story:
+            return {"related_articles": [], "story_id": None, "story_context": None}
+
+        # Fetch other articles in the same story
+        other_ids = [aid for aid in story.get('article_ids', []) if aid != article_id]
+        related = []
+        for aid in other_ids:
+            a = db.get_article(aid)
+            if a:
+                a['content_preview'] = (a.get('content') or '')[:200]
+                pub = a.get('publication_date')
+                if pub and hasattr(pub, 'isoformat'):
+                    a['publication_date'] = pub.isoformat()
+                ca = a.get('created_at')
+                if ca and hasattr(ca, 'isoformat'):
+                    a['created_at'] = ca.isoformat()
+                related.append(a)
+
+        # Sort chronologically
+        related.sort(key=lambda a: a.get('publication_date', ''))
+
+        story = db._serialize_story(story)
+
+        return {
+            "related_articles": related,
+            "story_id": story_id,
+            "story_title": story.get('title', ''),
+            "story_context": story.get('narrative'),
+            "story_key_entities": story.get('key_entities', [])[:6],
+            "story_date_span_days": story.get('date_span_days', 0),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
 @router.delete("/articles/{article_id}")
 def delete_article(article_id: str):
     """

@@ -8,6 +8,12 @@ from datetime import datetime
 from database.firestore_db import get_firestore_db
 import json
 import os
+import google.generativeai as genai
+from collections import Counter
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCfNJ89hLJAPqrklHqk7sE-83czHYBIM_U")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 
 router = APIRouter(prefix="/api/topics", tags=["topics"])
@@ -221,7 +227,7 @@ def get_topic_by_id(topic_id: int):
 
 
 @router.get("/")
-# returns all the topics with examples of articles in each topic
+# returns all topics from the JSON file (no Firestore queries needed for the list)
 def get_topics():
     try:
         topics_data = load_topics_data()
@@ -229,35 +235,9 @@ def get_topics():
         if not topics_data:
             raise HTTPException(400, "Topics data not available. Topic model needs to be extracted.")
 
-        db = get_firestore_db()
-        topics_with_docs = []
-
-        for topic in topics_data['topics']:
-            topic_id = topic['topic_id']
-
-            if topic_id == -1:
-                topics_with_docs.append(topic)
-                continue
-
-            representative_docs = []
-            try:
-                articles_query = db.db.collection('articles').where('topic_id', '==', topic_id).limit(5)
-                for doc in articles_query.stream():
-                    article = doc.to_dict()
-                    representative_docs.append({
-                        'headline': article.get('headline', 'No headline'),
-                        'id': article.get('id')
-                    })
-            except Exception as e:
-                print(f"Warning: Failed to get representative docs for topic {topic_id}: {e}")
-
-            topic_with_docs = topic.copy()
-            topic_with_docs['representative_docs'] = representative_docs
-            topics_with_docs.append(topic_with_docs)
-
         return {
             "topic_count": topics_data['total_topics'],
-            "topics": topics_with_docs,
+            "topics": topics_data['topics'],
             "source": topics_data.get('source', 'Unknown')
         }
 
@@ -454,3 +434,79 @@ def get_topic_sentiment_over_time(
     except Exception as e:
         print(f"Topic sentiment error: {str(e)}")
         raise HTTPException(500, f"Failed to get topic sentiment: {str(e)}")
+
+
+@router.get("/{topic_id}/articles")
+def get_topic_articles(topic_id: int):
+    """Return all articles belonging to a topic, sorted by date descending."""
+    try:
+        db = get_firestore_db()
+        articles = []
+        for doc in db.db.collection('articles').where('topic_id', '==', topic_id).limit(1000).stream():
+            data = doc.to_dict()
+            pub = data.get('publication_date')
+            articles.append({
+                'id': data.get('id'),
+                'headline': data.get('headline', 'No headline'),
+                'publication_date': str(pub)[:10] if pub else '',
+                'sentiment_label': data.get('sentiment_label', 'neutral'),
+            })
+        articles.sort(key=lambda x: x.get('publication_date', ''), reverse=True)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to get topic articles: {str(e)}")
+
+
+@router.get("/{topic_id}/summary")
+def get_topic_summary(topic_id: int):
+    """Generate an AI summary for a topic using its articles."""
+    try:
+        topics_data = load_topics_data()
+        topic_info = None
+        if topics_data:
+            for t in topics_data['topics']:
+                if t['topic_id'] == topic_id:
+                    topic_info = t
+                    break
+
+        db = get_firestore_db()
+        articles = []
+        for doc in db.db.collection('articles').where('topic_id', '==', topic_id).limit(200).stream():
+            articles.append(doc.to_dict())
+
+        if not articles:
+            return {"summary": "No articles found for this topic.", "article_count": 0}
+
+        keywords = topic_info.get('keywords', []) if topic_info else []
+        sentiments = [a.get('sentiment', 'neutral') for a in articles]
+        sentiment_dist = dict(Counter(sentiments))
+        sample_headlines = [a.get('headline', '') for a in articles[:10]]
+
+        context = f"Topic Keywords: {', '.join(keywords)}\n"
+        context += f"Total Articles: {len(articles)}\n"
+        context += f"Sentiment Distribution: {sentiment_dist}\n"
+        context += "Sample Headlines:\n"
+        for i, h in enumerate(sample_headlines, 1):
+            context += f"{i}. {h}\n"
+
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        prompt = f"""You are analyzing newspaper articles from Dawn (1990-1992) grouped under the same topic.
+
+{context}
+
+Write a concise 3-4 paragraph analytical summary covering:
+1. What this topic is about and its significance
+2. Key events and developments covered
+3. Notable patterns or recurring themes
+4. The general tone and sentiment of coverage
+
+Be specific and analytical. Do not repeat the headlines verbatim."""
+
+        response = model.generate_content(prompt)
+        return {
+            "summary": response.text,
+            "article_count": len(articles),
+            "keywords": keywords
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to generate topic summary: {str(e)}")

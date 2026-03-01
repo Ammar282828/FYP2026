@@ -551,3 +551,352 @@
     padding: 20px;
   }
 }
+
+/* ── View switcher ─────────────────────────────────────────────────────────── */
+.ad-browser-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.view-switcher {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.view-btn {
+  padding: 7px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  transition: all 0.15s;
+}
+
+.view-btn--active {
+  background: #fff;
+  color: #1e293b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Ad card image ──────────────────────────────────────────────────────────── */
+.ad-card-image {
+  width: 100%;
+  background: #f3f4f6;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+  max-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ad-card-image img {
+  width: 100%;
+  height: 180px;
+  object-fit: contain;
+  display: block;
+}
+
+/* ── Modal ad image ─────────────────────────────────────────────────────────── */
+.modal-ad-image {
+  width: 100%;
+  background: #f3f4f6;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 400px;
+}
+
+.modal-ad-image img {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  display: block;
+}
+
+/* ── Ad card chips ─────────────────────────────────────────────────────────── */
+.ad-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.chip--brand {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.chip--cat {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+/* ── Analytics panel ───────────────────────────────────────────────────────── */
+.analytics-panel {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+/* KPI row */
+.kpi-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.kpi-card {
+  flex: 1;
+  min-width: 100px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.kpi-number {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1;
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Analytics grid */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.analytics-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.analytics-card.wide {
+  grid-column: span 2;
+}
+
+.analytics-card.full-width {
+  grid-column: 1 / -1;
+}
+
+.analytics-card-title {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Horizontal bar chart */
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-label {
+  width: 160px;
+  min-width: 120px;
+  font-size: 12px;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.bar-track {
+  flex: 1;
+  height: 20px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.bar-count {
+  width: 32px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+/* Sentiment bars */
+.sentiment-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sentiment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sentiment-label-txt {
+  width: 70px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.sentiment-bar-track {
+  flex: 1;
+  height: 24px;
+  background: #f1f5f9;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sentiment-bar-fill {
+  height: 100%;
+  border-radius: 12px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.sentiment-pct {
+  width: 36px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  flex-shrink: 0;
+}
+
+.sentiment-cnt {
+  font-size: 11px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+/* Monthly vertical bar chart */
+.monthly-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 140px;
+  padding-bottom: 28px;
+  position: relative;
+  overflow-x: auto;
+}
+
+.month-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 36px;
+  height: 100%;
+  position: relative;
+}
+
+.month-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+}
+
+.month-value {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.month-bar {
+  width: 80%;
+  border-radius: 4px 4px 0 0;
+  min-height: 4px;
+  transition: height 0.4s ease;
+}
+
+.month-label {
+  position: absolute;
+  bottom: 0;
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.no-data {
+  font-size: 13px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 16px 0;
+}
+
+@media (max-width: 900px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
+  .analytics-card.wide,
+  .analytics-card.full-width {
+    grid-column: 1;
+  }
+  .bar-label {
+    width: 100px;
+    min-width: 80px;
+  }
+}

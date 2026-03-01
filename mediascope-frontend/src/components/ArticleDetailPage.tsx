@@ -24,6 +24,11 @@ const ArticleDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [relatedArticles, setRelatedArticles] = useState<any[]>([]);
+  const [storyId, setStoryId] = useState<string | null>(null);
+  const [storyTitle, setStoryTitle] = useState<string>('');
+  const [storyContext, setStoryContext] = useState<string | null>(null);
+  const [storyEntities, setStoryEntities] = useState<any[]>([]);
+  const [generatingContext, setGeneratingContext] = useState(false);
   const [summary, setSummary] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [loadingSummary, setLoadingSummary] = useState(false);
@@ -54,9 +59,36 @@ const ArticleDetailPage: React.FC = () => {
   const loadRelatedArticles = async () => {
     try {
       const response = await axios.get(`${API_BASE}/articles/${id}/related`);
-      setRelatedArticles(response.data.related_articles || []);
+      const data = response.data;
+      setRelatedArticles(data.related_articles || []);
+      setStoryId(data.story_id || null);
+      setStoryTitle(data.story_title || '');
+      setStoryContext(data.story_context || null);
+      setStoryEntities(data.story_key_entities || []);
     } catch (error) {
       console.error('Error loading related articles:', error);
+    }
+  };
+
+  const generateStoryContext = async () => {
+    if (!storyId) return;
+    setGeneratingContext(true);
+    try {
+      await axios.post(`${API_BASE}/stories/generate`, { story_id: storyId, force: false });
+      // Poll for narrative
+      const poll = setInterval(async () => {
+        try {
+          const resp = await axios.get(`${API_BASE}/stories/${storyId}`);
+          if (resp.data.narrative) {
+            setStoryContext(resp.data.narrative);
+            setGeneratingContext(false);
+            clearInterval(poll);
+          }
+        } catch { /* keep polling */ }
+      }, 3000);
+    } catch (error) {
+      console.error('Error generating context:', error);
+      setGeneratingContext(false);
     }
   };
 
@@ -208,27 +240,80 @@ const ArticleDetailPage: React.FC = () => {
               </div>
             )}
 
-            {/* Related Articles */}
-            {relatedArticles.length > 0 && (
+            {/* Story Context Panel */}
+            {storyId && (
               <div className="related-articles-section">
-                <h3>More from this Issue</h3>
-                <div className="related-articles-list">
-                  {relatedArticles.map((related) => (
-                    <div
-                      key={related.id}
-                      className="related-article-item"
-                      onClick={() => navigate(`/article/${related.id}`)}
-                    >
-                      <div className="related-headline">{related.headline}</div>
-                      <div className="related-preview">{related.content_preview}...</div>
-                      {related.sentiment_label && (
-                        <span className={getSentimentBadgeClass(related.sentiment_label)}>
-                          {related.sentiment_label}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                <h3>📰 Ongoing Coverage</h3>
+                {storyTitle && (
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '10px', fontStyle: 'italic' }}>
+                    {storyTitle}
+                  </div>
+                )}
+
+                {/* Entity chips */}
+                {storyEntities.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '12px' }}>
+                    {storyEntities.map((e: any) => (
+                      <span key={e.text} style={{
+                        fontSize: '11px', padding: '2px 8px', borderRadius: '12px',
+                        background: '#ede9fe', color: '#5b21b6', border: '1px solid #ddd6fe'
+                      }}>
+                        {e.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Context narrative */}
+                {storyContext ? (
+                  <div style={{
+                    background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: '8px',
+                    padding: '12px', fontSize: '13px', color: '#374151', lineHeight: '1.6',
+                    marginBottom: '14px'
+                  }}>
+                    {storyContext.split('\n\n').slice(0, 2).map((para, i) => (
+                      <p key={i} style={{ margin: i === 0 ? '0 0 8px 0' : '0' }}>{para}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <button
+                    onClick={generateStoryContext}
+                    disabled={generatingContext}
+                    style={{
+                      width: '100%', padding: '8px', marginBottom: '14px',
+                      background: generatingContext ? '#e5e7eb' : 'linear-gradient(135deg, #667eea, #764ba2)',
+                      color: generatingContext ? '#9ca3af' : '#fff',
+                      border: 'none', borderRadius: '6px', fontSize: '12px',
+                      fontWeight: '600', cursor: generatingContext ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {generatingContext ? 'Generating context…' : '✦ Generate Story Context'}
+                  </button>
+                )}
+
+                {/* Related articles in this story */}
+                {relatedArticles.length > 0 && (
+                  <div className="related-articles-list">
+                    {relatedArticles.map((related) => (
+                      <div
+                        key={related.id}
+                        className="related-article-item"
+                        onClick={() => navigate(`/article/${related.id}`)}
+                      >
+                        <div style={{ fontSize: '10px', color: '#9ca3af', marginBottom: '2px' }}>
+                          {related.publication_date ? related.publication_date.slice(0, 10) : ''}
+                        </div>
+                        <div className="related-headline">{related.headline}</div>
+                        <div className="related-preview">{related.content_preview}...</div>
+                        {related.sentiment_label && (
+                          <span className={getSentimentBadgeClass(related.sentiment_label)}>
+                            {related.sentiment_label}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

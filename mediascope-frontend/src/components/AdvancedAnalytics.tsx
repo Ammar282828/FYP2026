@@ -417,9 +417,9 @@ export const MultiEntityComparison: React.FC = () => {
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={Object.entries(data).map(([name, stats]: [string, any]) => ({
                   name,
-                  positive: stats.sentiment.positive,
-                  neutral: stats.sentiment.neutral,
-                  negative: stats.sentiment.negative
+                  positive: stats.sentiment?.positive || 0,
+                  neutral: stats.sentiment?.neutral || 0,
+                  negative: stats.sentiment?.negative || 0
                 }))}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />

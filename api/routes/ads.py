@@ -254,43 +254,6 @@ def list_ads(limit: int = 50, offset: int = 0):
         raise HTTPException(500, f"Error listing ads: {str(e)}")
 
 
-@router.get("/{ad_id}")
-def get_ad(ad_id: str):
-    # gets one specific ad and its analysis
-    try:
-        upload_dir = "uploads/ads"
-        ad_files = [f for f in os.listdir(upload_dir) if f.startswith(ad_id)] if os.path.exists(upload_dir) else []
-
-        if not ad_files:
-            raise HTTPException(404, "Advertisement not found")
-
-        file_path = f"{upload_dir}/{ad_files[0]}"
-        json_path = f"uploads/ads/analysis/{ad_id}.json"
-
-        ad_data = {
-            "id": ad_id,
-            "filename": ad_files[0],
-            "file_path": file_path,
-            "file_size": os.path.getsize(file_path),
-            "upload_date": datetime.fromtimestamp(os.path.getctime(file_path)).isoformat()
-        }
-
-        if os.path.exists(json_path):
-            with open(json_path, 'r', encoding='utf-8') as f:
-                analysis = json.load(f)
-                ad_data["analysis"] = analysis
-                ad_data["analysis_status"] = "completed"
-        else:
-            ad_data["analysis_status"] = "pending"
-
-        return ad_data
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"Error retrieving ad: {str(e)}")
-
-
 @router.post("/analyze-newspaper/{newspaper_id}")
 async def analyze_newspaper_ads(newspaper_id: str):
     # analyzes all separate advertisement images within a newspaper page
@@ -340,12 +303,22 @@ async def analyze_newspaper_ads(newspaper_id: str):
         # Step 1: Use Gemini to identify ad locations
         model = genai.GenerativeModel('gemini-3-pro-preview')
 
-        detection_prompt = """Analyze this newspaper page and identify all advertisements.
+        detection_prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
 
-For each advertisement you find, provide:
+IMPORTANT — DO NOT include:
+- Job listings / employment / recruitment / vacancy notices
+- Real estate listings (properties for sale or rent)
+- Classified columns (lost & found, personals, matrimonial)
+- Tender notices / government procurement notices
+- Public announcements / legal notices
+- Editorial content or news articles
+
+ONLY identify genuine brand/product/service commercial advertisements — display ads that promote a brand, product, or commercial service with visual design elements (logos, images, styled typography).
+
+For each commercial advertisement found, provide:
 1. A brief description of its location (e.g., "top-left corner", "bottom half center", "right side banner")
 2. Approximate position as percentages (left%, top%, width%, height%) from 0-100
-3. A brief identifier (e.g., "Car ad", "Restaurant ad", "Classified ads")
+3. The brand name and product/service being advertised
 
 Format your response as a JSON array:
 [
@@ -357,11 +330,14 @@ Format your response as a JSON array:
     "top": 5,
     "width": 25,
     "height": 20,
-    "identifier": "Car dealership ad"
+    "identifier": "Toyota car dealership ad",
+    "brand": "Toyota",
+    "category": "automotive"
   },
   ...
 ]
 
+If no commercial display advertisements are found, return an empty array: []
 Return ONLY the JSON array, no other text."""
 
         detection_response = model.generate_content([detection_prompt, img])
@@ -371,7 +347,13 @@ Return ONLY the JSON array, no other text."""
         import re
         json_match = re.search(r'\[.*\]', detection_text, re.DOTALL)
         if not json_match:
-            raise HTTPException(500, "Failed to parse ad locations from Gemini response")
+            return {
+                "newspaper_id": newspaper_id,
+                "publication_date": newspaper_data.get('publication_date'),
+                "total_ads": 0,
+                "ads": [],
+                "message": "No commercial advertisements detected in this newspaper page"
+            }
 
         ad_regions = json.loads(json_match.group(0))
 
@@ -380,12 +362,14 @@ Return ONLY the JSON array, no other text."""
                 "newspaper_id": newspaper_id,
                 "total_ads": 0,
                 "ads": [],
-                "message": "No advertisements detected in this newspaper page"
+                "message": "No commercial advertisements detected in this newspaper page"
             }
 
         # Step 2: Crop and analyze each ad region
         analyzed_ads = []
         width, height = img.size
+        pub_date = newspaper_data.get('publication_date')
+        db = get_firestore_db()
 
         for ad_region in ad_regions:
             try:
@@ -398,45 +382,54 @@ Return ONLY the JSON array, no other text."""
                 # Crop the ad region
                 ad_img = img.crop((left, top, right, bottom))
 
-                # Analyze the cropped ad
-                analysis_prompt = """Analyze this historical advertisement image in detail. Structure your response EXACTLY in this format:
+                # Analyze the cropped ad — structured JSON output
+                analysis_prompt = """Analyze this historical newspaper advertisement (from the early 1990s Pakistan). Return ONLY valid JSON, no markdown.
 
-## TEXT CONTENT
-[List all visible text: headlines, body copy, slogans, taglines, phone numbers, addresses]
+{
+  "brand": {
+    "name": "Brand or company name",
+    "product": "Product or service being advertised",
+    "category": "One of: automotive, food_beverage, electronics, fashion_apparel, banking_finance, healthcare_pharma, real_estate, education, telecom, government_psa, retail, hospitality, media_entertainment, other"
+  },
+  "textContent": {
+    "headline": "Main headline text",
+    "bodyText": "Key body copy (summarised if long)",
+    "slogan": "Tagline or slogan if present",
+    "contactInfo": "Phone, address, or other contact details"
+  },
+  "visualAnalysis": {
+    "dominantColors": ["color1", "color2"],
+    "imagery": "Description of key visual elements (photos, illustrations, logos)",
+    "designStyle": "e.g. minimalist, ornate, photographic, illustrated, typographic",
+    "layout": "e.g. headline dominant, image dominant, grid, border-heavy"
+  },
+  "advertisingStrategy": {
+    "mainMessage": "Core value proposition in one sentence",
+    "emotionalAppeal": "e.g. prestige, aspiration, family, safety, value, patriotism",
+    "callToAction": "What action is requested, or null"
+  },
+  "assessment": {
+    "sentiment": "positive | neutral | negative",
+    "targetAudience": "Brief description of intended audience",
+    "effectiveness": "Brief assessment of the ad's likely impact",
+    "historicalNotes": "Any notable 1990-1992 era context or cultural references"
+  }
+}
 
-## BRAND & PRODUCT
-Brand Name: [Brand name if visible]
-Product/Service: [What's being advertised]
-Category: [Product category, e.g., automotive, food & beverage, retail, etc.]
-
-## VISUAL ANALYSIS
-Colors: [Dominant colors used]
-Imagery: [Key visual elements, photos, illustrations]
-Design Style: [Overall aesthetic - modern, vintage, minimalist, etc.]
-Layout: [How elements are arranged]
-
-## TARGET AUDIENCE
-Demographics: [Age group, gender, income level, etc.]
-Psychographics: [Interests, lifestyle, values being appealed to]
-
-## ADVERTISING STRATEGY
-Main Message: [Core value proposition]
-Emotional Appeal: [What emotion is being evoked]
-Persuasion Techniques: [Scarcity, social proof, authority, etc.]
-Call to Action: [What action is the ad requesting]
-
-## CULTURAL & HISTORICAL CONTEXT
-Time Period Indicators: [1990-1992 era references, style, technology]
-Cultural References: [Any cultural themes or references]
-
-## OVERALL ASSESSMENT
-Sentiment: [Positive/Neutral/Negative]
-Effectiveness: [Brief assessment of the ad's likely impact]
-
-Be thorough and specific in your analysis."""
+Return ONLY the JSON object, nothing else."""
 
                 analysis_response = model.generate_content([analysis_prompt, ad_img])
-                analysis_text = analysis_response.text
+                analysis_raw = analysis_response.text.strip()
+
+                # Parse JSON from response
+                try:
+                    if '```json' in analysis_raw:
+                        analysis_raw = analysis_raw.split('```json')[1].split('```')[0].strip()
+                    elif '```' in analysis_raw:
+                        analysis_raw = analysis_raw.split('```')[1].split('```')[0].strip()
+                    analysis_json = json.loads(analysis_raw)
+                except json.JSONDecodeError:
+                    analysis_json = {"rawAnalysis": analysis_raw, "parseError": True}
 
                 # Save the cropped ad image
                 ad_id = f"{newspaper_id}_ad_{ad_region['id']}"
@@ -446,12 +439,14 @@ Be thorough and specific in your analysis."""
                 ad_image_path = f"{ads_dir}/{ad_id}.jpg"
                 ad_img.save(ad_image_path, "JPEG")
 
-                # Save analysis
+                # Build the structured record
                 analysis_data = {
                     "ad_id": ad_id,
                     "newspaper_id": newspaper_id,
                     "region_id": ad_region['id'],
                     "identifier": ad_region.get('identifier', f"Ad {ad_region['id']}"),
+                    "brand": ad_region.get('brand', ''),
+                    "category": ad_region.get('category', analysis_json.get('brand', {}).get('category', 'other')),
                     "location": ad_region.get('location', ''),
                     "description": ad_region.get('description', ''),
                     "coordinates": {
@@ -466,19 +461,30 @@ Be thorough and specific in your analysis."""
                         "right": right,
                         "bottom": bottom
                     },
-                    "analysis": analysis_text,
+                    "analysis": analysis_json,
                     "image_path": ad_image_path,
+                    "publication_date": pub_date.isoformat() if hasattr(pub_date, 'isoformat') else str(pub_date) if pub_date else None,
                     "timestamp": datetime.now().isoformat(),
                     "model": "gemini-3-pro-preview"
                 }
 
-                # Save to JSON
+                # Save to JSON file
                 analysis_json_dir = "uploads/newspaper_ads/analysis"
                 os.makedirs(analysis_json_dir, exist_ok=True)
                 json_path = f"{analysis_json_dir}/{ad_id}.json"
-
                 with open(json_path, 'w', encoding='utf-8') as f:
                     json.dump(analysis_data, f, indent=2, ensure_ascii=False)
+
+                # Save to Firestore advertisements collection
+                try:
+                    firestore_doc = {
+                        **analysis_data,
+                        "publication_date": pub_date,
+                        "created_at": datetime.now(),
+                    }
+                    db.db.collection('advertisements').document(ad_id).set(firestore_doc)
+                except Exception as fs_err:
+                    print(f"Firestore save failed for {ad_id}: {fs_err}")
 
                 analyzed_ads.append(analysis_data)
 
@@ -494,12 +500,12 @@ Be thorough and specific in your analysis."""
 
         return {
             "newspaper_id": newspaper_id,
-            "publication_date": newspaper_data.get('publication_date'),
+            "publication_date": pub_date.isoformat() if hasattr(pub_date, 'isoformat') else str(pub_date) if pub_date else None,
             "total_ads": len(analyzed_ads),
             "successful": sum(1 for ad in analyzed_ads if "error" not in ad),
             "failed": sum(1 for ad in analyzed_ads if "error" in ad),
             "ads": analyzed_ads,
-            "message": f"Analyzed {len(analyzed_ads)} advertisements from newspaper"
+            "message": f"Analyzed {len(analyzed_ads)} commercial advertisements from newspaper"
         }
 
     except HTTPException:
@@ -597,12 +603,22 @@ async def analyze_image_ads(request: dict):
         # Step 1: Use Gemini to identify ad locations
         model = genai.GenerativeModel('gemini-3-pro-preview')
 
-        detection_prompt = """Analyze this newspaper page and identify all advertisements.
+        detection_prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
 
-For each advertisement you find, provide:
+IMPORTANT — DO NOT include:
+- Job listings / employment / recruitment / vacancy notices
+- Real estate listings (properties for sale or rent)
+- Classified columns (lost & found, personals, matrimonial)
+- Tender notices / government procurement notices
+- Public announcements / legal notices
+- Editorial content or news articles
+
+ONLY identify genuine brand/product/service commercial advertisements — display ads that promote a brand, product, or commercial service with visual design elements (logos, images, styled typography).
+
+For each commercial advertisement found, provide:
 1. A brief description of its location (e.g., "top-left corner", "bottom half center", "right side banner")
 2. Approximate position as percentages (left%, top%, width%, height%) from 0-100
-3. A brief identifier (e.g., "Car ad", "Restaurant ad", "Classified ads")
+3. The brand name and product/service being advertised
 
 Format your response as a JSON array:
 [
@@ -614,11 +630,14 @@ Format your response as a JSON array:
     "top": 5,
     "width": 25,
     "height": 20,
-    "identifier": "Car dealership ad"
+    "identifier": "Toyota car dealership ad",
+    "brand": "Toyota",
+    "category": "automotive"
   },
   ...
 ]
 
+If no commercial display advertisements are found, return an empty array: []
 Return ONLY the JSON array, no other text."""
 
         detection_response = model.generate_content([detection_prompt, img])
@@ -628,7 +647,13 @@ Return ONLY the JSON array, no other text."""
         import re
         json_match = re.search(r'\[.*\]', detection_text, re.DOTALL)
         if not json_match:
-            raise HTTPException(500, "Failed to parse ad locations from Gemini response")
+            return {
+                "file_path": file_path,
+                "newspaper_id": newspaper_id,
+                "total_ads": 0,
+                "ads": [],
+                "message": "No commercial advertisements detected in this image"
+            }
 
         ad_regions = json.loads(json_match.group(0))
 
@@ -638,12 +663,23 @@ Return ONLY the JSON array, no other text."""
                 "newspaper_id": newspaper_id,
                 "total_ads": 0,
                 "ads": [],
-                "message": "No advertisements detected in this image"
+                "message": "No commercial advertisements detected in this image"
             }
 
         # Step 2: Crop and analyze each ad region
         analyzed_ads = []
         width, height = img.size
+        db = get_firestore_db()
+
+        # Try to get publication date from newspaper doc if newspaper_id is not a local UUID
+        pub_date = None
+        if not newspaper_id.startswith('local_'):
+            try:
+                np_ref = db.db.collection('newspapers').document(newspaper_id).get()
+                if np_ref.exists:
+                    pub_date = np_ref.to_dict().get('publication_date')
+            except Exception:
+                pass
 
         for ad_region in ad_regions:
             try:
@@ -656,45 +692,54 @@ Return ONLY the JSON array, no other text."""
                 # Crop the ad region
                 ad_img = img.crop((left, top, right, bottom))
 
-                # Analyze the cropped ad
-                analysis_prompt = """Analyze this historical advertisement image in detail. Structure your response EXACTLY in this format:
+                # Analyze the cropped ad — structured JSON output
+                analysis_prompt = """Analyze this historical newspaper advertisement (from the early 1990s Pakistan). Return ONLY valid JSON, no markdown.
 
-## TEXT CONTENT
-[List all visible text: headlines, body copy, slogans, taglines, phone numbers, addresses]
+{
+  "brand": {
+    "name": "Brand or company name",
+    "product": "Product or service being advertised",
+    "category": "One of: automotive, food_beverage, electronics, fashion_apparel, banking_finance, healthcare_pharma, real_estate, education, telecom, government_psa, retail, hospitality, media_entertainment, other"
+  },
+  "textContent": {
+    "headline": "Main headline text",
+    "bodyText": "Key body copy (summarised if long)",
+    "slogan": "Tagline or slogan if present",
+    "contactInfo": "Phone, address, or other contact details"
+  },
+  "visualAnalysis": {
+    "dominantColors": ["color1", "color2"],
+    "imagery": "Description of key visual elements (photos, illustrations, logos)",
+    "designStyle": "e.g. minimalist, ornate, photographic, illustrated, typographic",
+    "layout": "e.g. headline dominant, image dominant, grid, border-heavy"
+  },
+  "advertisingStrategy": {
+    "mainMessage": "Core value proposition in one sentence",
+    "emotionalAppeal": "e.g. prestige, aspiration, family, safety, value, patriotism",
+    "callToAction": "What action is requested, or null"
+  },
+  "assessment": {
+    "sentiment": "positive | neutral | negative",
+    "targetAudience": "Brief description of intended audience",
+    "effectiveness": "Brief assessment of the ad's likely impact",
+    "historicalNotes": "Any notable 1990-1992 era context or cultural references"
+  }
+}
 
-## BRAND & PRODUCT
-Brand Name: [Brand name if visible]
-Product/Service: [What's being advertised]
-Category: [Product category, e.g., automotive, food & beverage, retail, etc.]
-
-## VISUAL ANALYSIS
-Colors: [Dominant colors used]
-Imagery: [Key visual elements, photos, illustrations]
-Design Style: [Overall aesthetic - modern, vintage, minimalist, etc.]
-Layout: [How elements are arranged]
-
-## TARGET AUDIENCE
-Demographics: [Age group, gender, income level, etc.]
-Psychographics: [Interests, lifestyle, values being appealed to]
-
-## ADVERTISING STRATEGY
-Main Message: [Core value proposition]
-Emotional Appeal: [What emotion is being evoked]
-Persuasion Techniques: [Scarcity, social proof, authority, etc.]
-Call to Action: [What action is the ad requesting]
-
-## CULTURAL & HISTORICAL CONTEXT
-Time Period Indicators: [1990-1992 era references, style, technology]
-Cultural References: [Any cultural themes or references]
-
-## OVERALL ASSESSMENT
-Sentiment: [Positive/Neutral/Negative]
-Effectiveness: [Brief assessment of the ad's likely impact]
-
-Be thorough and specific in your analysis."""
+Return ONLY the JSON object, nothing else."""
 
                 analysis_response = model.generate_content([analysis_prompt, ad_img])
-                analysis_text = analysis_response.text
+                analysis_raw = analysis_response.text.strip()
+
+                # Parse JSON from response
+                try:
+                    if '```json' in analysis_raw:
+                        analysis_raw = analysis_raw.split('```json')[1].split('```')[0].strip()
+                    elif '```' in analysis_raw:
+                        analysis_raw = analysis_raw.split('```')[1].split('```')[0].strip()
+                    analysis_json = json.loads(analysis_raw)
+                except json.JSONDecodeError:
+                    analysis_json = {"rawAnalysis": analysis_raw, "parseError": True}
 
                 # Save the cropped ad image
                 ad_id = f"{newspaper_id}_ad_{ad_region['id']}"
@@ -704,13 +749,16 @@ Be thorough and specific in your analysis."""
                 ad_image_path = f"{ads_dir}/{ad_id}.jpg"
                 ad_img.save(ad_image_path, "JPEG")
 
-                # Save analysis
+                # Build the structured record
+                pub_date_str = pub_date.isoformat() if hasattr(pub_date, 'isoformat') else str(pub_date) if pub_date else None
                 analysis_data = {
                     "ad_id": ad_id,
                     "newspaper_id": newspaper_id,
                     "source_file": file_path,
                     "region_id": ad_region['id'],
                     "identifier": ad_region.get('identifier', f"Ad {ad_region['id']}"),
+                    "brand": ad_region.get('brand', ''),
+                    "category": ad_region.get('category', analysis_json.get('brand', {}).get('category', 'other')),
                     "location": ad_region.get('location', ''),
                     "description": ad_region.get('description', ''),
                     "coordinates": {
@@ -725,19 +773,30 @@ Be thorough and specific in your analysis."""
                         "right": right,
                         "bottom": bottom
                     },
-                    "analysis": analysis_text,
+                    "analysis": analysis_json,
                     "image_path": ad_image_path,
+                    "publication_date": pub_date_str,
                     "timestamp": datetime.now().isoformat(),
                     "model": "gemini-3-pro-preview"
                 }
 
-                # Save to JSON
+                # Save to JSON file
                 analysis_json_dir = "uploads/newspaper_ads/analysis"
                 os.makedirs(analysis_json_dir, exist_ok=True)
                 json_path = f"{analysis_json_dir}/{ad_id}.json"
-
                 with open(json_path, 'w', encoding='utf-8') as f:
                     json.dump(analysis_data, f, indent=2, ensure_ascii=False)
+
+                # Save to Firestore advertisements collection
+                try:
+                    firestore_doc = {
+                        **analysis_data,
+                        "publication_date": pub_date,
+                        "created_at": datetime.now(),
+                    }
+                    db.db.collection('advertisements').document(ad_id).set(firestore_doc)
+                except Exception as fs_err:
+                    print(f"Firestore save failed for {ad_id}: {fs_err}")
 
                 analyzed_ads.append(analysis_data)
 
@@ -758,7 +817,7 @@ Be thorough and specific in your analysis."""
             "successful": sum(1 for ad in analyzed_ads if "error" not in ad),
             "failed": sum(1 for ad in analyzed_ads if "error" in ad),
             "ads": analyzed_ads,
-            "message": f"Analyzed {len(analyzed_ads)} advertisements from image"
+            "message": f"Analyzed {len(analyzed_ads)} commercial advertisements from image"
         }
 
     except HTTPException:
@@ -796,11 +855,18 @@ def browse_advertisements(
             end_dt = dt.fromisoformat(end_date)
             query = query.where('publication_date', '<=', end_dt)
 
-        # Order by publication date descending
-        query = query.order_by('publication_date', direction='DESCENDING')
-        query = query.limit(limit + offset)
+        query = query.limit(500)
 
         ads_docs = list(query.stream())
+
+        # Sort in Python to avoid requiring a Firestore composite index
+        def _sort_key(doc):
+            pub = doc.to_dict().get('publication_date')
+            if pub is None:
+                return ''
+            return pub.isoformat() if hasattr(pub, 'isoformat') else str(pub)
+
+        ads_docs.sort(key=_sort_key, reverse=True)
         ads_docs = ads_docs[offset:offset + limit]
 
         ads = []
@@ -847,8 +913,7 @@ def search_advertisements(request: dict):
         db = get_firestore_db()
 
         # Get all ads (Firestore doesn't support full-text search natively)
-        query = db.db.collection('advertisements').order_by('publication_date', direction='DESCENDING')
-        ads_docs = list(query.stream())
+        ads_docs = list(db.db.collection('advertisements').stream())
 
         # Filter by keyword in memory
         keyword_lower = keyword.lower()
@@ -888,6 +953,138 @@ def search_advertisements(request: dict):
 
     except Exception as e:
         raise HTTPException(500, f"Error searching ads: {str(e)}")
+
+
+@router.get("/analytics/summary")
+def get_ad_analytics():
+    """
+    Aggregate analytics across all stored advertisements.
+    Returns category distribution, brand frequency, sentiment breakdown,
+    visual style breakdown, and monthly volume timeline.
+    """
+    try:
+        db = get_firestore_db()
+        ads_docs = list(db.db.collection('advertisements').stream())
+
+        if not ads_docs:
+            return {
+                "total_ads": 0,
+                "categories": {},
+                "brands": {},
+                "sentiments": {},
+                "design_styles": {},
+                "emotional_appeals": {},
+                "monthly_volume": {}
+            }
+
+        categories = {}
+        brands = {}
+        sentiments = {}
+        design_styles = {}
+        emotional_appeals = {}
+        monthly_volume = {}
+
+        for doc in ads_docs:
+            ad = doc.to_dict()
+            analysis = ad.get('analysis', {})
+            if not isinstance(analysis, dict):
+                continue
+
+            # Category
+            cat = (
+                ad.get('category')
+                or (analysis.get('brand') or {}).get('category', '')
+                or 'other'
+            )
+            cat = cat.strip().lower() or 'other'
+            categories[cat] = categories.get(cat, 0) + 1
+
+            # Brand name
+            brand = (
+                ad.get('brand')
+                or (analysis.get('brand') or {}).get('name', '')
+                or ''
+            )
+            if brand:
+                brand = brand.strip()
+                brands[brand] = brands.get(brand, 0) + 1
+
+            # Sentiment
+            sentiment = (analysis.get('assessment') or {}).get('sentiment', '').lower()
+            if sentiment in ('positive', 'neutral', 'negative'):
+                sentiments[sentiment] = sentiments.get(sentiment, 0) + 1
+
+            # Design style
+            style = (analysis.get('visualAnalysis') or {}).get('designStyle', '')
+            if style:
+                style = style.strip().lower()
+                design_styles[style] = design_styles.get(style, 0) + 1
+
+            # Emotional appeal
+            appeal = (analysis.get('advertisingStrategy') or {}).get('emotionalAppeal', '')
+            if appeal:
+                appeal = appeal.strip().lower()
+                emotional_appeals[appeal] = emotional_appeals.get(appeal, 0) + 1
+
+            # Monthly volume (YYYY-MM)
+            pub = ad.get('publication_date')
+            if pub:
+                pub_str = pub.isoformat() if hasattr(pub, 'isoformat') else str(pub)
+                month_key = pub_str[:7]  # YYYY-MM
+                monthly_volume[month_key] = monthly_volume.get(month_key, 0) + 1
+
+        # Sort brands by frequency, keep top 30
+        top_brands = dict(sorted(brands.items(), key=lambda x: x[1], reverse=True)[:30])
+
+        return {
+            "total_ads": len(ads_docs),
+            "categories": dict(sorted(categories.items(), key=lambda x: x[1], reverse=True)),
+            "brands": top_brands,
+            "sentiments": sentiments,
+            "design_styles": dict(sorted(design_styles.items(), key=lambda x: x[1], reverse=True)),
+            "emotional_appeals": dict(sorted(emotional_appeals.items(), key=lambda x: x[1], reverse=True)),
+            "monthly_volume": dict(sorted(monthly_volume.items()))
+        }
+
+    except Exception as e:
+        raise HTTPException(500, f"Error computing analytics: {str(e)}")
+
+
+@router.get("/{ad_id}")
+def get_ad(ad_id: str):
+    # gets one specific ad and its analysis
+    try:
+        upload_dir = "uploads/ads"
+        ad_files = [f for f in os.listdir(upload_dir) if f.startswith(ad_id)] if os.path.exists(upload_dir) else []
+
+        if not ad_files:
+            raise HTTPException(404, "Advertisement not found")
+
+        file_path = f"{upload_dir}/{ad_files[0]}"
+        json_path = f"uploads/ads/analysis/{ad_id}.json"
+
+        ad_data = {
+            "id": ad_id,
+            "filename": ad_files[0],
+            "file_path": file_path,
+            "file_size": os.path.getsize(file_path),
+            "upload_date": datetime.fromtimestamp(os.path.getctime(file_path)).isoformat()
+        }
+
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                analysis = json.load(f)
+                ad_data["analysis"] = analysis
+                ad_data["analysis_status"] = "completed"
+        else:
+            ad_data["analysis_status"] = "pending"
+
+        return ad_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error retrieving ad: {str(e)}")
 
 
 @router.get("/{ad_id}/details")

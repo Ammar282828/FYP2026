@@ -17,7 +17,6 @@ import {
   EntityMentionsOverTime
 } from './components/AdvancedAnalytics';
 import { InteractiveKeywords, InteractiveEntityExplorer } from './components/ProfessionalAnalytics';
-import ImageAnalysisTab from './components/ImageAnalysisTab';
 import OCRTab from './components/OCRTab';
 import AdBrowserTab from './components/AdBrowserTab';
 import { API_BASE } from './config';
@@ -261,12 +260,6 @@ const MediaScopeDashboard: React.FC = () => {
             Analytics
           </button>
           <button
-            className={activeTab === 'image-analysis' ? 'active' : ''}
-            onClick={() => setActiveTab('image-analysis')}
-          >
-            Ad Analysis <span style={{fontSize: '0.7em', opacity: 0.8}}>(Beta)</span>
-          </button>
-          <button
             className={activeTab === 'ocr' ? 'active' : ''}
             onClick={() => setActiveTab('ocr')}
           >
@@ -305,70 +298,45 @@ const MediaScopeDashboard: React.FC = () => {
 
         {activeTab === 'analytics' && (
           <div className="analytics-view">
-            {/* Summary Cards */}
             <AnalyticsSummary />
-
-            {/* Professional Interactive Analytics */}
             <div className="analytics-section">
               <h2 className="analytics-section-title">Interactive Analytics Dashboard</h2>
               <p className="analytics-section-subtitle">
                 Click on any item to explore related articles and insights
               </p>
-
-              {/* Interactive Keywords - Click to see articles */}
               <div className="analytics-card full-width" style={{ marginBottom: '24px' }}>
                 <InteractiveKeywords />
               </div>
-
-              {/* Interactive Entity Explorer - Click to see articles */}
               <div className="analytics-card full-width" style={{ marginBottom: '24px' }}>
                 <InteractiveEntityExplorer />
               </div>
-
-              {/* Row 1: Topics */}
               <div className="analytics-card full-width">
                 <TopicDistribution />
               </div>
-
-              {/* Row 2: Topic Trends Over Time */}
               <div className="analytics-card full-width">
                 <TopicTrendsOverTime />
               </div>
-
-              {/* Row 3: Top Entities */}
               <div className="analytics-card full-width">
                 <TopEntitiesPanel />
               </div>
-
-              {/* Row 4: Entity Relationships */}
               <div className="analytics-card full-width">
                 <EntityCooccurrenceNetwork />
               </div>
-
-              {/* Row 5: Keyword Trends */}
               <div className="analytics-card full-width">
                 <KeywordFrequencyOverTime />
               </div>
-
-              {/* Row 6: Topic Sentiment Over Time */}
               <div className="analytics-card full-width">
                 <TopicSentimentOverTime />
               </div>
-
-              {/* Row 7: Entity Sentiment Over Time */}
               <div className="analytics-card full-width">
                 <EntitySentimentOverTime />
               </div>
-
-              {/* Row 8: Keyword Sentiment Over Time */}
               <div className="analytics-card full-width">
                 <KeywordSentimentOverTime />
               </div>
             </div>
           </div>
         )}
-
-        {activeTab === 'image-analysis' && <ImageAnalysisTab />}
 
         {activeTab === 'ocr' && <OCRTab />}
 

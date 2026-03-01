@@ -38,7 +38,13 @@ from dataclasses import dataclass
 @dataclass
 class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "AIzaSyBtUk2lUskKgLDhpmxFf6Lfz6IAh7RH5bg")
-    GEMINI_MODEL: str = "gemini-3-pro-preview"
+    GEMINI_API_KEYS: tuple = (
+        "AIzaSyBFU-NDa1Hnl307X-s9isis_uyL3R061No",
+        "AIzaSyA3wVS-D3eZuCaGJyvMqhnDWV7RrQD1rLw",
+        "AIzaSyDDxB_cBNLu2bFpNfnUQqClDUHaw-Mxc_k",
+        "AIzaSyBAu-h66uOfJ1Bl8zqlKZ3B71moPBc3St8",
+    )
+    GEMINI_MODEL: str = "gemini-3.1-pro-preview"
     
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
@@ -50,7 +56,9 @@ class Config:
     ES_PORT: int = 9200
     ES_INDEX: str = "mediascope_articles"
     
-    INPUT_FOLDER: str = "./input_newspapers"
+    INPUT_FOLDER: str = "/Users/ammarmansa/Downloads/Jan_t" \
+    "" \
+    "o_May"
     OUTPUT_FOLDER: str = "./processed_newspapers"
     
     SPACY_MODEL: str = "en_core_web_lg"
@@ -141,6 +149,60 @@ class MediaScopeDatabase:
 
             article_ref.update({'entities': entity_list})
 
+    def insert_ad(self, newspaper_id: str, ad_data: Dict) -> Optional[str]:
+        """Save a detected ad image to Storage and metadata to Firestore."""
+        import tempfile
+        import os
+
+        ad_id = str(uuid.uuid4())
+        ad_image = ad_data.get('image')
+        if ad_image is None:
+            return None
+
+        try:
+            # Save cropped image to a temp file for upload
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                ad_image.save(tmp.name, 'JPEG', quality=85)
+                tmp_path = tmp.name
+
+            image_url = self.db.upload_ad_image(tmp_path, newspaper_id, ad_id)
+            os.unlink(tmp_path)
+
+            analysis = ad_data.get('deep_analysis', {})
+
+            ad_text = ad_data.get('text', '')
+            brand_info = analysis.get('brand', {})
+            brand_name = brand_info.get('name', '') or ad_data.get('brand', '')
+            category = brand_info.get('category', '') or ad_data.get('category', 'other')
+            tc = analysis.get('textContent', {})
+            identifier = tc.get('headline', '') or ad_text[:80] or f"Ad from page {ad_data.get('page_number', 1)}"
+
+            ad_doc = {
+                'id': ad_id,
+                'newspaper_id': newspaper_id,
+                'image_url': image_url,
+                'identifier': identifier,
+                'brand': brand_name,
+                'category': category,
+                'location': ad_data.get('bounding_box', {}),
+                'description': tc.get('bodyText', '') or ad_text,
+                'analysis': analysis,
+                'coordinates': ad_data.get('bounding_box', {}),
+                'publication_date': ad_data.get('publication_date'),
+                'page_number': ad_data.get('page_number', 1),
+                'source': 'pipeline',
+                'created_at': datetime.now()
+            }
+
+            self.db.db.collection('advertisements').document(ad_id).set(ad_doc)
+            brand_str = f" [{ad_doc['brand']}]" if ad_doc['brand'] else ""
+            print(f"    [OK] Ad saved: {ad_doc['category']}{brand_str} → {ad_id[:8]}...")
+            return ad_id
+
+        except Exception as e:
+            print(f"    [WARNING] Failed to save ad: {e}")
+            return None
+
     def index_article_es(self, article_id: str, article_data: Dict,
                          entities: List[Dict], pub_date: datetime):
         """No-op: Firestore handles indexing automatically"""
@@ -156,7 +218,8 @@ class ImageProcessor:
 
     def __init__(self, config: Config):
         self.config = config
-        genai.configure(api_key=config.GEMINI_API_KEY)
+        self._key_index = 0
+        self._keys = list(config.GEMINI_API_KEYS)
 
         from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
@@ -167,10 +230,42 @@ class ImageProcessor:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
+        genai.configure(api_key=self._keys[self._key_index])
         self.model = genai.GenerativeModel(
             config.GEMINI_MODEL,
             safety_settings=self.safety_settings
         )
+
+    def _rotate_key(self):
+        """Switch to the next API key and reinitialise the model."""
+        self._key_index = (self._key_index + 1) % len(self._keys)
+        new_key = self._keys[self._key_index]
+        print(f"  [INFO] Rotating to API key {self._key_index + 1}/{len(self._keys)}")
+        genai.configure(api_key=new_key)
+        self.model = genai.GenerativeModel(
+            self.config.GEMINI_MODEL,
+            safety_settings=self.safety_settings
+        )
+
+    def _generate(self, prompt_parts):
+        """Call generate_content, rotating keys on quota errors."""
+        keys_tried = 0
+        while keys_tried < len(self._keys):
+            try:
+                return self.model.generate_content(
+                    prompt_parts,
+                    safety_settings=self.safety_settings
+                )
+            except Exception as e:
+                if any(x in str(e).lower() for x in ['quota', '429', 'rate', '403', 'permission', 'leaked']):
+                    keys_tried += 1
+                    if keys_tried < len(self._keys):
+                        self._rotate_key()
+                    else:
+                        print(f"  [ERROR] All API keys exhausted quota")
+                        raise
+                else:
+                    raise
     
     def extract_date_from_filename(self, image_path: str) -> Optional[datetime]:
         filename = Path(image_path).stem
@@ -212,6 +307,7 @@ class ImageProcessor:
 
         try:
             img = Image.open(image_path)
+            img = img.convert('RGB')  # strip MPO/HEIC/etc so Gemini accepts it
 
             prompt = """Extract from this newspaper scan:
 1. Publication date (month, day, year)
@@ -225,10 +321,7 @@ PAGE: [page number]
 
 If not found, write UNKNOWN."""
 
-            response = self.model.generate_content(
-                [prompt, img],
-                safety_settings=self.safety_settings
-            )
+            response = self._generate([prompt, img])
             text = response.text if response.parts else ""
 
             month_match = re.search(r'MONTH:\s*(\w+)', text, re.IGNORECASE)
@@ -248,6 +341,7 @@ If not found, write UNKNOWN."""
                 pub_date = datetime(year, month_num, day)
 
             page = int(page_match.group(1)) if page_match else 1
+            print(f"  [OK] Date detected: {pub_date.strftime('%Y-%m-%d')} | Page: {page}")
 
             return {
                 'date': pub_date,
@@ -275,6 +369,10 @@ If not found, write UNKNOWN."""
         except Exception:
             pass
 
+        if image.width > image.height:
+            print("  [INFO] Rotating landscape image to portrait")
+            image = image.rotate(90, expand=True)
+
         if image.mode != 'RGB':
             image = image.convert('RGB')
 
@@ -294,25 +392,10 @@ If not found, write UNKNOWN."""
             img = Image.open(image_path)
             img = self.enhance_image(img)
 
-            # First attempt: Structured format with clear instructions
-            prompt = """Read this newspaper page and extract all articles.
+            print(f"  [INFO] Attempting OCR extraction (attempt 1/2)...")
+            prompt = """What text do you see in this image? Extract all readable text."""
+            response = self._generate([prompt, img])
 
-For each article, provide:
-ARTICLE_START
-NUMBER: [1, 2, 3...]
-HEADLINE: [the headline]
-CONTENT: [the full article text]
-ARTICLE_END
-
-Extract all text you can see."""
-
-            print(f"  [INFO] Attempting OCR extraction (attempt 1/3)...")
-            response = self.model.generate_content(
-                [prompt, img],
-                safety_settings=self.safety_settings
-            )
-
-            # Check response validity
             text = ""
             if hasattr(response, 'parts') and response.parts:
                 try:
@@ -322,40 +405,13 @@ Extract all text you can see."""
                     print(f"  [WARNING] Could not get text from response: {e}")
 
             if not text or len(text) < 50:
-                print(f"  [WARNING] Response too short or empty")
-                if hasattr(response, 'prompt_feedback'):
-                    print(f"  [DEBUG] Prompt feedback: {response.prompt_feedback}")
-                if hasattr(response, 'candidates'):
-                    print(f"  [DEBUG] Candidates: {len(response.candidates) if response.candidates else 0}")
-
-                # Second attempt: Ultra-simple prompt
-                print(f"  [INFO] Attempting OCR extraction (attempt 2/3)...")
-                fallback_prompt = """What text do you see in this image? Extract all readable text."""
-                response = self.model.generate_content(
-                    [fallback_prompt, img],
-                    safety_settings=self.safety_settings
-                )
-
+                print(f"  [WARNING] Response too short or empty, retrying...")
+                print(f"  [INFO] Attempting OCR extraction (attempt 2/2)...")
+                response = self._generate(["Transcribe this document.", img])
                 if hasattr(response, 'parts') and response.parts:
                     try:
                         text = response.text
-                        print(f"  [OK] Got fallback response ({len(text)} chars)")
-                    except:
-                        pass
-
-            if not text or len(text) < 50:
-                # Third attempt: Just ask for transcription
-                print(f"  [INFO] Attempting OCR extraction (attempt 3/3)...")
-                final_prompt = """Transcribe this document."""
-                response = self.model.generate_content(
-                    [final_prompt, img],
-                    safety_settings=self.safety_settings
-                )
-
-                if hasattr(response, 'parts') and response.parts:
-                    try:
-                        text = response.text
-                        print(f"  [OK] Got final response ({len(text)} chars)")
+                        print(f"  [OK] Got response ({len(text)} chars)")
                     except:
                         pass
 
@@ -421,6 +477,138 @@ Extract all text you can see."""
             import traceback
             print(f"  [ERROR] Article extraction failed: {e}")
             traceback.print_exc()
+            return []
+
+
+    def analyze_ad_image(self, ad_image: Image.Image) -> Dict:
+        """Run deep structured analysis on a cropped ad image using Gemini."""
+        try:
+            analysis_prompt = """Analyze this historical newspaper advertisement (from the early 1990s Pakistan). Return ONLY valid JSON, no markdown.
+
+{
+  "brand": {
+    "name": "Brand or company name",
+    "product": "Product or service being advertised",
+    "category": "One of: automotive, food_beverage, electronics, fashion_apparel, banking_finance, healthcare_pharma, real_estate, education, telecom, government_psa, retail, hospitality, media_entertainment, other"
+  },
+  "textContent": {
+    "headline": "Main headline text",
+    "bodyText": "Key body copy (summarised if long)",
+    "slogan": "Tagline or slogan if present",
+    "contactInfo": "Phone, address, or other contact details"
+  },
+  "visualAnalysis": {
+    "dominantColors": ["color1", "color2"],
+    "imagery": "Description of key visual elements (photos, illustrations, logos)",
+    "designStyle": "e.g. minimalist, ornate, photographic, illustrated, typographic",
+    "layout": "e.g. headline dominant, image dominant, grid, border-heavy"
+  },
+  "advertisingStrategy": {
+    "mainMessage": "Core value proposition in one sentence",
+    "emotionalAppeal": "e.g. prestige, aspiration, family, safety, value, patriotism",
+    "callToAction": "What action is requested, or null"
+  },
+  "assessment": {
+    "sentiment": "positive | neutral | negative",
+    "targetAudience": "Brief description of intended audience",
+    "effectiveness": "Brief assessment of the ad's likely impact",
+    "historicalNotes": "Any notable 1990-1992 era context or cultural references"
+  }
+}
+
+Return ONLY the JSON object, nothing else."""
+
+            response = self._generate([analysis_prompt, ad_image])
+            raw = response.text.strip() if response.parts else ""
+            if '```json' in raw:
+                raw = raw.split('```json')[1].split('```')[0].strip()
+            elif '```' in raw:
+                raw = raw.split('```')[1].split('```')[0].strip()
+            return json.loads(raw)
+        except Exception as e:
+            print(f"    [WARNING] Ad analysis failed: {e}")
+            return {}
+
+    def detect_ads(self, image: Image.Image) -> List[Dict]:
+        """Detect advertisement regions in a newspaper page image using Gemini."""
+        try:
+            width, height = image.size
+
+            prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
+
+DO NOT include any of the following — they are NOT advertisements:
+- Tender notices / government procurement / bid invitations
+- Job listings / recruitment / vacancy announcements
+- Real estate listings (property for sale or rent)
+- Classified columns (lost & found, matrimonial, personals)
+- Public notices / legal notices / court announcements
+- Government announcements / PSA notices
+- News articles or editorial content
+
+ONLY include genuine brand/product/service commercial advertisements — display ads that promote a brand, product, or commercial service with visual design elements such as logos, product images, styled typography, or promotional language.
+
+For each commercial advertisement found, provide bounding box coordinates as percentages (0.0 to 1.0) of the image width/height.
+
+Respond ONLY in valid JSON:
+{
+  "ads": [
+    {
+      "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0,
+      "text": "main text visible in the ad",
+      "brand": "brand or company name, or empty string",
+      "category": "one of: product, service, entertainment, other"
+    }
+  ]
+}
+
+- If no commercial advertisements are found, return {"ads": []}
+- Keep coordinates within 0.0-1.0 range"""
+
+            response = self._generate([prompt, image])
+            text = response.text if response.parts else ""
+
+            json_match = re.search(r'\{[\s\S]*\}', text)
+            if not json_match:
+                return []
+
+            data = json.loads(json_match.group())
+            raw_ads = data.get('ads', [])
+
+            cropped_ads = []
+            for ad in raw_ads:
+                try:
+                    x1 = int(float(ad['x1']) * width)
+                    y1 = int(float(ad['y1']) * height)
+                    x2 = int(float(ad['x2']) * width)
+                    y2 = int(float(ad['y2']) * height)
+
+                    x1 = max(0, min(x1, width - 1))
+                    y1 = max(0, min(y1, height - 1))
+                    x2 = max(x1 + 20, min(x2, width))
+                    y2 = max(y1 + 20, min(y2, height))
+
+                    # Skip regions that are too large (likely the whole page, not an ad)
+                    region_fraction = ((x2 - x1) * (y2 - y1)) / (width * height)
+                    if region_fraction > 0.7:
+                        continue
+
+                    cropped = image.crop((x1, y1, x2, y2))
+                    cropped_ads.append({
+                        'image': cropped,
+                        'bounding_box': {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2},
+                        'text': ad.get('text', '').strip(),
+                        'brand': ad.get('brand', '').strip(),
+                        'category': ad.get('category', 'other')
+                    })
+                except (KeyError, ValueError) as e:
+                    print(f"  [WARNING] Bad ad region data: {e}")
+                    continue
+
+            print(f"  [OK] Detected {len(cropped_ads)} ads")
+            return cropped_ads
+
+        except Exception as e:
+            print(f"  [WARNING] Ad detection failed: {e}")
             return []
 
 
@@ -579,10 +767,13 @@ class MediaScopePipeline:
 
         try:
             if publication_date is None:
-                pub_date = datetime(1990, 1, 1)
+                print("Detecting date and page number...")
+                metadata = self.image_processor.extract_metadata(image_path)
+                pub_date = metadata['date']
+                page_num = metadata['page']
             else:
                 pub_date = publication_date
-            page_num = 1
+                page_num = 1
             
             newspaper_id = self.db.insert_newspaper(
                 pub_date=pub_date,
@@ -591,6 +782,23 @@ class MediaScopePipeline:
                 image_path=image_path
             )
             print(f"[OK] Newspaper record created: {newspaper_id}")
+
+            # Detect and save advertisements
+            print("Detecting advertisements...")
+            try:
+                page_img = Image.open(image_path)
+                page_img = self.image_processor.enhance_image(page_img)
+                detected_ads = self.image_processor.detect_ads(page_img)
+                ads_saved = 0
+                for ad in detected_ads:
+                    ad['publication_date'] = pub_date
+                    ad['page_number'] = page_num
+                    ad['deep_analysis'] = self.image_processor.analyze_ad_image(ad['image'])
+                    if self.db.insert_ad(newspaper_id, ad):
+                        ads_saved += 1
+                print(f"[OK] Saved {ads_saved}/{len(detected_ads)} ads")
+            except Exception as e:
+                print(f"[WARNING] Ad detection skipped: {e}")
 
             print("Extracting articles...")
             articles = self.image_processor.extract_articles(image_path)
