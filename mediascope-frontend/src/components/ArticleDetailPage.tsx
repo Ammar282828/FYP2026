@@ -281,7 +281,7 @@ const ArticleDetailPage: React.FC = () => {
                     disabled={generatingContext}
                     style={{
                       width: '100%', padding: '8px', marginBottom: '14px',
-                      background: generatingContext ? '#e5e7eb' : 'linear-gradient(135deg, #667eea, #764ba2)',
+                      background: generatingContext ? '#e5e7eb' : '#4f46e5',
                       color: generatingContext ? '#9ca3af' : '#fff',
                       border: 'none', borderRadius: '6px', fontSize: '12px',
                       fontWeight: '600', cursor: generatingContext ? 'not-allowed' : 'pointer'

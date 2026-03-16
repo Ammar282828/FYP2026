@@ -56,6 +56,7 @@ export const DateRangeSelector: React.FC<{
 
 // Keyword Frequency Over Time
 export const KeywordFrequencyOverTime: React.FC = () => {
+  const [inputValue, setInputValue] = useState('');
   const [keyword, setKeyword] = useState('');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,109 +65,132 @@ export const KeywordFrequencyOverTime: React.FC = () => {
   const [granularity, setGranularity] = useState('month');
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  const loadSuggestions = async () => {
-    try {
-      const response = await axios.get(`${API_BASE}/analytics/top-keywords?limit=50`);
-      const keywords = response.data.keywords?.map((k: any) => k.keyword) || [];
-      setSuggestions(keywords);
-      if (keywords.length > 0 && !keyword) {
-        setKeyword(keywords[0]);
-      }
-    } catch (error) {
-      console.error('Failed to load keyword suggestions:', error);
-    }
-  };
+  const ctrlStyle = { padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' };
+  const labelStyle = { fontSize: '13px', fontWeight: '600' as const, color: '#374151', marginRight: '8px' };
 
-  const loadData = async () => {
-    if (!keyword) return;
+  useEffect(() => {
+    axios.get(`${API_BASE}/analytics/top-keywords?limit=30`)
+      .then(r => {
+        const kws: string[] = r.data.keywords?.map((k: any) => k.keyword) || [];
+        setSuggestions(kws);
+        if (kws.length > 0) { setInputValue(kws[0]); setKeyword(kws[0]); }
+      })
+      .catch(() => {});
+  }, []);
+
+  const search = async (kw: string) => {
+    if (!kw.trim()) return;
+    setKeyword(kw.trim());
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        keyword,
-        granularity,
-        ...(startDate && { start_date: startDate }),
-        ...(endDate && { end_date: endDate })
-      });
+      const params = new URLSearchParams({ keyword: kw.trim(), granularity, start_date: startDate, end_date: endDate });
       const response = await axios.get(`${API_BASE}/analytics/keyword-frequency-over-time?${params}`);
       setData(response.data.data || []);
-    } catch (error) {
-      console.error('Failed to load keyword frequency:', error);
+    } catch {
+      setData([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadSuggestions();
-  }, []);
+  useEffect(() => { if (keyword) search(keyword); }, [granularity, startDate, endDate]);
 
-  useEffect(() => {
-    if (keyword) {
-      loadData();
-    }
-  }, [keyword]);
+  const totalMentions = data.reduce((s, d) => s + d.count, 0);
+  const peak = data.length > 0 ? Math.max(...data.map(d => d.count)) : 0;
 
   return (
-    <div className="analytics-panel">
-      <h3>Keyword Frequency Over Time</h3>
-      <div className="keyword-input-section">
-        <select
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          className="keyword-select"
-        >
-          <option value="">Select a keyword...</option>
-          {suggestions.map((kw, idx) => (
-            <option key={idx} value={kw}>{kw}</option>
-          ))}
-        </select>
+    <div>
+      <h3 style={{ marginBottom: '0.5rem' }}>Keyword Frequency Over Time</h3>
+
+      {/* Search bar */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
         <input
           type="text"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder="Or type custom keyword..."
-          className="keyword-input"
+          value={inputValue}
+          onChange={e => setInputValue(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') search(inputValue); }}
+          placeholder="Type a keyword..."
+          style={{ ...ctrlStyle, flex: 1, padding: '7px 12px' }}
         />
-        <button onClick={loadData} className="search-button">Analyze</button>
+        <button
+          onClick={() => search(inputValue)}
+          style={{ padding: '7px 18px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+        >
+          Search
+        </button>
       </div>
 
-      <DateRangeSelector
-        startDate={startDate}
-        endDate={endDate}
-        onStartDateChange={setStartDate}
-        onEndDateChange={setEndDate}
-        granularity={granularity}
-        onGranularityChange={setGranularity}
-      />
+      {/* Suggestion pills */}
+      {suggestions.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+          {suggestions.slice(0, 20).map(kw => (
+            <button
+              key={kw}
+              onClick={() => { setInputValue(kw); search(kw); }}
+              style={{
+                padding: '3px 10px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
+                border: `2px solid ${keyword === kw ? '#3b82f6' : '#d1d5db'}`,
+                background: keyword === kw ? '#3b82f6' : 'white',
+                color: keyword === kw ? 'white' : '#374151',
+                fontWeight: keyword === kw ? '600' : '400',
+              }}
+            >
+              {kw}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Controls */}
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', padding: '0.75rem 1rem', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '1rem' }}>
+        <div>
+          <label style={labelStyle}>Granularity:</label>
+          <select value={granularity} onChange={e => setGranularity(e.target.value)} style={ctrlStyle}>
+            <option value="month">Monthly</option>
+            <option value="year">Yearly</option>
+            <option value="day">Daily</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>From:</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={ctrlStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>To:</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={ctrlStyle} />
+        </div>
+      </div>
 
       {loading ? (
-        <p>Loading...</p>
+        <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>
       ) : data.length > 0 ? (
         <>
-          <div className="stats-summary">
-            <span>Total Mentions: <strong>{data.reduce((sum, d) => sum + d.count, 0)}</strong></span>
-            <span>Peak: <strong>{Math.max(...data.map(d => d.count))} mentions</strong></span>
-            <button
-              onClick={() => exportToCSV(data, `keyword_${keyword}_frequency`)}
-              className="export-button"
-            >
-              📥 Export CSV
-            </button>
+          {/* Stats row */}
+          <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', padding: '0.75rem 1rem', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd', fontSize: '13px' }}>
+            <span>Total mentions: <strong style={{ color: '#0369a1' }}>{totalMentions.toLocaleString()}</strong></span>
+            <span>Peak: <strong style={{ color: '#0369a1' }}>{peak} in one period</strong></span>
+            <span style={{ marginLeft: 'auto' }}>
+              <button onClick={() => exportToCSV(data, `keyword_${keyword}_frequency`)}
+                style={{ padding: '3px 12px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', fontSize: '12px', cursor: 'pointer' }}>
+                Export CSV
+              </button>
+            </span>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="count" stroke="#667eea" strokeWidth={2} name="Mentions" />
-            </LineChart>
+          <ResponsiveContainer width="100%" height={420}>
+            <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="date" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
+              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Mentions', angle: -90, position: 'insideLeft', fontSize: 12 }} />
+              <Tooltip contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }} />
+              <Bar dataKey="count" fill="#3b82f6" name={`"${keyword}" mentions`} radius={[3, 3, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </>
-      ) : (
-        <p>No data found for "{keyword}"</p>
-      )}
+      ) : keyword ? (
+        <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
+          No mentions of <strong>"{keyword}"</strong> found in the selected date range.
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -267,7 +291,7 @@ export const EntityMentionsOverTime: React.FC = () => {
               onClick={() => exportToCSV(data, `entity_${entity}_mentions`)}
               className="export-button"
             >
-              📥 Export CSV
+              Export CSV
             </button>
           </div>
           <ResponsiveContainer width="100%" height={300}>
@@ -392,7 +416,7 @@ export const MultiEntityComparison: React.FC = () => {
               onClick={() => exportComparisonToCSV(data, entities.split(',').map(e => e.trim()), 'entity_comparison')}
               className="export-button"
             >
-              📥 Export Comparison CSV
+              Export Comparison CSV
             </button>
           </div>
           <div className="comparison-charts">
@@ -595,7 +619,7 @@ export const LocationAnalytics: React.FC = () => {
               onClick={() => exportLocationDataToCSV(data, 'location_analytics')}
               className="export-button"
             >
-              📥 Export Location Data CSV
+              Export Location Data CSV
             </button>
           </div>
           <div className="location-grid">

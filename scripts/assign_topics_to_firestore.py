@@ -9,9 +9,11 @@ Assign topics to existing Firestore articles using pre-trained topic model
 
 import os
 
-os.environ['FIREBASE_SERVICE_ACCOUNT_PATH'] = 'config/firebase-service-account.json'
+os.environ['FIREBASE_SERVICE_ACCOUNT_PATH'] = 'firebase-service-account.json'
 os.environ['FIREBASE_STORAGE_BUCKET'] = 'fyp2026-87a9b.appspot.com'
 
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 from bertopic import BERTopic
 from database.firestore_db import get_db
 from sentence_transformers import SentenceTransformer
@@ -80,8 +82,25 @@ def main():
         print("No articles found in Firestore!")
         return
 
-    print(f"\nAssigning topics to {len(documents)} articles...")
-    topics, probabilities = topic_model.transform(documents)
+    print(f"\nEncoding {len(documents)} articles...")
+    embeddings = embedding_model.encode(documents, show_progress_bar=True, batch_size=32)
+    print("OK Embeddings computed!")
+
+    # Bypass UMAP by using cosine similarity directly against topic embeddings
+    print("\nAssigning topics via cosine similarity (bypassing UMAP)...")
+    topics_dict = topic_model.get_topics()
+    valid_topic_ids = sorted([t for t in topics_dict.keys() if t != -1])
+
+    if hasattr(topic_model, 'topic_embeddings_') and topic_model.topic_embeddings_ is not None:
+        # topic_embeddings_ index = topic_id + 1 (since topic -1 is at index 0)
+        topic_emb_matrix = np.array([topic_model.topic_embeddings_[tid + 1] for tid in valid_topic_ids])
+        sims = cosine_similarity(embeddings, topic_emb_matrix)
+        best_idx = np.argmax(sims, axis=1)
+        topics = [valid_topic_ids[i] for i in best_idx]
+    else:
+        print("Warning: topic_embeddings_ not available, falling back to transform()")
+        topics, _ = topic_model.transform(documents, embeddings=embeddings)
+
     print("OK Topic assignment completed!")
 
     print("\nUpdating Firestore with topic assignments...")
@@ -98,8 +117,18 @@ def main():
         for article_id, topic_id in zip(article_ids[i:i+batch_size], topics[i:i+batch_size]):
             if article_id:
                 try:
+                    if topic_id == -1:
+                        topic_label = 'Uncategorized'
+                    else:
+                        topic_words = topic_model.get_topic(topic_id)
+                        keywords = [word for word, _ in topic_words[:5]]
+                        topic_label = '_'.join(keywords)
+
                     article_ref = db.db.collection('articles').document(article_id)
-                    batch.update(article_ref, {'topic_id': int(topic_id)})
+                    batch.update(article_ref, {
+                        'topic_id': int(topic_id),
+                        'topic_label': topic_label
+                    })
                     batch_items += 1
                 except Exception as e:
                     print(f"Warning: Failed to add article {article_id} to batch: {e}")

@@ -5,21 +5,25 @@ import ArticleList from './components/ArticleList';
 import SearchResultsSummary from './components/SearchResultsSummary';
 import {
   AnalyticsSummary,
+  SentimentDistribution,
   TopicDistribution,
   TopicTrendsOverTime,
   EntityCooccurrenceNetwork,
   TopicSentimentOverTime,
   EntitySentimentOverTime,
-  KeywordSentimentOverTime
+  KeywordSentimentOverTime,
+  CoverageHeatmap
 } from './components/EnhancedAnalytics';
 import {
-  KeywordFrequencyOverTime,
-  EntityMentionsOverTime
+  KeywordFrequencyOverTime
 } from './components/AdvancedAnalytics';
 import { InteractiveKeywords, InteractiveEntityExplorer } from './components/ProfessionalAnalytics';
 import OCRTab from './components/OCRTab';
 import AdBrowserTab from './components/AdBrowserTab';
+import StoriesTab from './components/StoriesTab';
+import DashboardHome from './components/DashboardHome';
 import { API_BASE } from './config';
+import './mediascope-dashboard.css';
 
 const api = {
   getTopEntities: async (type?: string, limit = 10, startDate?: string, endDate?: string) => {
@@ -63,15 +67,7 @@ const TopEntitiesPanel: React.FC = () => {
     loadTopEntities();
   }, [entityType]);
 
-  const getEntityIcon = (type: string) => {
-    switch(type) {
-      case 'PERSON': return '👤';
-      case 'ORG': return '🏢';
-      case 'GPE': return '📍';
-      case 'NORP': return '🌐';
-      default: return '🏷️';
-    }
-  };
+  const getEntityIcon = (_type: string) => '';
 
   const getEntityColor = (type: string) => {
     switch(type) {
@@ -90,10 +86,10 @@ const TopEntitiesPanel: React.FC = () => {
         <select value={entityType} onChange={(e) => setEntityType(e.target.value)}
                 style={{ padding: '4px 8px', fontSize: '13px', border: '1px solid #e5e7eb', borderRadius: '4px' }}>
           <option value="">All Types</option>
-          <option value="PERSON">👤 People</option>
-          <option value="ORG">🏢 Organizations</option>
-          <option value="GPE">📍 Locations</option>
-          <option value="NORP">🌐 Nationalities</option>
+          <option value="PERSON">People</option>
+          <option value="ORG">Organizations</option>
+          <option value="GPE">Locations</option>
+          <option value="NORP">Nationalities</option>
         </select>
         <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
                style={{ padding: '4px 8px', fontSize: '12px', border: '1px solid #e5e7eb', borderRadius: '4px' }} />
@@ -135,92 +131,11 @@ const TopEntitiesPanel: React.FC = () => {
   );
 };
 
-const EntityCooccurrence: React.FC = () => {
-  const [entityType, setEntityType] = useState<string>('');
-  const [cooccurrences, setCooccurrences] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const loadCooccurrences = async () => {
-    setLoading(true);
-    try {
-      const response = await axios.get(`${API_BASE}/analytics/entity-cooccurrence`, {
-        params: {
-          entity_type: entityType || undefined,
-          min_count: 3,
-          limit: 30
-        }
-      });
-      setCooccurrences(response.data.pairs || []);
-    } catch (error) {
-      console.error('Error loading entity co-occurrences:', error);
-      setCooccurrences([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadCooccurrences();
-  }, [entityType]);
-
-  return (
-    <div className="entity-cooccurrence">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
-        <h3 style={{ margin: 0 }}>Entity Relationships</h3>
-        <span style={{ fontSize: '13px', color: '#6b7280' }}>- Entities mentioned together in articles</span>
-        <select value={entityType} onChange={(e) => setEntityType(e.target.value)}
-                style={{ padding: '4px 8px', fontSize: '13px', border: '1px solid #e5e7eb', borderRadius: '4px', marginLeft: 'auto' }}>
-          <option value="">All Types</option>
-          <option value="PERSON">People</option>
-          <option value="ORG">Organizations</option>
-          <option value="GPE">Locations</option>
-        </select>
-      </div>
-
-      {loading ? (
-        <p style={{ margin: '1rem 0', fontSize: '14px' }}>Loading...</p>
-      ) : cooccurrences.length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.5rem' }}>
-          {cooccurrences.map((pair, idx) => (
-            <div key={idx} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 12px',
-              border: '1px solid #e5e7eb',
-              borderRadius: '4px',
-              fontSize: '13px',
-              background: '#fafafa'
-            }}>
-              <span style={{ fontSize: '11px', color: '#9ca3af', minWidth: '24px' }}>#{idx + 1}</span>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontWeight: '500', color: '#374151' }}>{pair.entity1}</span>
-                <span style={{ color: '#9ca3af' }}>⟷</span>
-                <span style={{ fontWeight: '500', color: '#374151' }}>{pair.entity2}</span>
-              </div>
-              <span style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: '#667eea',
-                background: '#eef2ff',
-                padding: '2px 8px',
-                borderRadius: '12px'
-              }}>
-                {pair.cooccurrence_count}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p style={{ margin: '1rem 0', fontSize: '14px' }}>No co-occurrences found</p>
-      )}
-    </div>
-  );
-};
 
 const MediaScopeDashboard: React.FC = () => {
   const [searchResults, setSearchResults] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'search' | 'analytics' | 'image-analysis' | 'ocr' | 'ad-browser'>('search');
+  const [activeTab, setActiveTab] = useState<'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser'>('home');
+  const [analyticsSubTab, setAnalyticsSubTab] = useState<'overview' | 'topics' | 'entities' | 'keywords'>('overview');
   const [searchFilters, setSearchFilters] = useState<any>(null);
 
   const loadArticles = async () => {
@@ -239,10 +154,20 @@ const MediaScopeDashboard: React.FC = () => {
     loadArticles();
   }, []);
 
+  const handleDashboardSearch = async (query: string) => {
+    try {
+      const response = await axios.post(`${API_BASE}/search/keyword`, { keyword: query, limit: 100 });
+      setSearchResults({ total: response.data.total, articles: response.data.articles });
+    } catch {
+      // fall through to search tab anyway
+    }
+    setActiveTab('search');
+  };
+
   return (
     <div className="mediascope-dashboard">
       <header className="dashboard-header">
-        <div className="logo-section">
+        <div className="logo-section" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('home')}>
           <h1>MediaScope</h1>
           <p className="tagline">Dawn Newspaper Archive (1990-1992)</p>
         </div>
@@ -252,6 +177,12 @@ const MediaScopeDashboard: React.FC = () => {
             onClick={() => setActiveTab('search')}
           >
             Search
+          </button>
+          <button
+            className={activeTab === 'stories' ? 'active' : ''}
+            onClick={() => setActiveTab('stories')}
+          >
+            Stories
           </button>
           <button
             className={activeTab === 'analytics' ? 'active' : ''}
@@ -275,6 +206,14 @@ const MediaScopeDashboard: React.FC = () => {
       </header>
 
       <main className="dashboard-main">
+        {activeTab === 'home' && (
+          <DashboardHome
+            recentArticles={searchResults?.articles || []}
+            onSearch={handleDashboardSearch}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+        )}
+
         {activeTab === 'search' && (
           <div className="search-view">
             <SearchPanel
@@ -287,8 +226,8 @@ const MediaScopeDashboard: React.FC = () => {
                   totalResults={searchResults.total}
                   filters={searchFilters}
                 />
-                <ArticleList 
-                  articles={searchResults.articles || []} 
+                <ArticleList
+                  articles={searchResults.articles || []}
                   onArticleDeleted={loadArticles}
                 />
               </div>
@@ -296,44 +235,84 @@ const MediaScopeDashboard: React.FC = () => {
           </div>
         )}
 
+        {activeTab === 'stories' && <StoriesTab />}
+
         {activeTab === 'analytics' && (
           <div className="analytics-view">
             <AnalyticsSummary />
+
+            {/* Analytics sub-nav */}
+            <div className="analytics-subnav">
+              {(['overview', 'topics', 'entities', 'keywords'] as const).map(tab => (
+                <button
+                  key={tab}
+                  className={`analytics-subnav-btn ${analyticsSubTab === tab ? 'active' : ''}`}
+                  onClick={() => setAnalyticsSubTab(tab)}
+                >
+                  {tab === 'overview' && 'Overview'}
+                  {tab === 'topics' && 'Topics'}
+                  {tab === 'entities' && 'Entities'}
+                  {tab === 'keywords' && 'Keywords'}
+                </button>
+              ))}
+            </div>
+
             <div className="analytics-section">
-              <h2 className="analytics-section-title">Interactive Analytics Dashboard</h2>
-              <p className="analytics-section-subtitle">
-                Click on any item to explore related articles and insights
-              </p>
-              <div className="analytics-card full-width" style={{ marginBottom: '24px' }}>
-                <InteractiveKeywords />
-              </div>
-              <div className="analytics-card full-width" style={{ marginBottom: '24px' }}>
-                <InteractiveEntityExplorer />
-              </div>
-              <div className="analytics-card full-width">
-                <TopicDistribution />
-              </div>
-              <div className="analytics-card full-width">
-                <TopicTrendsOverTime />
-              </div>
-              <div className="analytics-card full-width">
-                <TopEntitiesPanel />
-              </div>
-              <div className="analytics-card full-width">
-                <EntityCooccurrenceNetwork />
-              </div>
-              <div className="analytics-card full-width">
-                <KeywordFrequencyOverTime />
-              </div>
-              <div className="analytics-card full-width">
-                <TopicSentimentOverTime />
-              </div>
-              <div className="analytics-card full-width">
-                <EntitySentimentOverTime />
-              </div>
-              <div className="analytics-card full-width">
-                <KeywordSentimentOverTime />
-              </div>
+              {analyticsSubTab === 'overview' && (
+                <>
+                  <div className="analytics-card full-width">
+                    <CoverageHeatmap />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <SentimentDistribution />
+                  </div>
+                </>
+              )}
+
+              {analyticsSubTab === 'topics' && (
+                <>
+                  <div className="analytics-card full-width">
+                    <TopicDistribution />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <TopicTrendsOverTime />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <TopicSentimentOverTime />
+                  </div>
+                </>
+              )}
+
+              {analyticsSubTab === 'entities' && (
+                <>
+                  <div className="analytics-card full-width">
+                    <InteractiveEntityExplorer />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <TopEntitiesPanel />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <EntityCooccurrenceNetwork />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <EntitySentimentOverTime />
+                  </div>
+                </>
+              )}
+
+              {analyticsSubTab === 'keywords' && (
+                <>
+                  <div className="analytics-card full-width">
+                    <InteractiveKeywords />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <KeywordFrequencyOverTime />
+                  </div>
+                  <div className="analytics-card full-width">
+                    <KeywordSentimentOverTime />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import './StoriesTab.css';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -39,6 +40,7 @@ interface StoryArticle {
 }
 
 const StoriesTab: React.FC = () => {
+  const navigate = useNavigate();
   const [stories, setStories] = useState<Story[]>([]);
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
   const [storyArticles, setStoryArticles] = useState<StoryArticle[]>([]);
@@ -135,8 +137,7 @@ const StoriesTab: React.FC = () => {
       {/* ── Left panel: story list ── */}
       <div className="stories-sidebar">
         <div className="stories-sidebar-header">
-          <h2>Stories</h2>
-          <p className="stories-subtitle">Ongoing events traced across articles</p>
+          <h2>Ongoing Stories</h2>
           <input
             className="stories-search"
             type="text"
@@ -199,7 +200,7 @@ const StoriesTab: React.FC = () => {
         {!selectedStory ? (
           <div className="stories-detail-empty">
             <div className="stories-detail-empty-icon">📰</div>
-            <p>Select a story to see its articles and generate a narrative arc.</p>
+            <p>Select a story to see how it unfolded.</p>
           </div>
         ) : (
           <>
@@ -276,7 +277,7 @@ const StoriesTab: React.FC = () => {
 
               {!selectedStory.narrative && !narrativeLoading && (
                 <div className="narrative-placeholder">
-                  {'Click "Generate Story Arc" to create an AI narrative tracing how this event developed over time.'}
+                  No narrative generated yet.
                 </div>
               )}
             </div>
@@ -291,7 +292,10 @@ const StoriesTab: React.FC = () => {
                   {storyArticles.map((article, idx) => (
                     <div key={article.id} className="timeline-item">
                       <div className="timeline-dot"></div>
-                      <div className="timeline-content">
+                      <div
+                        className="timeline-content timeline-content--clickable"
+                        onClick={() => navigate(`/article/${article.id}`)}
+                      >
                         <div className="timeline-date">{formatDate(article.publication_date)}</div>
                         <div className="timeline-headline">{article.headline || 'Untitled'}</div>
                         <div className="timeline-preview">{article.content_preview}</div>

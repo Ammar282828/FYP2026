@@ -175,7 +175,7 @@
 
 .generate-summary-btn {
   width: 100%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
   border: none;
   padding: 12px;
@@ -349,7 +349,7 @@
 
 /* Search Results Summary */
 .search-results-summary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
   padding: 25px;
   border-radius: 12px;
@@ -783,7 +783,7 @@
 
 .generate-button {
   padding: 12px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
   border: none;
   border-radius: 8px;
@@ -804,7 +804,7 @@
 }
 
 .summary-result {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
   padding: 24px;
   border-radius: 12px;
@@ -857,9 +857,8 @@
 .analytics-card {
   background: white;
   border-radius: 12px;
-  padding: 28px;
+  padding: 24px 28px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  min-height: 420px;
 }
 
 .analytics-card h3 {
@@ -1286,7 +1285,7 @@
 
 /* Search Results Summary Box */
 .search-results-summary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  background: #4f46e5 !important;
   padding: 28px 32px !important;
   border-radius: 12px !important;
   margin-bottom: 24px !important;
@@ -1408,7 +1407,7 @@
 
 .analyze-btn,
 .process-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
 }
 
@@ -1614,7 +1613,7 @@
 }
 
 .model-badge {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
   padding: 4px 12px;
   border-radius: 12px;
@@ -2473,7 +2472,7 @@
 
 .search-btn {
   padding: 12px 32px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4f46e5;
   color: white;
   border: none;
   border-radius: 8px;

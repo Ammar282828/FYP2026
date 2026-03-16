@@ -242,7 +242,6 @@ const OCRTab: React.FC = () => {
     <div className="ocr-view">
       <div className="ocr-header">
         <h2>OCR Processing</h2>
-        <p className="tagline">Upload newspaper images for text extraction and analysis</p>
       </div>
 
       <div className="mode-toggle">
@@ -298,10 +297,6 @@ const OCRTab: React.FC = () => {
                   className="folder-path-field"
                 />
               </div>
-              <div className="folder-hint">
-                Enter the full path to a folder containing newspaper images (JPG, PNG, HEIC).
-                All images will be processed directly without uploading.
-              </div>
               <button
                 onClick={handleProcessLocalFolder}
                 disabled={processing || !folderPath.trim()}
@@ -331,7 +326,7 @@ const OCRTab: React.FC = () => {
                     ? selectedFile.name
                     : 'Click to select a newspaper image'}
                 </div>
-                <div className="upload-hint">{bulkMode ? 'Select a folder - all images will be processed automatically' : 'Supported: JPG, PNG, PDF'}</div>
+                <div className="upload-hint">JPG, PNG, PDF</div>
               </label>
             </div>
           )}
@@ -464,16 +459,9 @@ const OCRTab: React.FC = () => {
 
             <div className="status-message">{ocrStatus.message}</div>
 
-            {ocrStatus.status === 'processing' && (
-              <div className="status-info">
-                <p>Estimated time: {uploadedFile?.status === 'processing' ? '5-10 minutes' : 'Calculating...'}</p>
-              </div>
-            )}
-
             {ocrStatus.status === 'completed' && (
               <div className="status-success">
-                <p>OCR processing completed successfully.</p>
-                <p>The extracted articles have been added to the database and are now searchable.</p>
+                <p>Processing complete. Articles added to the database.</p>
               </div>
             )}
           </div>
@@ -534,10 +522,6 @@ const OCRTab: React.FC = () => {
       {filesNeedingDates.length > 0 && (
         <div className="files-needing-dates">
           <h3>Files Processed Without Date Detection</h3>
-          <p className="info-message">
-            The following {filesNeedingDates.length} file(s) were processed successfully but dates could not be auto-detected.
-            They were processed with default dates. You can update them later in the database if needed.
-          </p>
           <div className="files-list">
             {filesNeedingDates.map((file, idx) => (
               <div key={idx} className="file-item">
@@ -550,30 +534,6 @@ const OCRTab: React.FC = () => {
         </div>
       )}
 
-      <div className="ocr-info">
-        <h3>About OCR Processing</h3>
-        <p>
-          This tool allows you to process newspaper images and extract text using Optical Character Recognition (OCR).
-          The extracted text is then processed for:
-        </p>
-        <ul>
-          <li>Article extraction and segmentation</li>
-          <li>Named entity recognition (people, organizations, locations)</li>
-          <li>Sentiment analysis</li>
-          <li>Topic classification</li>
-        </ul>
-        <p>
-          <strong>Processing modes:</strong>
-        </p>
-        <ul>
-          <li><strong>Single Upload:</strong> Upload and process one image at a time</li>
-          <li><strong>Bulk Upload:</strong> Upload and process multiple images from a folder</li>
-          <li><strong>Local Folder:</strong> Process images directly from a local folder path without uploading (recommended for large batches)</li>
-        </ul>
-        <p>
-          <strong>Processing time:</strong> Typically 5-10 minutes per newspaper page depending on image quality and size.
-        </p>
-      </div>
     </div>
   );
 };

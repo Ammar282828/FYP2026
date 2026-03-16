@@ -37,12 +37,12 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "AIzaSyBtUk2lUskKgLDhpmxFf6Lfz6IAh7RH5bg")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "AIzaSyDp1jVDg9M8Da6EHFA2rlDImEDI5r_B-mw")
     GEMINI_API_KEYS: tuple = (
-        "AIzaSyBFU-NDa1Hnl307X-s9isis_uyL3R061No",
-        "AIzaSyA3wVS-D3eZuCaGJyvMqhnDWV7RrQD1rLw",
-        "AIzaSyDDxB_cBNLu2bFpNfnUQqClDUHaw-Mxc_k",
-        "AIzaSyBAu-h66uOfJ1Bl8zqlKZ3B71moPBc3St8",
+        "AIzaSyDp1jVDg9M8Da6EHFA2rlDImEDI5r_B-mw",
+        "AIzaSyBEw0r3jugyGTKj4OTEMVNwPsjSikmzweo",
+        "AIzaSyDDOoeD__L-xXzb2d4K3L5iq0wtjtAhVHs",
+        "AIzaSyBAzxW1_gTyaQWL58fQtngWMsVTo6I61Vo",
     )
     GEMINI_MODEL: str = "gemini-3.1-pro-preview"
     

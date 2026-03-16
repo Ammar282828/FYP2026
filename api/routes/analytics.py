@@ -17,6 +17,17 @@ if GEMINI_API_KEY:
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
+@router.get("/data-version")
+def get_data_version():
+    """Returns the article count — used by the frontend to detect when new data has been added."""
+    try:
+        db = get_firestore_db()
+        count = db.get_article_count()
+        return {"article_count": count, "version": str(count)}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to get data version: {str(e)}")
+
+
 @router.get("/total-articles")
 def count_articles():
     # counts how many articles are in the database

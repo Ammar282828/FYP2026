@@ -82,6 +82,17 @@ class FirestoreDB:
         self._cache_timestamp[key] = time.time()
         print(f"[CACHE SET] {key}")
 
+    def _clear_analytics_cache(self):
+        """Clear all analytics caches when new data is written."""
+        keys_to_clear = [k for k in self._cache if k != 'article_count']
+        for k in keys_to_clear:
+            self._cache.pop(k, None)
+            self._cache_timestamp.pop(k, None)
+        # Update article_count cache too
+        self._cache.pop('article_count', None)
+        self._cache_timestamp.pop('article_count', None)
+        print("[CACHE CLEARED] Analytics cache invalidated due to new data")
+
     def store_article(self, article_data: Dict) -> str:
         try:
             article_id = article_data.get('id', self.db.collection('articles').document().id)
@@ -103,6 +114,7 @@ class FirestoreDB:
             }
 
             self.db.collection('articles').document(article_id).set(doc_data)
+            self._clear_analytics_cache()
 
             print(f"[OK] Stored article: {article_id}")
             return article_id
@@ -110,6 +122,15 @@ class FirestoreDB:
         except Exception as e:
             print(f"[ERROR] Failed to store article: {e}")
             raise
+
+    def get_article_count(self) -> int:
+        cached = self._get_cached('article_count')
+        if cached is not None:
+            return cached
+        docs = self.db.collection('articles').select(['id']).stream()
+        count = sum(1 for _ in docs)
+        self._set_cached('article_count', count)
+        return count
 
     def get_article(self, article_id: str) -> Optional[Dict]:
         try:
@@ -553,10 +574,12 @@ class FirestoreDB:
             from itertools import combinations
             from collections import defaultdict
 
-            articles = self.db.collection('articles').stream()
+            # Sample up to 1500 articles to keep response time reasonable
+            articles = self.db.collection('articles').limit(1500).stream()
 
             pair_counts = defaultdict(int)
-            pair_articles = defaultdict(list)  # Store article info for each pair
+            # Store one article per pair for context (not all)
+            pair_example = {}
 
             for doc in articles:
                 data = doc.to_dict()
@@ -586,6 +609,9 @@ class FirestoreDB:
                         'original': entity_text
                     })
 
+                # Limit entities per article to avoid combinatorial explosion
+                filtered_entities = filtered_entities[:15]
+
                 for e1, e2 in combinations(filtered_entities, 2):
                     if e1['text'] == e2['text']:
                         continue
@@ -600,32 +626,42 @@ class FirestoreDB:
                         entity2_orig = e1['original']
 
                     pair_counts[pair] += 1
-                    
-                    # Extract context snippet showing both entities
-                    context = self._extract_relationship_context(content, entity1_orig, entity2_orig)
-                    if context:
-                        pair_articles[pair].append({
+
+                    # Store only one example article per pair
+                    if pair not in pair_example:
+                        pair_example[pair] = {
                             'article_id': article_id,
                             'headline': headline,
-                            'context': context
-                        })
+                            'content': content,
+                            'entity1_orig': entity1_orig,
+                            'entity2_orig': entity2_orig,
+                        }
+
+            # Sort and filter before extracting context (only for top results)
+            top_pairs = sorted(
+                [(pair, count) for pair, count in pair_counts.items() if count >= min_count],
+                key=lambda x: x[1], reverse=True
+            )[:limit]
 
             results = []
-            for (entity1, type1, entity2, type2), count in pair_counts.items():
-                if count >= min_count:
-                    # Get up to 3 example contexts
-                    examples = pair_articles[(entity1, type1, entity2, type2)][:3]
-                    print(f"[DEBUG] Pair: {entity1}-{entity2}, Count: {count}, Examples: {len(examples)}")
-                    if examples:
-                        print(f"[DEBUG] First example: headline={examples[0].get('headline')[:50]}, context_len={len(examples[0].get('context', ''))}")
-                    results.append({
-                        'entity1': entity1,
-                        'entity1_type': type1,
-                        'entity2': entity2,
-                        'entity2_type': type2,
-                        'cooccurrence_count': count,
-                        'examples': examples
-                    })
+            for (entity1, type1, entity2, type2), count in top_pairs:
+                pair = (entity1, type1, entity2, type2)
+                examples = []
+                ex = pair_example.get(pair)
+                if ex:
+                    context = self._extract_relationship_context(
+                        ex['content'], ex['entity1_orig'], ex['entity2_orig']
+                    )
+                    if context:
+                        examples = [{'article_id': ex['article_id'], 'headline': ex['headline'], 'context': context}]
+                results.append({
+                    'entity1': entity1,
+                    'entity1_type': type1,
+                    'entity2': entity2,
+                    'entity2_type': type2,
+                    'cooccurrence_count': count,
+                    'examples': examples
+                })
 
             results.sort(key=lambda x: x['cooccurrence_count'], reverse=True)
             result = results[:limit]

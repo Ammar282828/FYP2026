@@ -36,7 +36,7 @@ interface AnalyticsData {
 }
 
 const BAR_COLORS = [
-  '#667eea', '#764ba2', '#f5576c', '#f093fb', '#4facfe',
+  '#667eea', '#4f46e5', '#f5576c', '#f093fb', '#4facfe',
   '#43e97b', '#fa709a', '#fee140', '#30cfd0', '#a18cd1'
 ];
 
@@ -273,7 +273,7 @@ const AdBrowserTab: React.FC = () => {
           <div className="analytics-card">
             <h3 className="analytics-card-title">Emotional Appeals</h3>
             {Object.keys(analytics.emotional_appeals).length
-              ? renderHorizontalBars(analytics.emotional_appeals, 8, ['#f093fb', '#f5576c', '#fee140', '#30cfd0', '#667eea', '#fa709a', '#43e97b', '#764ba2'])
+              ? renderHorizontalBars(analytics.emotional_appeals, 8, ['#f093fb', '#f5576c', '#fee140', '#30cfd0', '#667eea', '#fa709a', '#43e97b', '#4f46e5'])
               : <p className="no-data">No data yet.</p>}
           </div>
 

@@ -8,6 +8,22 @@ import os
 from database.firestore_db import get_db
 from utils.filters import filter_and_normalize_entities
 
+# Topic IDs that are purely classified ads — tenders, job listings
+_CLASSIFIED_TOPIC_IDS = {4, 5}
+
+# Headline keywords that indicate a classified ad regardless of topic
+_CLASSIFIED_KEYWORDS = [
+    'tender', 'situation vacant', 'job opportunity', 'vacancy',
+    'applications are invited', 'notice inviting tender', 'corrigendum',
+    'pvt.) ltd.', 'earnest money', 'nit no.', 'n.i.t',
+]
+
+def _is_classified(article: dict) -> bool:
+    if article.get('topic_id') in _CLASSIFIED_TOPIC_IDS:
+        return True
+    headline = (article.get('headline') or '').lower()
+    return any(kw in headline for kw in _CLASSIFIED_KEYWORDS)
+
 try:
     import google.generativeai as genai
 except ImportError:
@@ -31,6 +47,8 @@ def list_articles(limit: int = 100, offset: int = 0):
         articles = []
         for doc in articles_docs:
             data = doc.to_dict()
+            if _is_classified(data):
+                continue
             data['content_preview'] = data.get('content', '')[:200]
             articles.append(data)
 
@@ -89,7 +107,8 @@ def search_keyword(request: dict):
 
     try:
         db = get_db()
-        articles = db.search_articles(keyword, limit=limit)
+        articles = db.search_articles(keyword, limit=limit * 2)
+        articles = [a for a in articles if not _is_classified(a)]
 
         total = len(articles)
         articles = articles[offset:offset + limit]
@@ -131,7 +150,8 @@ def search_entity(request: dict):
 
     try:
         db = get_db()
-        articles = db.search_by_entity(entity_name, limit=limit)
+        articles = db.search_by_entity(entity_name, limit=limit * 2)
+        articles = [a for a in articles if not _is_classified(a)]
 
         total = len(articles)
         articles = articles[offset:offset + limit]
@@ -236,7 +256,7 @@ def get_related_articles(article_id: str):
         related = []
         for aid in other_ids:
             a = db.get_article(aid)
-            if a:
+            if a and not _is_classified(a):
                 a['content_preview'] = (a.get('content') or '')[:200]
                 pub = a.get('publication_date')
                 if pub and hasattr(pub, 'isoformat'):
