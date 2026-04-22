@@ -18,6 +18,20 @@ if GEMINI_API_KEY:
 
 router = APIRouter(prefix="/api/topics", tags=["topics"])
 
+# In-memory cache for heavy full-scan endpoints
+import time as _time
+_endpoint_cache: dict = {}
+_endpoint_cache_ts: dict = {}
+_CACHE_TTL = 3600
+
+def _cached(key, fn):
+    if key in _endpoint_cache and _time.time() - _endpoint_cache_ts.get(key, 0) < _CACHE_TTL:
+        return _endpoint_cache[key]
+    result = fn()
+    _endpoint_cache[key] = result
+    _endpoint_cache_ts[key] = _time.time()
+    return result
+
 _topics_data = None
 
 
@@ -257,97 +271,63 @@ def get_topic_trends_over_time(
 ):
     """Get topic distribution over time to see how topics evolve"""
     try:
-        topics_data = load_topics_data()
+        cache_key = f"topic_trends_{granularity}_{start_date}_{end_date}"
 
-        if not topics_data:
-            raise HTTPException(400, "Topics data not available")
+        def _compute():
+            topics_data = load_topics_data()
+            if not topics_data:
+                raise HTTPException(400, "Topics data not available")
 
-        from datetime import datetime as dt
-        from collections import defaultdict
+            from datetime import datetime as dt
+            from collections import defaultdict
 
-        db = get_firestore_db()
+            db = get_firestore_db()
+            articles_query = db.db.collection('articles')
 
-        articles_query = db.db.collection('articles')
+            if start_date:
+                articles_query = articles_query.where('publication_date', '>=', dt.fromisoformat(start_date))
+            if end_date:
+                articles_query = articles_query.where('publication_date', '<=', dt.fromisoformat(end_date))
 
-        if start_date:
-            start_dt = dt.fromisoformat(start_date)
-            articles_query = articles_query.where('publication_date', '>=', start_dt)
+            time_topic_counts = defaultdict(lambda: defaultdict(int))
 
-        if end_date:
-            end_dt = dt.fromisoformat(end_date)
-            articles_query = articles_query.where('publication_date', '<=', end_dt)
+            for article_doc in articles_query.stream():
+                article_data = article_doc.to_dict()
+                pub_date = article_data.get('publication_date')
+                topic_label = article_data.get('topic_label', '')
 
-        articles_stream = articles_query.stream()
-
-        time_topic_counts = defaultdict(lambda: defaultdict(int))
-        
-        articles_processed = 0
-        articles_with_topics = 0
-
-        for article_doc in articles_stream:
-            articles_processed += 1
-            article_data = article_doc.to_dict()
-            pub_date = article_data.get('publication_date')
-            topic_label = article_data.get('topic_label', '')
-
-            # Skip articles without dates or topics
-            if not pub_date or not topic_label or topic_label == 'Uncategorized':
-                continue
-
-            articles_with_topics += 1
-
-            if hasattr(pub_date, 'strftime'):
-                date_obj = pub_date
-            else:
-                try:
-                    date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
-                except:
+                if not pub_date or not topic_label or topic_label == 'Uncategorized':
                     continue
 
-            if granularity == 'year':
-                period = date_obj.strftime('%Y')
-            elif granularity == 'month':
-                period = date_obj.strftime('%Y-%m')
-            else:
-                period = date_obj.strftime('%Y-%m-%d')
+                if hasattr(pub_date, 'strftime'):
+                    date_obj = pub_date
+                else:
+                    try:
+                        date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
+                    except:
+                        continue
 
-            time_topic_counts[period][topic_label] += 1
+                if granularity == 'year':
+                    period = date_obj.strftime('%Y')
+                elif granularity == 'month':
+                    period = date_obj.strftime('%Y-%m')
+                else:
+                    period = date_obj.strftime('%Y-%m-%d')
 
-        print(f"[DEBUG] Topic trends: processed {articles_processed} articles, {articles_with_topics} with topics")
-        print(f"[DEBUG] Found {len(time_topic_counts)} periods")
-        if time_topic_counts:
-            first_period = list(time_topic_counts.keys())[0]
-            print(f"[DEBUG] First period: {first_period}, topics: {list(time_topic_counts[first_period].keys())[:3]}")
+                time_topic_counts[period][topic_label] += 1
 
-        # Get all unique topics from the data
-        all_topics = set()
-        for period_topics in time_topic_counts.values():
-            all_topics.update(period_topics.keys())
+            periods = sorted(time_topic_counts.keys())
+            trends = []
+            for period in periods:
+                period_data = {'period': period, 'topics': []}
+                for topic_label, count in time_topic_counts[period].items():
+                    period_data['topics'].append({'topic_id': topic_label, 'topic_name': topic_label, 'count': count})
+                period_data['topics'].sort(key=lambda x: x['count'], reverse=True)
+                trends.append(period_data)
 
-        periods = sorted(time_topic_counts.keys())
-        trends = []
+            return {"granularity": granularity, "periods": len(periods), "trends": trends}
 
-        for period in periods:
-            period_data = {
-                'period': period,
-                'topics': []
-            }
-
-            for topic_label, count in time_topic_counts[period].items():
-                period_data['topics'].append({
-                    'topic_id': topic_label,  # Keep for compatibility
-                    'topic_name': topic_label,
-                    'count': count
-                })
-
-            period_data['topics'].sort(key=lambda x: x['count'], reverse=True)
-            trends.append(period_data)
-
-        return {
-            "granularity": granularity,
-            "periods": len(periods),
-            "trends": trends
-        }
+        return _cached(cache_key, _compute)
 
     except HTTPException:
         raise
@@ -366,70 +346,61 @@ def get_topic_sentiment_over_time(
 ):
     """Get average sentiment for topics over time"""
     try:
-        from datetime import datetime as dt
-        from collections import defaultdict
+        cache_key = f"topic_sentiment_{granularity}_{topic_id}_{start_date}_{end_date}"
 
-        db = get_firestore_db()
-        articles_query = db.db.collection('articles')
+        def _compute():
+            from datetime import datetime as dt
+            from collections import defaultdict
 
-        if start_date:
-            articles_query = articles_query.where('publication_date', '>=', dt.fromisoformat(start_date))
-        if end_date:
-            articles_query = articles_query.where('publication_date', '<=', dt.fromisoformat(end_date))
+            db = get_firestore_db()
+            articles_query = db.db.collection('articles')
 
-        period_topic_sentiments = defaultdict(lambda: defaultdict(list))
+            if start_date:
+                articles_query = articles_query.where('publication_date', '>=', dt.fromisoformat(start_date))
+            if end_date:
+                articles_query = articles_query.where('publication_date', '<=', dt.fromisoformat(end_date))
 
-        for article_doc in articles_query.stream():
-            article = article_doc.to_dict()
-            pub_date = article.get('publication_date')
-            article_topic_id = article.get('topic_id')
-            sentiment_score = article.get('sentiment_score')
+            period_topic_sentiments = defaultdict(lambda: defaultdict(list))
 
-            if not pub_date or article_topic_id is None or article_topic_id == -1 or sentiment_score is None:
-                continue
+            for article_doc in articles_query.stream():
+                article = article_doc.to_dict()
+                pub_date = article.get('publication_date')
+                article_topic_id = article.get('topic_id')
+                sentiment_score = article.get('sentiment_score')
 
-            if topic_id is not None and article_topic_id != topic_id:
-                continue
-
-            if hasattr(pub_date, 'strftime'):
-                date_obj = pub_date
-            else:
-                try:
-                    date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
-                except:
+                if not pub_date or article_topic_id is None or article_topic_id == -1 or sentiment_score is None:
+                    continue
+                if topic_id is not None and article_topic_id != topic_id:
                     continue
 
-            if granularity == 'year':
-                period = date_obj.strftime('%Y')
-            elif granularity == 'month':
-                period = date_obj.strftime('%Y-%m')
-            else:
-                period = date_obj.strftime('%Y-%m-%d')
+                if hasattr(pub_date, 'strftime'):
+                    date_obj = pub_date
+                else:
+                    try:
+                        date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
+                    except:
+                        continue
 
-            period_topic_sentiments[period][article_topic_id].append(sentiment_score)
+                if granularity == 'year':
+                    period = date_obj.strftime('%Y')
+                elif granularity == 'month':
+                    period = date_obj.strftime('%Y-%m')
+                else:
+                    period = date_obj.strftime('%Y-%m-%d')
 
-        trends = []
-        for period in sorted(period_topic_sentiments.keys()):
-            period_data = {
-                'period': period,
-                'topics': []
-            }
+                period_topic_sentiments[period][article_topic_id].append(sentiment_score)
 
-            for t_id, scores in period_topic_sentiments[period].items():
-                avg_sentiment = sum(scores) / len(scores) if scores else 0
-                period_data['topics'].append({
-                    'topic_id': t_id,
-                    'avg_sentiment': round(avg_sentiment, 3),
-                    'article_count': len(scores)
-                })
+            trends = []
+            for period in sorted(period_topic_sentiments.keys()):
+                period_data = {'period': period, 'topics': []}
+                for t_id, scores in period_topic_sentiments[period].items():
+                    avg_sentiment = sum(scores) / len(scores) if scores else 0
+                    period_data['topics'].append({'topic_id': t_id, 'avg_sentiment': round(avg_sentiment, 3), 'article_count': len(scores)})
+                trends.append(period_data)
 
-            trends.append(period_data)
+            return {"granularity": granularity, "topic_id": topic_id, "trends": trends}
 
-        return {
-            "granularity": granularity,
-            "topic_id": topic_id,
-            "trends": trends
-        }
+        return _cached(cache_key, _compute)
 
     except Exception as e:
         print(f"Topic sentiment error: {str(e)}")

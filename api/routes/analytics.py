@@ -16,6 +16,20 @@ if GEMINI_API_KEY:
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
+# In-memory cache for heavy full-scan endpoints
+import time as _time
+_endpoint_cache: dict = {}
+_endpoint_cache_ts: dict = {}
+_CACHE_TTL = 3600  # 1 hour
+
+def _cached(key, fn):
+    if key in _endpoint_cache and _time.time() - _endpoint_cache_ts.get(key, 0) < _CACHE_TTL:
+        return _endpoint_cache[key]
+    result = fn()
+    _endpoint_cache[key] = result
+    _endpoint_cache_ts[key] = _time.time()
+    return result
+
 
 @router.get("/data-version")
 def get_data_version():
@@ -397,6 +411,85 @@ def get_location_analytics(
         return data
     except Exception as e:
         raise HTTPException(500, f"Failed to get location analytics: {str(e)}")
+
+
+@router.get("/word-count-distribution")
+def word_count_distribution():
+    """Returns article counts bucketed by word count ranges."""
+    def _compute():
+        db = get_db()
+        articles = db.db.collection('articles').stream()
+        buckets = {"0-100": 0, "100-300": 0, "300-500": 0, "500-1000": 0,
+                   "1000-2000": 0, "2000-5000": 0, "5000+": 0}
+        total_words = 0
+        count = 0
+        for doc in articles:
+            data = doc.to_dict()
+            wc = data.get('word_count', 0) or 0
+            total_words += wc
+            count += 1
+            if wc < 100: buckets["0-100"] += 1
+            elif wc < 300: buckets["100-300"] += 1
+            elif wc < 500: buckets["300-500"] += 1
+            elif wc < 1000: buckets["500-1000"] += 1
+            elif wc < 2000: buckets["1000-2000"] += 1
+            elif wc < 5000: buckets["2000-5000"] += 1
+            else: buckets["5000+"] += 1
+        avg = round(total_words / count) if count else 0
+        return {"buckets": buckets, "average_word_count": avg, "total_articles": count}
+    try:
+        return _cached("word_count_dist", _compute)
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@router.get("/page-distribution")
+def page_distribution():
+    """Returns article counts grouped by page number."""
+    def _compute():
+        db = get_db()
+        articles = db.db.collection('articles').stream()
+        pages: dict = {}
+        for doc in articles:
+            data = doc.to_dict()
+            page = data.get('page_number') or data.get('page') or 'Unknown'
+            page_str = str(page)
+            pages[page_str] = pages.get(page_str, 0) + 1
+        def sort_key(k):
+            try: return (0, int(k))
+            except ValueError: return (1, k)
+        sorted_pages = dict(sorted(pages.items(), key=lambda x: sort_key(x[0])))
+        return {"pages": sorted_pages}
+    try:
+        return _cached("page_dist", _compute)
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@router.get("/source-distribution")
+def source_distribution():
+    """Returns article counts and sentiment breakdown per newspaper source."""
+    def _compute():
+        db = get_db()
+        articles = db.db.collection('articles').stream()
+        sources: dict = {}
+        for doc in articles:
+            data = doc.to_dict()
+            source = data.get('source') or data.get('newspaper') or 'Unknown'
+            if source not in sources:
+                sources[source] = {"count": 0, "positive": 0, "neutral": 0, "negative": 0}
+            sources[source]["count"] += 1
+            sentiment = (data.get('sentiment') or 'neutral').lower()
+            if sentiment in ('positive', 'neutral', 'negative'):
+                sources[source][sentiment] += 1
+            else:
+                sources[source]["neutral"] += 1
+        sorted_sources = dict(sorted(sources.items(), key=lambda x: x[1]["count"], reverse=True))
+        return {"sources": sorted_sources, "total_sources": len(sorted_sources)}
+    try:
+        return _cached("source_dist", _compute)
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
 
 
 @router.post("/ai-summary")
