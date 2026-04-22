@@ -26,6 +26,8 @@ load_dotenv()
 from PIL import Image, ImageEnhance, ImageOps
 import google.generativeai as genai
 
+from services.gemini_adapter import create_model as _create_gemini_model, describe_key as _describe_key
+
 import spacy
 from transformers import pipeline
 
@@ -241,21 +243,23 @@ class ImageProcessor:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
-        genai.configure(api_key=self._keys[self._key_index])
-        self.model = genai.GenerativeModel(
+        key = self._keys[self._key_index] if self._keys else ''
+        print(f"  [INFO] ImageProcessor using {_describe_key(key)}")
+        self.model = _create_gemini_model(
+            key,
             config.GEMINI_MODEL,
-            safety_settings=self.safety_settings
+            safety_settings=self.safety_settings,
         )
 
     def _rotate_key(self):
         """Switch to the next API key and reinitialise the model."""
         self._key_index = (self._key_index + 1) % len(self._keys)
         new_key = self._keys[self._key_index]
-        print(f"  [INFO] Rotating to API key {self._key_index + 1}/{len(self._keys)}")
-        genai.configure(api_key=new_key)
-        self.model = genai.GenerativeModel(
+        print(f"  [INFO] Rotating to API key {self._key_index + 1}/{len(self._keys)} ({_describe_key(new_key)})")
+        self.model = _create_gemini_model(
+            new_key,
             self.config.GEMINI_MODEL,
-            safety_settings=self.safety_settings
+            safety_settings=self.safety_settings,
         )
 
     def _generate(self, prompt_parts):
@@ -404,7 +408,30 @@ If not found, write UNKNOWN."""
             img = self.enhance_image(img)
 
             print(f"  [INFO] Attempting OCR extraction (attempt 1/2)...")
-            prompt = """What text do you see in this image? Extract all readable text."""
+            prompt = """You are an OCR + layout analyzer for a Dawn newspaper page (Pakistan, 1990-1992).
+
+Identify every distinct news article / editorial / opinion piece on this page and transcribe each one as a SEPARATE block in EXACTLY this format (no markdown, no preamble, no commentary):
+
+ARTICLE_START
+NUMBER: 1
+HEADLINE: <the article's headline, one line>
+CONTENT: <the full body text of this article, preserving paragraph breaks>
+ARTICLE_END
+
+ARTICLE_START
+NUMBER: 2
+HEADLINE: <next headline>
+CONTENT: <next body>
+ARTICLE_END
+
+Rules:
+- Skip ads, classifieds, photo captions, weather boxes, stock tables, cartoons, crosswords, and mastheads.
+- Skip anything that is clearly a photo caption rather than a standalone article.
+- If a piece has no headline (rare), invent a short one that summarises it.
+- Transcribe text verbatim — do not summarise the body.
+- Output nothing outside the ARTICLE_START/ARTICLE_END blocks. No explanations, no "Here is..." preamble.
+
+Begin now."""
             response = self._generate([prompt, img])
 
             text = ""
@@ -414,11 +441,28 @@ If not found, write UNKNOWN."""
                     print(f"  [OK] Got response ({len(text)} chars)")
                 except Exception as e:
                     print(f"  [WARNING] Could not get text from response: {e}")
+            else:
+                # Diagnostic: why no parts?
+                try:
+                    fr = getattr(getattr(response, '_raw', response), 'prompt_feedback', None)
+                    if fr:
+                        print(f"  [DEBUG] prompt_feedback: {fr}")
+                except Exception:
+                    pass
 
             if not text or len(text) < 50:
-                print(f"  [WARNING] Response too short or empty, retrying...")
+                print(f"  [WARNING] Response too short or empty, retrying with structured prompt...")
                 print(f"  [INFO] Attempting OCR extraction (attempt 2/2)...")
-                response = self._generate(["Transcribe this document.", img])
+                retry_prompt = """Transcribe every article on this newspaper page. For each one, output:
+
+ARTICLE_START
+NUMBER: <n>
+HEADLINE: <short headline>
+CONTENT: <full body text, preserving paragraphs>
+ARTICLE_END
+
+Skip ads, captions, weather, and classifieds. Output nothing else — no commentary, no preamble."""
+                response = self._generate([retry_prompt, img])
                 if hasattr(response, 'parts') and response.parts:
                     try:
                         text = response.text
@@ -460,18 +504,34 @@ If not found, write UNKNOWN."""
                 print(f"  [INFO] No structured format found, parsing as single article")
                 lines = text.split('\n')
 
-                # Try to find something that looks like a headline (short line, capitalized)
+                # Drop leading preamble lines that Gemini likes to emit.
+                _preamble_prefixes = (
+                    'here is', 'here are', 'here\'s', 'of course', 'sure,',
+                    'below is', 'i have transcribed', 'i cannot', 'this is',
+                    'based on the image', 'this document',
+                )
+
+                def _is_preamble(s: str) -> bool:
+                    low = s.strip().lower().rstrip(':').rstrip('.')
+                    return any(low.startswith(p) for p in _preamble_prefixes)
+
+                # Try to find something that looks like a headline
                 headline = "Extracted Text"
                 content_start = 0
 
-                for i, line in enumerate(lines[:10]):  # Check first 10 lines for headline
-                    line = line.strip()
-                    if line and len(line) < 100 and len(line.split()) > 2:
-                        headline = line
+                for i, line in enumerate(lines[:15]):
+                    line_s = line.strip()
+                    if not line_s or _is_preamble(line_s):
+                        continue
+                    # Headline heuristic: short line with 2+ words, not ending in period.
+                    if len(line_s) < 120 and len(line_s.split()) >= 2 and not line_s.endswith('.'):
+                        headline = line_s
                         content_start = i + 1
                         break
 
-                content = '\n'.join(lines[content_start:]).strip()
+                # Skip preamble lines inside body text too.
+                body_lines = [l for l in lines[content_start:] if not _is_preamble(l)]
+                content = '\n'.join(body_lines).strip()
 
                 if content and len(content) > 50:
                     articles.append({
@@ -758,8 +818,8 @@ Respond with ONLY valid JSON, no markdown:
         keys_tried = 0
         while keys_tried < len(self._topic_keys):
             try:
-                genai.configure(api_key=self._topic_keys[self._topic_key_index])
-                model = genai.GenerativeModel('gemini-2.0-flash')
+                cur_key = self._topic_keys[self._topic_key_index]
+                model = _create_gemini_model(cur_key, 'gemini-2.0-flash')
                 response = model.generate_content(prompt)
                 raw = response.text.strip() if response.parts else ""
 
@@ -839,8 +899,8 @@ Respond with ONLY a valid JSON array, no markdown:
             classified = False
             while keys_tried < len(self._topic_keys):
                 try:
-                    genai.configure(api_key=self._topic_keys[self._topic_key_index])
-                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    cur_key = self._topic_keys[self._topic_key_index]
+                    model = _create_gemini_model(cur_key, 'gemini-2.0-flash')
                     response = model.generate_content(prompt)
                     raw = response.text.strip() if response.parts else ""
 
