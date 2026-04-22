@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from './ui/Toast';
 
 interface SearchFilters {
   startDate?: string;
@@ -10,18 +12,31 @@ interface SearchFilters {
   entityType?: string;
 }
 
+interface SavedSearch {
+  id: string;
+  name: string;
+  query: string;
+  filters?: SearchFilters;
+  created_at: string;
+}
+
 interface SearchPanelProps {
   onResults: (results: any) => void;
   onFiltersChange?: (filters: SearchFilters) => void;
+  onQueryChange?: (query: string) => void;
 }
 
-const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange }) => {
+const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, onQueryChange }) => {
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [searchType, setSearchType] = useState<'keyword' | 'entity'>('keyword');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState('date');
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
 
   const [filters, setFilters] = useState<SearchFilters>({
     startDate: '1990-01-01',
@@ -34,6 +49,80 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange })
   useEffect(() => {
     loadSuggestions();
   }, []);
+
+  const loadSavedSearches = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await axios.get(`${API_BASE}/bookmarks/saved-searches`);
+      setSavedSearches(res.data.saved_searches || []);
+    } catch (err) {
+      console.error('Failed to load saved searches:', err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadSavedSearches();
+    } else {
+      setSavedSearches([]);
+    }
+  }, [user, loadSavedSearches]);
+
+  const handleSaveSearch = async () => {
+    if (!user) return;
+    if (!query.trim() && !filtersHaveValues()) {
+      toast('Enter a query or filters before saving', 'error');
+      return;
+    }
+    const name = window.prompt('Name this search:', query.trim() || 'My saved search');
+    if (!name || !name.trim()) return;
+    try {
+      await axios.post(`${API_BASE}/bookmarks/saved-searches`, {
+        name: name.trim(),
+        query: query.trim(),
+        filters,
+      });
+      toast('Search saved', 'success');
+      loadSavedSearches();
+    } catch (err: any) {
+      console.error('Failed to save search:', err);
+      toast(`Failed to save: ${err?.response?.data?.detail || err?.message || 'Unknown error'}`, 'error');
+    }
+  };
+
+  const applySavedSearch = (s: SavedSearch) => {
+    setQuery(s.query || '');
+    if (s.filters) {
+      setFilters({
+        startDate: s.filters.startDate || '1990-01-01',
+        endDate: s.filters.endDate || '1992-12-31',
+        sentiment: s.filters.sentiment || '',
+        topic: s.filters.topic || '',
+        entityType: s.filters.entityType || '',
+      });
+    }
+    setShowSaved(false);
+    // run the search after state updates
+    setTimeout(() => handleSearch(), 80);
+  };
+
+  const deleteSavedSearch = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await axios.delete(`${API_BASE}/bookmarks/saved-searches/${id}`);
+      setSavedSearches(prev => prev.filter(s => s.id !== id));
+      toast('Saved search deleted', 'success');
+    } catch (err) {
+      console.error('Failed to delete saved search:', err);
+      toast('Failed to delete saved search', 'error');
+    }
+  };
+
+  const filtersHaveValues = () => {
+    return !!(filters.sentiment || filters.topic || filters.entityType ||
+      (filters.startDate && filters.startDate !== '1990-01-01') ||
+      (filters.endDate && filters.endDate !== '1992-12-31'));
+  };
 
   const loadSuggestions = async () => {
     try {
@@ -77,6 +166,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange })
       onResults(response.data);
       if (onFiltersChange) {
         onFiltersChange(filters);
+      }
+      if (onQueryChange) {
+        onQueryChange(query);
       }
     } catch (error) {
       console.error('Search error:', error);
@@ -162,6 +254,117 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange })
         >
           Filters {activeFilterCount > 0 && `(${activeFilterCount})`}
         </button>
+        {user && (
+          <>
+            <button
+              onClick={handleSaveSearch}
+              className="filter-toggle-button"
+              title="Save this search"
+            >
+              {'\u2B50'} Save search
+            </button>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowSaved(v => !v)}
+                className="filter-toggle-button"
+                title="View saved searches"
+              >
+                Saved {savedSearches.length > 0 && `(${savedSearches.length})`}
+              </button>
+              {showSaved && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    right: 0,
+                    minWidth: 280,
+                    maxWidth: 360,
+                    maxHeight: 400,
+                    overflowY: 'auto',
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                    zIndex: 50,
+                    padding: 8,
+                  }}
+                >
+                  <div style={{
+                    fontSize: 11,
+                    textTransform: 'uppercase',
+                    color: 'var(--text-secondary)',
+                    padding: '4px 8px',
+                    letterSpacing: 0.5,
+                  }}>
+                    Saved searches
+                  </div>
+                  {savedSearches.length === 0 ? (
+                    <div style={{ padding: '12px 8px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+                      No saved searches yet.
+                    </div>
+                  ) : (
+                    savedSearches.map(s => (
+                      <div
+                        key={s.id}
+                        onClick={() => applySavedSearch(s)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '8px',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          background: 'transparent',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: 'var(--text-primary)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}>
+                            {s.name}
+                          </div>
+                          {s.query && (
+                            <div style={{
+                              fontSize: 11,
+                              color: 'var(--text-secondary)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}>
+                              "{s.query}"
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => deleteSavedSearch(s.id, e)}
+                          title="Delete saved search"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-tertiary)',
+                            cursor: 'pointer',
+                            fontSize: 14,
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                          }}
+                        >
+                          {'\u2715'}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {showFilters && (

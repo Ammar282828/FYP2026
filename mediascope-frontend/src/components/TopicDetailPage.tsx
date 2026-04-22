@@ -4,9 +4,9 @@ import axios from 'axios';
 import { API_BASE } from '../config';
 
 const sentimentColor: Record<string, string> = {
-  positive: '#10b981',
-  negative: '#ef4444',
-  neutral: '#6b7280',
+  positive: 'var(--positive)',
+  negative: 'var(--negative)',
+  neutral: 'var(--text-secondary)',
 };
 
 const TopicDetailPage: React.FC = () => {
@@ -55,7 +55,7 @@ const TopicDetailPage: React.FC = () => {
 
   if (loadingTopic) {
     return (
-      <div style={{ padding: '3rem', textAlign: 'center', color: '#6b7280' }}>
+      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
         Loading topic...
       </div>
     );
@@ -63,45 +63,31 @@ const TopicDetailPage: React.FC = () => {
 
   if (error) {
     return (
-      <div style={{ padding: '3rem', textAlign: 'center', color: '#ef4444' }}>
+      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--danger-color)' }}>
         {error}
       </div>
     );
   }
 
-  const topicColor = '#667eea';
+  const topicColor = 'var(--primary-color)';
   const keywords: string[] = topic?.keywords || [];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f9fafb' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-secondary)' }}>
       {/* Header bar */}
       <div style={{
-        background: 'white',
-        borderBottom: '1px solid #e5e7eb',
+        background: 'var(--bg-primary)',
+        borderBottom: '1px solid var(--border-color)',
         padding: '1rem 2rem',
         display: 'flex',
         alignItems: 'center',
         gap: '1rem',
       }}>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            background: 'none',
-            border: '1px solid #e5e7eb',
-            borderRadius: '6px',
-            padding: '6px 14px',
-            fontSize: '13px',
-            cursor: 'pointer',
-            color: '#374151',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-          }}
-        >
-          ← Back
+        <button className="back-button" onClick={() => navigate(-1)}>
+          {'\u2190'} Back
         </button>
-        <span style={{ color: '#9ca3af', fontSize: '13px' }}>Analytics / Discovered Topics /</span>
-        <span style={{ fontWeight: '600', fontSize: '13px', color: '#1f2937' }}>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>Analytics / Discovered Topics /</span>
+        <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--text-primary)' }}>
           {topic?.name || `Topic ${id}`}
         </span>
       </div>
@@ -118,11 +104,11 @@ const TopicDetailPage: React.FC = () => {
               borderRadius: '50%',
               flexShrink: 0,
             }} />
-            <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: '700', color: '#1f2937' }}>
+            <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: '700', color: 'var(--text-primary)' }}>
               {topic?.name || `Topic ${id}`}
             </h1>
             <span style={{
-              background: '#eef2ff',
+              background: 'var(--bg-tertiary)',
               color: topicColor,
               padding: '4px 12px',
               borderRadius: '12px',
@@ -138,8 +124,8 @@ const TopicDetailPage: React.FC = () => {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
               {keywords.map((kw, i) => (
                 <span key={i} style={{
-                  background: '#f3f4f6',
-                  color: '#374151',
+                  background: 'var(--bg-tertiary)',
+                  color: 'var(--text-primary)',
                   padding: '3px 10px',
                   borderRadius: '6px',
                   fontSize: '12px',
@@ -153,28 +139,22 @@ const TopicDetailPage: React.FC = () => {
         </div>
 
         {/* AI Summary */}
-        <div style={{
-          background: 'white',
-          border: '1px solid #e5e7eb',
-          borderRadius: '10px',
-          padding: '1.5rem',
-          marginBottom: '2rem',
-        }}>
-          <h2 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: '700', color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="entity-chart-card">
+          <h2 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>AI Summary</span>
             {loadingSummary && (
-              <span style={{ fontSize: '12px', fontWeight: '400', color: '#9ca3af' }}>generating...</span>
+              <span style={{ fontSize: '12px', fontWeight: '400', color: 'var(--text-tertiary)' }}>generating...</span>
             )}
           </h2>
           {loadingSummary ? (
-            <div style={{ color: '#9ca3af', fontSize: '14px', fontStyle: 'italic' }}>
+            <div style={{ color: 'var(--text-tertiary)', fontSize: '14px', fontStyle: 'italic' }}>
               Analyzing {articles.length} articles with Gemini...
             </div>
           ) : (
             <div style={{
               fontSize: '14px',
               lineHeight: '1.75',
-              color: '#374151',
+              color: 'var(--text-primary)',
               whiteSpace: 'pre-wrap',
             }}>
               {summary}
@@ -183,65 +163,50 @@ const TopicDetailPage: React.FC = () => {
         </div>
 
         {/* Articles list */}
-        <div style={{
-          background: 'white',
-          border: '1px solid #e5e7eb',
-          borderRadius: '10px',
-          overflow: 'hidden',
-        }}>
+        <div className="entity-chart-card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{
             padding: '1rem 1.5rem',
-            borderBottom: '1px solid #e5e7eb',
+            borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '700', color: '#1f2937' }}>
+            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '700', color: 'var(--text-primary)' }}>
               All Articles
             </h2>
-            <span style={{ fontSize: '13px', color: '#6b7280' }}>{articles.length} total</span>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{articles.length} total</span>
           </div>
 
           {articles.length === 0 ? (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '14px' }}>
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '14px' }}>
               No articles found for this topic.
             </div>
           ) : (
-            <div>
+            <div className="entity-articles-list" style={{ padding: '0 1.5rem' }}>
               {articles.map((article, idx) => (
                 <div
                   key={article.id || idx}
+                  className="entity-article-row"
                   onClick={() => navigate(`/article/${article.id}`)}
-                  style={{
-                    padding: '14px 1.5rem',
-                    borderBottom: idx < articles.length - 1 ? '1px solid #f3f4f6' : 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#f9fafb')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'white')}
                 >
-                  <span style={{ color: '#d1d5db', fontSize: '12px', minWidth: '28px' }}>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', minWidth: '28px' }}>
                     {idx + 1}
                   </span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937', marginBottom: '2px' }}>
+                  <div className="entity-article-info">
+                    <span className="entity-article-headline">
                       {article.headline}
-                    </div>
+                    </span>
                     {article.publication_date && (
-                      <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                      <span className="entity-article-meta">
                         {article.publication_date}
-                      </div>
+                      </span>
                     )}
                   </div>
                   {article.sentiment_label && (
                     <span style={{
                       fontSize: '11px',
                       fontWeight: '600',
-                      color: sentimentColor[article.sentiment_label] || '#6b7280',
+                      color: sentimentColor[article.sentiment_label] || 'var(--text-secondary)',
                       textTransform: 'capitalize',
                       minWidth: '55px',
                       textAlign: 'right',
@@ -249,7 +214,6 @@ const TopicDetailPage: React.FC = () => {
                       {article.sentiment_label}
                     </span>
                   )}
-                  <span style={{ color: '#9ca3af', fontSize: '13px' }}>→</span>
                 </div>
               ))}
             </div>

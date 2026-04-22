@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+
+interface SearchFilters {
+  startDate?: string;
+  endDate?: string;
+  sentiment?: string;
+  topic?: string;
+  entityType?: string;
+}
 
 interface SearchResultsSummaryProps {
   totalResults: number;
   query?: string;
-  filters?: any;
+  filters?: SearchFilters;
+  articles?: any[];
+  onFilterRemove?: (key: string) => void;
 }
 
 const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
   totalResults,
   query,
-  filters
+  filters,
+  articles = [],
+  onFilterRemove
 }) => {
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,6 +45,34 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
     }
   };
 
+  /* Compute facet counts from the result set */
+  const facets = useMemo(() => {
+    if (!articles || articles.length === 0) return { sentiments: {}, topics: {} };
+
+    const sentiments: Record<string, number> = {};
+    const topics: Record<string, number> = {};
+
+    articles.forEach((a: any) => {
+      if (a.sentiment_label) {
+        sentiments[a.sentiment_label] = (sentiments[a.sentiment_label] || 0) + 1;
+      }
+      if (a.topic_label) {
+        const t = a.topic_label.replace(/_/g, ' ');
+        topics[t] = (topics[t] || 0) + 1;
+      }
+    });
+
+    return { sentiments, topics };
+  }, [articles]);
+
+  /* Build active filter pills */
+  const activeFilters: { key: string; label: string }[] = [];
+  if (filters?.sentiment) activeFilters.push({ key: 'sentiment', label: `Sentiment: ${filters.sentiment}` });
+  if (filters?.topic) activeFilters.push({ key: 'topic', label: `Topic: ${filters.topic}` });
+  if (filters?.entityType) activeFilters.push({ key: 'entityType', label: `Entity: ${filters.entityType}` });
+  if (filters?.startDate && filters.startDate !== '1990-01-01') activeFilters.push({ key: 'startDate', label: `From: ${filters.startDate}` });
+  if (filters?.endDate && filters.endDate !== '1992-12-31') activeFilters.push({ key: 'endDate', label: `Until: ${filters.endDate}` });
+
   return (
     <div className="search-results-summary">
       <div className="summary-header">
@@ -47,6 +87,47 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
           </button>
         )}
       </div>
+
+      {/* Active filter pills */}
+      {activeFilters.length > 0 && (
+        <div className="filter-pills">
+          {activeFilters.map(f => (
+            <span key={f.key} className="filter-pill">
+              {f.label}
+              {onFilterRemove && (
+                <button
+                  className="filter-pill-dismiss"
+                  onClick={() => onFilterRemove(f.key)}
+                  title="Remove filter"
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Facet counts */}
+      {articles.length > 0 && (
+        <div className="facet-bar">
+          {Object.entries(facets.sentiments)
+            .sort(([, a], [, b]) => b - a)
+            .map(([label, count]) => (
+              <span key={label} className={`facet-chip facet-${label}`}>
+                {label} ({count})
+              </span>
+            ))}
+          {Object.entries(facets.topics)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([label, count]) => (
+              <span key={label} className="facet-chip facet-topic">
+                {label} ({count})
+              </span>
+            ))}
+        </div>
+      )}
 
       {summary && (
         <div className="ai-summary-box">

@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import BookmarkButton from './BookmarkButton';
+import { useToast } from './ui/Toast';
+import EmptyState from './ui/EmptyState';
 
 // Removed - using config
 
@@ -21,32 +24,61 @@ interface Article {
 interface ArticleListProps {
   articles: Article[];
   onArticleDeleted?: () => void; // Callback after successful deletion
+  highlightQuery?: string;
 }
 
-const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted }) => {
+/** Highlight matching terms in text */
+const HighlightText: React.FC<{ text: string; query?: string }> = ({ text, query }) => {
+  if (!query || !query.trim()) return <>{text}</>;
+
+  try {
+    const terms = query.trim().split(/\s+/).filter(t => t.length >= 2);
+    if (terms.length === 0) return <>{text}</>;
+
+    const pattern = new RegExp(`(${terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+    const parts = text.split(pattern);
+
+    return (
+      <>
+        {parts.map((part, i) =>
+          pattern.test(part) ? (
+            <mark key={i} className="search-highlight">{part}</mark>
+          ) : (
+            <span key={i}>{part}</span>
+          )
+        )}
+      </>
+    );
+  } catch {
+    return <>{text}</>;
+  }
+};
+
+const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted, highlightQuery }) => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleDelete = async (articleId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent navigation when clicking delete
-    
+
     if (!window.confirm('Are you sure you want to delete this article? This action cannot be undone.')) {
       return;
     }
 
     setDeletingId(articleId);
-    
+
     try {
       await axios.delete(`${API_BASE}/articles/${articleId}`);
-      alert('Article deleted successfully');
-      
+      toast('Article deleted successfully', 'success');
+
       // Trigger callback to refresh the list
       if (onArticleDeleted) {
         onArticleDeleted();
       }
     } catch (error: any) {
       console.error('Failed to delete article:', error);
-      alert(`Failed to delete article: ${error.response?.data?.detail || error.message}`);
+      toast(`Failed to delete article: ${error.response?.data?.detail || error.message}`, 'error');
     } finally {
       setDeletingId(null);
     }
@@ -54,9 +86,9 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted })
 
   const getSentimentColor = (label: string) => {
     switch (label) {
-      case 'positive': return '#10b981';
-      case 'negative': return '#ef4444';
-      default: return '#6b7280';
+      case 'positive': return 'var(--positive)';
+      case 'negative': return 'var(--negative)';
+      default: return 'var(--neutral-color)';
     }
   };
 
@@ -85,6 +117,16 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted })
     }
   };
 
+  if (!articles || articles.length === 0) {
+    return (
+      <EmptyState
+        icon={'\uD83D\uDCF0'}
+        title="No articles to show"
+        description="Try a different keyword, widen your date range, or clear active filters to see more results."
+      />
+    );
+  }
+
   return (
     <div className="article-list">
       {articles.map((article) => (
@@ -96,17 +138,18 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted })
         >
           <div className="article-header">
             <h3 className="article-headline">
-              {article.headline}
+              <HighlightText text={article.headline} query={highlightQuery} />
             </h3>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <span className="article-date">
                 {formatDate(article.publication_date)}
               </span>
+              <BookmarkButton articleId={article.id} size="small" />
               <button
                 onClick={(e) => handleDelete(article.id, e)}
                 disabled={deletingId === article.id}
                 style={{
-                  background: deletingId === article.id ? '#9ca3af' : '#ef4444',
+                  background: deletingId === article.id ? 'var(--text-tertiary)' : 'var(--danger-color)',
                   color: 'white',
                   border: 'none',
                   padding: '4px 12px',
@@ -116,16 +159,6 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted })
                   fontWeight: '500',
                   transition: 'background 0.2s'
                 }}
-                onMouseEnter={(e) => {
-                  if (deletingId !== article.id) {
-                    e.currentTarget.style.background = '#dc2626';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (deletingId !== article.id) {
-                    e.currentTarget.style.background = '#ef4444';
-                  }
-                }}
               >
                 {deletingId === article.id ? 'Deleting...' : 'Delete'}
               </button>
@@ -133,8 +166,8 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted })
           </div>
 
           <div className="article-content-preview">
-            {article.content_preview}...
-            <span style={{ color: '#3b82f6', marginLeft: '8px', fontWeight: '600' }}>
+            <HighlightText text={article.content_preview || ''} query={highlightQuery} />...
+            <span style={{ color: 'var(--primary-color)', marginLeft: '8px', fontWeight: '600' }}>
               Read full article
             </span>
           </div>
@@ -159,7 +192,14 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted })
             {article.entities && article.entities.length > 0 && (
               <div className="entities-list">
                 {article.entities.slice(0, 5).map((entity, idx) => (
-                  <span key={idx} className="entity-tag">
+                  <span
+                    key={idx}
+                    className="entity-tag entity-tag-link"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/entity/${encodeURIComponent(entity.text)}`);
+                    }}
+                  >
                     [{entity.type}] {entity.text}
                   </span>
                 ))}

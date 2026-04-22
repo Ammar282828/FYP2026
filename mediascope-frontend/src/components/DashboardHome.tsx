@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
+import EmptyState from './ui/EmptyState';
 
 interface Props {
   recentArticles: any[];
@@ -18,6 +19,8 @@ const DashboardHome: React.FC<Props> = ({ recentArticles, onSearch, onNavigate }
   const [storyCount, setStoryCount] = useState<number | null>(null);
   const [topicCount, setTopicCount] = useState<number | null>(null);
   const [featuredStories, setFeaturedStories] = useState<any[]>([]);
+  const [onThisDay, setOnThisDay] = useState<any[]>([]);
+  const [onThisDayLoaded, setOnThisDayLoaded] = useState(false);
 
   useEffect(() => {
     axios.get(`${API_BASE}/analytics/data-version`)
@@ -36,6 +39,16 @@ const DashboardHome: React.FC<Props> = ({ recentArticles, onSearch, onNavigate }
         setFeaturedStories(sorted.filter(s => s.article_count >= 3).slice(0, 4));
       })
       .catch(() => {});
+
+    const today = new Date();
+    axios.get(`${API_BASE}/articles/on-this-day`, {
+      params: { month: today.getMonth() + 1, day: today.getDate(), limit: 10 }
+    })
+      .then(r => {
+        setOnThisDay((r.data.articles || []).slice(0, 5));
+        setOnThisDayLoaded(true);
+      })
+      .catch(() => setOnThisDayLoaded(true));
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -44,9 +57,9 @@ const DashboardHome: React.FC<Props> = ({ recentArticles, onSearch, onNavigate }
   };
 
   const sentimentColor: Record<string, string> = {
-    positive: '#10b981',
-    negative: '#ef4444',
-    neutral: '#9ca3af',
+    positive: 'var(--positive)',
+    negative: 'var(--negative)',
+    neutral: 'var(--text-tertiary)',
   };
 
   return (
@@ -75,6 +88,63 @@ const DashboardHome: React.FC<Props> = ({ recentArticles, onSearch, onNavigate }
         </div>
       </div>
 
+      {/* On This Day */}
+      {onThisDayLoaded && (
+        <section className="dash-section" style={{ marginTop: '1.25rem' }}>
+          <div className="dash-section-hdr">
+            <h2>{'\uD83D\uDCC5'} On This Day in the Archive</h2>
+          </div>
+          {onThisDay.length === 0 ? (
+            <EmptyState
+              icon={'\uD83D\uDCC5'}
+              title="Nothing from today's date"
+              description="No articles from this exact date are in the archive. Try exploring recent articles below."
+              action={{ label: 'Browse recent articles', onClick: () => onNavigate('search') }}
+            />
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                gap: '0.75rem'
+              }}
+            >
+              {onThisDay.map(a => {
+                const year = String(a.publication_date || '').slice(0, 4);
+                return (
+                  <div
+                    key={a.id}
+                    className="dash-story-card"
+                    onClick={() => navigate(`/article/${a.id}`)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="dash-story-title" style={{ fontSize: '0.95rem' }}>
+                      {a.headline || 'Untitled'}
+                    </div>
+                    <div className="dash-story-meta" style={{ marginTop: '0.35rem' }}>
+                      <span style={{ fontWeight: 600 }}>{year}</span>
+                      {a.sentiment_label && (
+                        <>
+                          {' \u00B7 '}
+                          <span
+                            style={{
+                              color: sentimentColor[a.sentiment_label] || 'var(--text-tertiary)',
+                              textTransform: 'capitalize'
+                            }}
+                          >
+                            {a.sentiment_label}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Search */}
       <form className="dash-search-form" onSubmit={handleSubmit}>
         <input
@@ -102,7 +172,12 @@ const DashboardHome: React.FC<Props> = ({ recentArticles, onSearch, onNavigate }
             <button className="dash-see-all" onClick={() => onNavigate('stories')}>See all →</button>
           </div>
           {featuredStories.length === 0 ? (
-            <p className="dash-empty">No stories found. Run <code>scripts/build_stories.py</code> to generate them.</p>
+            <EmptyState
+              icon={'\uD83D\uDCDA'}
+              title="No stories yet"
+              description="Run scripts/build_stories.py to cluster articles into ongoing stories, then come back to see them here."
+              action={{ label: 'Open Stories tab', onClick: () => onNavigate('stories') }}
+            />
           ) : (
             <div className="dash-story-list">
               {featuredStories.map(story => (

@@ -28,6 +28,10 @@ postgres_data/
 elasticsearch_data/
 *.db
 *.sqlite3
+
+# Analytics cache
+.analytics_cache.json
+.analytics_cache.json.tmp
 backup.sql
 
 # Logs

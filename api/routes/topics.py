@@ -11,9 +11,11 @@ import os
 import google.generativeai as genai
 from collections import Counter
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCfNJ89hLJAPqrklHqk7sE-83czHYBIM_U")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+else:
+    print("[WARNING] GEMINI_API_KEY not set — topic classification endpoints will be unavailable")
 
 
 router = APIRouter(prefix="/api/topics", tags=["topics"])
@@ -56,22 +58,33 @@ def load_topics_data():
         return None
 
 
-# trains a new topic model on all the articles in the database
-# this can take a while depending on how many articles you have
+# Re-classify all articles using Gemini API
+# Uses predefined topic taxonomy from topics_data.json
 @router.post("/train")
 def train_topic_model():
+    """Re-classify all articles using Gemini API with predefined topic taxonomy."""
     try:
-        pipeline = get_pipeline()
+        import time as _t
 
-        if not pipeline or not _PIPELINE_AVAILABLE:
-            raise HTTPException(503, "NLP pipeline not available")
+        topics_data = load_topics_data()
+        if not topics_data:
+            raise HTTPException(400, "Topics data not available. data/topics_data.json required.")
+
+        topics = [t for t in topics_data['topics'] if t['topic_id'] != -1]
+        valid_ids = {t['topic_id'] for t in topics}
+
+        # Build topic prompt
+        topic_lines = []
+        for t in topics:
+            kw = ', '.join(t.get('keywords', [])[:5])
+            topic_lines.append(f"  {t['topic_id']}: {t['name']} - {t.get('description', '')} (keywords: {kw})")
+        topic_list_str = '\n'.join(topic_lines)
 
         db = get_firestore_db()
 
         print("Fetching all articles from Firestore...")
         documents = []
         article_ids = []
-        article_metadata = []
 
         batch_size = 1000
         last_doc = None
@@ -84,7 +97,6 @@ def train_topic_model():
                 articles_query = db.db.collection('articles').order_by('__name__').limit(batch_size)
 
             batch_docs = list(articles_query.stream())
-
             if not batch_docs:
                 break
 
@@ -92,106 +104,135 @@ def train_topic_model():
                 data = doc.to_dict()
                 content = data.get('content', '')
                 headline = data.get('headline', '')
-
                 combined_text = f"{headline}\n{content}"
-
                 if combined_text.strip():
                     documents.append(combined_text)
                     article_ids.append(data.get('id'))
-                    article_metadata.append({
-                        'id': data.get('id'),
-                        'headline': headline,
-                        'publication_date': data.get('publication_date')
-                    })
 
             total_fetched += len(batch_docs)
             print(f"Fetched {total_fetched} articles so far...")
-
             last_doc = batch_docs[-1]
-
             if len(batch_docs) < batch_size:
                 break
 
         print(f"Total articles fetched: {len(documents)}")
 
-        if len(documents) < 10:
-            raise HTTPException(400, f"Not enough articles for topic modeling. Found {len(documents)}, need at least 10.")
+        if len(documents) < 1:
+            raise HTTPException(400, f"No articles found in Firestore.")
 
-        print(f"Training topic model on {len(documents)} articles...")
-        pipeline.nlp_processor.train_topic_model(documents)
+        # Classify in batches of 10 using Gemini
+        print(f"Classifying {len(documents)} articles with Gemini API...")
+        gemini_batch_size = 10
+        all_results = []
 
-        pipeline.nlp_processor.article_metadata = article_metadata
+        for i in range(0, len(documents), gemini_batch_size):
+            batch_texts = documents[i:i + gemini_batch_size]
+            articles_block = ""
+            for j, text in enumerate(batch_texts):
+                articles_block += f"\n--- ARTICLE {j} ---\n{text[:800]}\n"
 
-        print("Updating articles with topic assignments...")
-        topic_assignments = pipeline.nlp_processor.topic_assignments
+            prompt = f"""Classify each article into ONE of these topics:
+
+{topic_list_str}
+
+If an article does not fit, use topic_id -1.
+
+{articles_block}
+
+Respond with ONLY valid JSON array:
+[{{"article_index": 0, "topic_id": <number>}}, ...]"""
+
+            try:
+                model = genai.GenerativeModel('gemini-2.0-flash')
+                response = model.generate_content(prompt)
+                raw = response.text.strip() if response.parts else ""
+
+                if '```json' in raw:
+                    raw = raw.split('```json')[1].split('```')[0].strip()
+                elif '```' in raw:
+                    raw = raw.split('```')[1].split('```')[0].strip()
+
+                batch_results = json.loads(raw)
+                result_map = {}
+                for r in batch_results:
+                    idx = r.get('article_index', -1)
+                    tid = int(r.get('topic_id', -1))
+                    if tid not in valid_ids:
+                        tid = -1
+                    result_map[idx] = tid
+
+                for j in range(len(batch_texts)):
+                    tid = result_map.get(j, -1)
+                    if tid == -1:
+                        all_results.append({'topic_id': -1, 'topic_label': 'Uncategorized'})
+                    else:
+                        for t in topics:
+                            if t['topic_id'] == tid:
+                                all_results.append({
+                                    'topic_id': tid,
+                                    'topic_label': '_'.join(t.get('keywords', [])[:5])
+                                })
+                                break
+                        else:
+                            all_results.append({'topic_id': -1, 'topic_label': 'Uncategorized'})
+
+            except Exception as e:
+                print(f"  [WARNING] Batch classification failed: {e}")
+                for _ in batch_texts:
+                    all_results.append({'topic_id': -1, 'topic_label': 'Uncategorized'})
+
+            done = min(i + gemini_batch_size, len(documents))
+            if done % 100 == 0 or done == len(documents):
+                print(f"  Classified {done}/{len(documents)} ({100 * done // len(documents)}%)")
+            _t.sleep(0.3)
+
+        # Update Firestore
+        print("Updating Firestore with topic assignments...")
         updated_count = 0
         failed_count = 0
+        fb_batch_size = 500
 
-        batch_size = 500
-        total_articles = len(article_ids)
-
-        for i in range(0, total_articles, batch_size):
+        for i in range(0, len(article_ids), fb_batch_size):
             batch = db.db.batch()
             batch_items = 0
 
-            for article_id, topic_id in zip(article_ids[i:i+batch_size], topic_assignments[i:i+batch_size]):
+            for j in range(i, min(i + fb_batch_size, len(article_ids))):
+                article_id = article_ids[j]
+                result = all_results[j]
                 if article_id:
                     try:
-                        # Get topic label (keywords)
-                        if topic_id == -1:
-                            topic_label = 'Uncategorized'
-                        else:
-                            topic_words = pipeline.nlp_processor.topic_model.get_topic(topic_id)
-                            keywords = [word for word, _ in topic_words[:5]]
-                            topic_label = '_'.join(keywords)
-                        
-                        article_ref = db.db.collection('articles').document(article_id)
-                        batch.update(article_ref, {
-                            'topic_id': int(topic_id),
-                            'topic_label': topic_label
+                        ref = db.db.collection('articles').document(article_id)
+                        batch.update(ref, {
+                            'topic_id': result['topic_id'],
+                            'topic_label': result['topic_label']
                         })
                         batch_items += 1
                     except Exception as e:
-                        print(f"Warning: Failed to add article {article_id} to batch: {e}")
                         failed_count += 1
 
             try:
                 batch.commit()
                 updated_count += batch_items
-                print(f"  Progress: {updated_count}/{total_articles} articles updated ({100*updated_count//total_articles}%)")
             except Exception as e:
-                print(f"Warning: Failed to commit batch: {e}")
                 failed_count += batch_items
 
-        print(f"Updated {updated_count} articles with topic assignments ({failed_count} failed)")
-
-        print("Saving topic model to disk...")
-        pipeline.nlp_processor.save_topic_model("data/topic_model")
-        print("Topic model saved successfully")
-
-        topic_info = pipeline.nlp_processor.topic_model.get_topic_info()
-        topics = []
-
-        for _, row in topic_info.iterrows():
-            if row['Topic'] != -1:
-                topic_words = pipeline.nlp_processor.topic_model.get_topic(row['Topic'])
-                topics.append({
-                    'topic_id': int(row['Topic']),
-                    'count': int(row['Count']),
-                    'keywords': [word for word, _ in topic_words[:5]],
-                    'name': row.get('Name', f"Topic {row['Topic']}")
-                })
+        # Invalidate cached topic data
+        _endpoint_cache.clear()
+        _endpoint_cache_ts.clear()
 
         return {
             "status": "success",
-            "message": f"Topic model trained on {len(documents)} articles",
-            "topic_count": len(topics),
-            "topics": topics
+            "message": f"Classified {len(documents)} articles using Gemini API",
+            "updated": updated_count,
+            "failed": failed_count,
+            "topic_count": len(topics)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Topic training error: {str(e)}")
-        raise HTTPException(500, f"Failed to train topic model: {str(e)}")
+        raise HTTPException(500, f"Failed to classify topics: {str(e)}")
 
 
 # gets a specific topic by its id with sample articles
@@ -481,3 +522,68 @@ Be specific and analytical. Do not repeat the headlines verbatim."""
         }
     except Exception as e:
         raise HTTPException(500, f"Failed to generate topic summary: {str(e)}")
+
+
+# ─── Batch topic assignment ───────────────────────────────────────────────────
+
+from fastapi import BackgroundTasks
+
+_TOPIC_ASSIGN_STATUS: dict = {
+    "running": False, "started_at": None, "finished_at": None,
+    "processed": 0, "total": 0, "last_error": None,
+}
+
+
+@router.post("/assign-batch")
+def assign_topics_batch(request: dict, background_tasks: BackgroundTasks):
+    """
+    Run topic assignment over all unassigned articles (or a limited batch).
+
+    Body: { "limit": 500, "reassign": false }
+    """
+    if _TOPIC_ASSIGN_STATUS["running"]:
+        raise HTTPException(409, "A topic-assignment job is already running")
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "GEMINI_API_KEY not configured")
+
+    limit = int(request.get("limit", 500))
+    reassign = bool(request.get("reassign", False))
+
+    background_tasks.add_task(_run_topic_assign_bg, limit, reassign)
+    return {"status": "started", "limit": limit, "reassign": reassign}
+
+
+@router.get("/assign-batch/status")
+def topic_assign_status():
+    return _TOPIC_ASSIGN_STATUS
+
+
+def _run_topic_assign_bg(limit: int, reassign: bool):
+    from datetime import datetime as dt
+    _TOPIC_ASSIGN_STATUS.update({
+        "running": True, "started_at": dt.utcnow().isoformat() + "Z",
+        "finished_at": None, "processed": 0, "total": 0, "last_error": None,
+    })
+    try:
+        import subprocess, sys as _sys, os as _os
+        cmd = [_sys.executable, "scripts/assign_topics_gemini.py", "--limit", str(limit)]
+        if reassign:
+            cmd.append("--reassign")
+        env = _os.environ.copy()
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=3600)
+        out = result.stdout or ""
+        for line in out.splitlines():
+            low = line.strip().lower()
+            if low.startswith("processed") or "articles processed" in low:
+                for tok in low.replace(",", " ").split():
+                    if tok.isdigit():
+                        _TOPIC_ASSIGN_STATUS["processed"] = int(tok)
+                        break
+        if result.returncode != 0:
+            _TOPIC_ASSIGN_STATUS["last_error"] = (result.stderr or result.stdout)[-2000:]
+    except Exception as e:
+        _TOPIC_ASSIGN_STATUS["last_error"] = str(e)
+    finally:
+        from datetime import datetime as dt
+        _TOPIC_ASSIGN_STATUS["running"] = False
+        _TOPIC_ASSIGN_STATUS["finished_at"] = dt.utcnow().isoformat() + "Z"

@@ -351,6 +351,73 @@ def search_newspapers(
 
 
 # gets one specific newspaper and its articles by id
+@router.post("/newspapers/{newspaper_id}/summarize")
+def summarize_newspaper_page(newspaper_id: str):
+    """Generate an AI summary of all articles on this newspaper page."""
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise HTTPException(500, "google-generativeai package not installed")
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(500, "GEMINI_API_KEY not configured")
+
+    try:
+        db = get_firestore_db()
+        articles_stream = db.db.collection('articles').where('newspaper_id', '==', newspaper_id).stream()
+        articles = [doc.to_dict() for doc in articles_stream]
+
+        if not articles:
+            raise HTTPException(404, "No articles found for this newspaper page")
+
+        articles.sort(key=lambda x: x.get('article_number', 0))
+
+        pub_date = articles[0].get('publication_date', '')
+        if hasattr(pub_date, 'strftime'):
+            date_str = pub_date.strftime('%B %d, %Y')
+        else:
+            date_str = str(pub_date)[:10]
+
+        blocks = []
+        for i, a in enumerate(articles[:25], 1):
+            headline = (a.get('headline') or 'Untitled').strip()
+            excerpt = (a.get('content') or '')[:600].strip()
+            blocks.append(f"Article {i}: {headline}\n{excerpt}")
+
+        prompt = f"""You are a historian analyzing a page of the Dawn newspaper from {date_str}.
+
+Below are {len(articles)} articles from a single newspaper page. Write a concise summary (4-6 sentences) that captures:
+- The main themes covered on this page
+- The most significant events or announcements
+- The overall tone of the coverage
+- Any notable people, places, or institutions mentioned repeatedly
+
+ARTICLES:
+
+{chr(10).join(blocks)}
+
+Write in clear, flowing prose. Do not use bullet points.
+
+Summary:"""
+
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        summary = response.text.strip()
+
+        return {
+            "newspaper_id": newspaper_id,
+            "summary": summary,
+            "article_count": len(articles),
+            "model": "gemini-1.5-flash",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"error": str(e), "newspaper_id": newspaper_id}
+
+
 @router.get("/newspapers/{newspaper_id}")
 def get_newspaper_page(newspaper_id: str):
     try:

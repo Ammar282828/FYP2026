@@ -3,8 +3,7 @@ import axios from 'axios';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-
-const API_BASE = 'http://localhost:8000/api';
+import { API_BASE } from '../config';
 
 export const ArticlesOverTime: React.FC = () => {
   const [data, setData] = useState<any[]>([]);
@@ -30,7 +29,7 @@ export const ArticlesOverTime: React.FC = () => {
   return (
     <div>
       <h3>Articles Published Over Time</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '8px 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>
         Monthly publication volume showing when newspapers were processed and archived
       </p>
       <ResponsiveContainer width="100%" height={300}>
@@ -70,7 +69,7 @@ export const SentimentOverTime: React.FC = () => {
   return (
     <div>
       <h3>Sentiment Trends Over Time</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '8px 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>
         AI-analyzed sentiment showing how positive, neutral, and negative coverage evolved month-by-month
       </p>
       <ResponsiveContainer width="100%" height={300}>
@@ -114,7 +113,7 @@ export const TopKeywordsCloud: React.FC = () => {
   return (
     <div>
       <h3>Top Keywords</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '8px 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>
         Most frequently mentioned words across all articles (larger = more frequent)
       </p>
       <div style={{ 
@@ -132,7 +131,7 @@ export const TopKeywordsCloud: React.FC = () => {
               key={idx}
               style={{
                 fontSize: `${size}px`,
-                color: '#3b82f6',
+                color: 'var(--primary-color)',
                 opacity,
                 fontWeight: 600,
                 cursor: 'pointer',

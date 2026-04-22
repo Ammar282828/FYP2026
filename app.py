@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 
-from api.routes import articles, analytics, topics, newspapers, ads, stories
+from api.routes import articles, analytics, topics, newspapers, ads, stories, auth, bookmarks, config as config_routes
 
 load_dotenv()
 
@@ -37,6 +37,9 @@ app.include_router(topics.router)
 app.include_router(newspapers.router)
 app.include_router(ads.router)
 app.include_router(stories.router)
+app.include_router(auth.router)
+app.include_router(bookmarks.router)
+app.include_router(config_routes.router)
 
 
 @app.get("/")

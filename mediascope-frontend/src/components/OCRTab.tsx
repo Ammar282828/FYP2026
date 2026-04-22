@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { useToast } from './ui/Toast';
 
 // Removed - using config
 
@@ -15,6 +16,7 @@ interface OCRJob {
 }
 
 const OCRTab: React.FC = () => {
+  const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [publicationDate, setPublicationDate] = useState('1990-01-01');
@@ -81,10 +83,10 @@ const OCRTab: React.FC = () => {
         setPublicationDate(response.data.extracted_date);
       }
 
-      alert(response.data.message || 'Newspaper image uploaded successfully!');
+      toast(response.data.message || 'Newspaper image uploaded successfully!', 'success');
     } catch (error: any) {
       console.error('Upload error:', error);
-      alert(error.response?.data?.detail || 'Failed to upload newspaper image');
+      toast(error.response?.data?.detail || 'Failed to upload newspaper image', 'error');
     } finally {
       setUploading(false);
       setTimeout(() => setUploadProgress(0), 1000);
@@ -117,7 +119,7 @@ const OCRTab: React.FC = () => {
 
       setUploadProgress(100);
       setBulkResults(response.data);
-      alert(`${response.data.message}\n\nStarting OCR processing for all files...`);
+      toast(`${response.data.message}\n\nStarting OCR processing for all files...`, 'success');
 
       // Auto-process all uploaded files
       setProcessing(true);
@@ -126,7 +128,7 @@ const OCRTab: React.FC = () => {
 
     } catch (error: any) {
       console.error('Bulk upload error:', error);
-      alert(error.response?.data?.detail || 'Failed to upload files');
+      toast(error.response?.data?.detail || 'Failed to upload files', 'error');
     } finally {
       setUploading(false);
       setTimeout(() => setUploadProgress(0), 1000);
@@ -177,7 +179,7 @@ const OCRTab: React.FC = () => {
     if (missingDates.length > 0) {
       message += `\n\n${missingDates.length} files processed without date detection.\nYou can update dates later if needed.`;
     }
-    alert(message);
+    toast(message, 'success');
   };
 
   const handleStartOCR = async () => {
@@ -201,7 +203,7 @@ const OCRTab: React.FC = () => {
       // Note: The actual status polling has been simplified since processing happens synchronously
     } catch (error) {
       console.error('OCR processing error:', error);
-      alert('Failed to start OCR processing');
+      toast('Failed to start OCR processing', 'error');
       setProcessing(false);
       setCurrentProcessingFile('');
       setProcessProgress(0);
@@ -210,7 +212,7 @@ const OCRTab: React.FC = () => {
 
   const handleProcessLocalFolder = async () => {
     if (!folderPath.trim()) {
-      alert('Please enter a folder path');
+      toast('Please enter a folder path', 'info');
       return;
     }
 
@@ -228,10 +230,10 @@ const OCRTab: React.FC = () => {
       setProcessing(false);
       setCurrentProcessingFile('');
       setTimeout(() => setProcessProgress(0), 1000);
-      alert(response.data.message);
+      toast(response.data.message, 'success');
     } catch (error: any) {
       console.error('Local folder processing error:', error);
-      alert(error.response?.data?.detail || 'Failed to process local folder');
+      toast(error.response?.data?.detail || 'Failed to process local folder', 'error');
       setProcessing(false);
       setCurrentProcessingFile('');
       setProcessProgress(0);

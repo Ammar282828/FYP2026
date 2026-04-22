@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { useToast } from './ui/Toast';
+import EmptyState from './ui/EmptyState';
 import './NewspaperBrowser.css';
 
 interface Newspaper {
@@ -34,6 +36,7 @@ interface NewspaperPage {
 }
 
 const NewspaperBrowser: React.FC = () => {
+  const { toast } = useToast();
   const [newspapers, setNewspapers] = useState<Newspaper[]>([]);
   const [selectedPage, setSelectedPage] = useState<NewspaperPage | null>(null);
   const [summary, setSummary] = useState<string>('');
@@ -113,7 +116,7 @@ const NewspaperBrowser: React.FC = () => {
       });
 
       if (response.data.status === 'success') {
-        alert(`Date updated successfully! ${response.data.articles_updated} articles updated.`);
+        toast(`Date updated! ${response.data.articles_updated} articles updated.`, 'success');
         setEditingDate(false);
         // Reload the page to show updated date
         loadNewspaperPage(newspaperId);
@@ -122,7 +125,7 @@ const NewspaperBrowser: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Error updating date:', error);
-      alert('Failed to update date: ' + (error.response?.data?.detail || error.message));
+      toast('Failed to update date: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 
@@ -146,19 +149,19 @@ const NewspaperBrowser: React.FC = () => {
     
     try {
       await axios.delete(`${API_BASE}/newspapers/${newspaperId}?delete_articles=true`);
-      alert('Newspaper and all articles deleted successfully');
-      
+      toast('Newspaper and all articles deleted successfully', 'success');
+
       // Go back to list if we're in detail view
       if (selectedPage && selectedPage.newspaper.id === newspaperId) {
         setSelectedPage(null);
         setSummary('');
       }
-      
+
       // Reload the newspaper list
       loadNewspapers();
     } catch (error: any) {
       console.error('Failed to delete newspaper:', error);
-      alert(`Failed to delete newspaper: ${error.response?.data?.detail || error.message}`);
+      toast(`Failed to delete newspaper: ${error.response?.data?.detail || error.message}`, 'error');
     } finally {
       setDeletingId(null);
     }
@@ -213,7 +216,7 @@ const NewspaperBrowser: React.FC = () => {
                       position: 'absolute',
                       top: '8px',
                       right: '8px',
-                      background: deletingId === newspaper.id ? '#9ca3af' : '#ef4444',
+                      background: deletingId === newspaper.id ? 'var(--text-tertiary)' : 'var(--danger-color)',
                       color: 'white',
                       border: 'none',
                       padding: '4px 10px',
@@ -242,9 +245,19 @@ const NewspaperBrowser: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="no-results">
-              No newspapers found for the selected date range
-            </div>
+            <EmptyState
+              icon={'\uD83D\uDDDE'}
+              title="No newspapers in this range"
+              description="Try widening the date range or pick different dates to browse newspapers."
+              action={{
+                label: 'Reset date range',
+                onClick: () => {
+                  setStartDate('1990-01-01');
+                  setEndDate('1992-12-31');
+                  loadNewspapers();
+                },
+              }}
+            />
           )}
         </div>
       ) : (
@@ -258,7 +271,7 @@ const NewspaperBrowser: React.FC = () => {
               disabled={deletingId === selectedPage.newspaper.id}
               style={{
                 padding: '8px 16px',
-                background: deletingId === selectedPage.newspaper.id ? '#9ca3af' : '#ef4444',
+                background: deletingId === selectedPage.newspaper.id ? 'var(--text-tertiary)' : 'var(--danger-color)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
@@ -287,7 +300,7 @@ const NewspaperBrowser: React.FC = () => {
                     style={{
                       padding: '4px 12px',
                       fontSize: '13px',
-                      background: '#667eea',
+                      background: 'var(--primary-color)',
                       color: 'white',
                       border: 'none',
                       borderRadius: '4px',
@@ -306,7 +319,7 @@ const NewspaperBrowser: React.FC = () => {
                     style={{
                       padding: '8px',
                       fontSize: '14px',
-                      border: '1px solid #e5e7eb',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '4px'
                     }}
                   />
@@ -315,7 +328,7 @@ const NewspaperBrowser: React.FC = () => {
                     style={{
                       padding: '8px 16px',
                       fontSize: '13px',
-                      background: '#10b981',
+                      background: 'var(--positive)',
                       color: 'white',
                       border: 'none',
                       borderRadius: '4px',
@@ -329,7 +342,7 @@ const NewspaperBrowser: React.FC = () => {
                     style={{
                       padding: '8px 16px',
                       fontSize: '13px',
-                      background: '#6b7280',
+                      background: 'var(--text-secondary)',
                       color: 'white',
                       border: 'none',
                       borderRadius: '4px',

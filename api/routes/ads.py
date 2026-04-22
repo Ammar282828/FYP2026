@@ -24,6 +24,52 @@ except ImportError as e:
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
+# ── Crop-quality helpers ─────────────────────────────────────────────────────
+MIN_CROP_PX = 60        # minimum width/height in pixels
+MAX_AREA_FRACTION = 0.70 # skip regions covering > 70 % of the page
+MIN_ASPECT_RATIO = 0.15  # skip extreme slivers (width/height or height/width)
+CROP_PAD_FRACTION = 0.02 # 2 % padding added around each detected region
+
+
+def _validate_and_pad_crop(left_pct, top_pct, width_pct, height_pct, img_w, img_h):
+    """Convert percentage coordinates to clamped pixel coords with padding.
+
+    Returns (left, top, right, bottom) in pixels, or None if the region
+    should be skipped (too small, too large, or degenerate aspect ratio).
+    """
+    # Add small padding so crops aren't excessively tight
+    pad_w = img_w * CROP_PAD_FRACTION
+    pad_h = img_h * CROP_PAD_FRACTION
+
+    left = int((left_pct / 100) * img_w - pad_w)
+    top = int((top_pct / 100) * img_h - pad_h)
+    right = int(((left_pct + width_pct) / 100) * img_w + pad_w)
+    bottom = int(((top_pct + height_pct) / 100) * img_h + pad_h)
+
+    # Clamp to image bounds
+    left = max(0, left)
+    top = max(0, top)
+    right = min(img_w, right)
+    bottom = min(img_h, bottom)
+
+    crop_w = right - left
+    crop_h = bottom - top
+
+    # Skip tiny crops
+    if crop_w < MIN_CROP_PX or crop_h < MIN_CROP_PX:
+        return None
+
+    # Skip crops covering most of the page
+    if (crop_w * crop_h) / (img_w * img_h) > MAX_AREA_FRACTION:
+        return None
+
+    # Skip degenerate aspect ratios (extreme slivers)
+    aspect = min(crop_w, crop_h) / max(crop_w, crop_h)
+    if aspect < MIN_ASPECT_RATIO:
+        return None
+
+    return left, top, right, bottom
+
 
 @router.post("/upload")
 async def upload_ad_image(file: UploadFile = File(...)):
@@ -373,11 +419,16 @@ Return ONLY the JSON array, no other text."""
 
         for ad_region in ad_regions:
             try:
-                # Calculate pixel coordinates from percentages
-                left = int((ad_region['left'] / 100) * width)
-                top = int((ad_region['top'] / 100) * height)
-                right = int(((ad_region['left'] + ad_region['width']) / 100) * width)
-                bottom = int(((ad_region['top'] + ad_region['height']) / 100) * height)
+                # Validate and pad crop coordinates
+                coords = _validate_and_pad_crop(
+                    ad_region['left'], ad_region['top'],
+                    ad_region['width'], ad_region['height'],
+                    width, height
+                )
+                if coords is None:
+                    print(f"  [SKIP] Ad region {ad_region.get('id', '?')} failed crop validation (too small, too large, or degenerate)")
+                    continue
+                left, top, right, bottom = coords
 
                 # Crop the ad region
                 ad_img = img.crop((left, top, right, bottom))
@@ -683,11 +734,16 @@ Return ONLY the JSON array, no other text."""
 
         for ad_region in ad_regions:
             try:
-                # Calculate pixel coordinates from percentages
-                left = int((ad_region['left'] / 100) * width)
-                top = int((ad_region['top'] / 100) * height)
-                right = int(((ad_region['left'] + ad_region['width']) / 100) * width)
-                bottom = int(((ad_region['top'] + ad_region['height']) / 100) * height)
+                # Validate and pad crop coordinates
+                coords = _validate_and_pad_crop(
+                    ad_region['left'], ad_region['top'],
+                    ad_region['width'], ad_region['height'],
+                    width, height
+                )
+                if coords is None:
+                    print(f"  [SKIP] Ad region {ad_region.get('id', '?')} failed crop validation (too small, too large, or degenerate)")
+                    continue
+                left, top, right, bottom = coords
 
                 # Crop the ad region
                 ad_img = img.crop((left, top, right, bottom))

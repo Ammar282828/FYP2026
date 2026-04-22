@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../config';
 import './AdBrowserTab.css';
-
-const API_BASE = 'http://localhost:8000/api';
 
 interface Advertisement {
   id: string;
@@ -41,9 +40,9 @@ const BAR_COLORS = [
 ];
 
 const SENTIMENT_COLORS: Record<string, string> = {
-  positive: '#22c55e',
-  neutral:  '#f59e0b',
-  negative: '#ef4444'
+  positive: 'var(--positive)',
+  neutral:  'var(--neutral-color)',
+  negative: 'var(--negative)'
 };
 
 const AdBrowserTab: React.FC = () => {
@@ -170,7 +169,7 @@ const AdBrowserTab: React.FC = () => {
               <span className="month-value">{count}</span>
               <div
                 className="month-bar"
-                style={{ height: `${Math.max((count / max) * 100, 4)}%`, background: '#667eea' }}
+                style={{ height: `${Math.max((count / max) * 100, 4)}%`, background: 'var(--primary-color)' }}
                 title={`${month}: ${count}`}
               />
             </div>
@@ -194,7 +193,7 @@ const AdBrowserTab: React.FC = () => {
                 className="sentiment-bar-fill"
                 style={{
                   width: `${(count / total) * 100}%`,
-                  background: SENTIMENT_COLORS[label] || '#6b7280'
+                  background: SENTIMENT_COLORS[label] || 'var(--text-secondary)'
                 }}
               />
             </div>

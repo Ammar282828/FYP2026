@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
@@ -7,6 +7,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, LineChart, Line
 } from 'recharts';
+import ChartExportButton from './ChartExportButton';
 
 // Summary Cards Component
 export const AnalyticsSummary: React.FC = () => {
@@ -36,30 +37,30 @@ export const AnalyticsSummary: React.FC = () => {
       display: 'flex',
       gap: '1rem',
       padding: '0.75rem',
-      background: '#f9fafb',
+      background: 'var(--bg-secondary)',
       borderRadius: '8px',
       marginBottom: '1rem',
       fontSize: '14px'
     }}>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <div>
-          <div style={{ fontSize: '11px', color: '#6b7280' }}>Total Articles</div>
-          <div style={{ fontSize: '18px', fontWeight: '700', color: '#374151' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Total Articles</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>
             {stats.totalArticles.toLocaleString()}
           </div>
         </div>
       </div>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <div>
-          <div style={{ fontSize: '11px', color: '#6b7280' }}>Coverage Period</div>
-          <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Coverage Period</div>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
             {stats.dateRange}
           </div>
         </div>
       </div>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <div>
-          <div style={{ fontSize: '11px', color: '#6b7280' }}>Overall Sentiment</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Overall Sentiment</div>
           <div style={{
             fontSize: '18px',
             fontWeight: '700',
@@ -76,6 +77,7 @@ export const AnalyticsSummary: React.FC = () => {
 
 // Sentiment Distribution Pie Chart
 export const SentimentDistribution: React.FC = () => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const { data: raw, loading } = useAnalyticsCache('sentiment_distribution', async () => {
     const response = await axios.get(`${API_BASE}/analytics/sentiment-over-time`);
     const timeline = response.data.timeline || [];
@@ -96,7 +98,7 @@ export const SentimentDistribution: React.FC = () => {
 
   const COLORS = ['#10b981', '#6b7280', '#ef4444'];
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
   if (data.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No sentiment data available.</strong>
@@ -104,9 +106,12 @@ export const SentimentDistribution: React.FC = () => {
   );
 
   return (
-    <div>
-      <h3 style={{ marginBottom: '0.5rem' }}>Overall Sentiment Distribution</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+    <div ref={chartRef}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+        <h3 style={{ margin: 0 }}>Overall Sentiment Distribution</h3>
+        <ChartExportButton targetRef={chartRef} filenamePrefix="mediascope-sentiment" />
+      </div>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Breakdown of positive, neutral, and negative articles across the entire archive
       </p>
       <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -127,7 +132,7 @@ export const SentimentDistribution: React.FC = () => {
               ))}
             </Pie>
             <Tooltip
-              contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}
+              contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
             />
           </PieChart>
         </ResponsiveContainer>
@@ -139,11 +144,11 @@ export const SentimentDistribution: React.FC = () => {
               width: '12px', height: '12px', borderRadius: '50%',
               background: COLORS[index], display: 'inline-block', marginRight: '6px'
             }} />
-            <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{entry.name}</span>
+            <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{entry.name}</span>
             <div style={{ fontSize: '18px', fontWeight: '700', color: COLORS[index], marginTop: '2px' }}>
               {entry.percentage}%
             </div>
-            <div style={{ fontSize: '12px', color: '#6b7280' }}>{entry.value.toLocaleString()} articles</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{entry.value.toLocaleString()} articles</div>
           </div>
         ))}
       </div>
@@ -161,7 +166,7 @@ export const TopicDistribution: React.FC = () => {
   });
   const data: any[] = raw || [];
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
   if (data.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No topics found.</strong> Train the topic model first, or topics may need more articles (minimum 30 per topic).
@@ -171,7 +176,7 @@ export const TopicDistribution: React.FC = () => {
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Discovered Topics ({data.length})</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Topics discovered from the article archive — click a topic to explore its articles
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -182,10 +187,10 @@ export const TopicDistribution: React.FC = () => {
               key={topic.topic_id}
               onClick={() => navigate(`/topic/${topic.topic_id}`)}
               style={{
-                border: '1px solid #e5e7eb',
+                border: '1px solid var(--border-color)',
                 borderLeft: `4px solid ${topicColor}`,
                 borderRadius: '8px',
-                background: 'white',
+                background: 'var(--bg-primary)',
                 padding: '12px 16px',
                 cursor: 'pointer',
                 display: 'flex',
@@ -194,17 +199,17 @@ export const TopicDistribution: React.FC = () => {
                 transition: 'background 0.15s, box-shadow 0.15s',
               }}
               onMouseEnter={e => {
-                e.currentTarget.style.background = '#f9fafb';
+                e.currentTarget.style.background = 'var(--bg-secondary)';
                 e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
               }}
               onMouseLeave={e => {
-                e.currentTarget.style.background = 'white';
+                e.currentTarget.style.background = 'var(--bg-primary)';
                 e.currentTarget.style.boxShadow = 'none';
               }}
             >
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: '700', color: '#1f2937', fontSize: '14px' }}>
+                  <span style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '14px' }}>
                     {topic.name}
                   </span>
                   <span style={{
@@ -218,11 +223,11 @@ export const TopicDistribution: React.FC = () => {
                     {topic.count} articles
                   </span>
                 </div>
-                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {topic.keywords.slice(0, 8).join(' • ')}
                 </div>
               </div>
-              <span style={{ color: '#9ca3af', fontSize: '16px' }}>→</span>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: '16px' }}>→</span>
             </div>
           );
         })}
@@ -277,17 +282,17 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
   return (
     <div className="entity-cooccurrence-network">
       <h3 style={{ marginBottom: '0.5rem' }}>Entity Relationships</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Entities that frequently appear together in the same articles — showing connections and relationships
       </p>
 
       {/* Filter pills */}
       <div style={{
         display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap',
-        alignItems: 'center', padding: '0.75rem 1rem', background: '#f9fafb',
-        borderRadius: '8px', border: '1px solid #e5e7eb'
+        alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
+        borderRadius: '8px', border: '1px solid var(--border-color)'
       }}>
-        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Filter by type:</span>
+        <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Filter by type:</span>
         {[
           { value: '', label: 'All' },
           { value: 'PERSON', label: 'People' },
@@ -301,9 +306,9 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
               onClick={() => setEntityType(opt.value)}
               style={{
                 padding: '4px 12px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                border: `2px solid ${active ? '#3b82f6' : '#d1d5db'}`,
-                background: active ? '#3b82f6' : 'white',
-                color: active ? 'white' : '#374151',
+                border: `2px solid ${active ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                background: active ? 'var(--primary-color)' : 'var(--bg-primary)',
+                color: active ? 'white' : 'var(--text-primary)',
                 fontWeight: active ? '600' : '400',
                 transition: 'all 0.15s ease',
               }}
@@ -322,7 +327,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
               padding: '10px 24px',
               fontSize: '14px',
               fontWeight: '600',
-              background: '#667eea',
+              background: 'var(--primary-color)',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
@@ -331,12 +336,12 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
           >
             Load Entity Relationships
           </button>
-          <p style={{ marginTop: '8px', fontSize: '12px', color: '#9ca3af' }}>
+          <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
             This query scans all 4,200+ articles and may take 1–2 minutes on first load.
           </p>
         </div>
       ) : loading ? (
-        <p style={{ margin: '2rem 0', fontSize: '14px', color: '#6b7280' }}>Loading relationships... (this may take a minute)</p>
+        <p style={{ margin: '2rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading relationships... (this may take a minute)</p>
       ) : cooccurrences.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {cooccurrences.map((pair, idx) => {
@@ -351,8 +356,8 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     padding: '16px',
-                    background: 'white',
-                    border: '2px solid #e5e7eb',
+                    background: 'var(--bg-primary)',
+                    border: '2px solid var(--border-color)',
                     borderRadius: '10px',
                     gap: '16px',
                     transition: 'all 0.2s',
@@ -360,12 +365,12 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.borderColor = 'var(--primary-color)';
                     e.currentTarget.style.transform = 'translateY(-2px)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.boxShadow = 'none';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
                     e.currentTarget.style.transform = 'translateY(0)';
                   }}
                   onClick={() => setExpandedPair(isExpanded ? null : idx)}
@@ -377,7 +382,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: '#4f46e5',
+                    background: 'var(--primary-color)',
                     borderRadius: '8px',
                     fontSize: '14px',
                     fontWeight: '700',
@@ -404,7 +409,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                     <div style={{
                       fontSize: '15px',
                       fontWeight: '600',
-                      color: '#111827'
+                      color: 'var(--text-primary)'
                     }}>
                       {pair.entity1}
                     </div>
@@ -419,14 +424,14 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                   }}>
                     <div style={{
                       fontSize: '20px',
-                      color: '#9ca3af'
+                      color: 'var(--text-tertiary)'
                     }}>
                       ↔️
                     </div>
                     <div style={{
                       fontSize: '12px',
                       fontWeight: '700',
-                      color: '#3b82f6',
+                      color: 'var(--primary-color)',
                       background: '#eff6ff',
                       padding: '4px 10px',
                       borderRadius: '12px',
@@ -453,7 +458,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                     <div style={{
                       fontSize: '15px',
                       fontWeight: '600',
-                      color: '#111827'
+                      color: 'var(--text-primary)'
                     }}>
                       {pair.entity2}
                     </div>
@@ -462,7 +467,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                   {/* Expand indicator */}
                   <div style={{
                     fontSize: '18px',
-                    color: '#9ca3af',
+                    color: 'var(--text-tertiary)',
                     transition: 'transform 0.2s',
                     transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
                   }}>
@@ -475,14 +480,14 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                   <div style={{
                     marginTop: '8px',
                     padding: '16px',
-                    background: '#f9fafb',
-                    border: '2px solid #e5e7eb',
+                    background: 'var(--bg-secondary)',
+                    border: '2px solid var(--border-color)',
                     borderRadius: '8px'
                   }}>
                     <div style={{
                       fontSize: '13px',
                       fontWeight: '600',
-                      color: '#374151',
+                      color: 'var(--text-primary)',
                       marginBottom: '12px',
                       display: 'flex',
                       alignItems: 'center',
@@ -495,8 +500,8 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                         key={exIdx}
                         style={{
                           padding: '12px',
-                          background: 'white',
-                          border: '1px solid #e5e7eb',
+                          background: 'var(--bg-primary)',
+                          border: '1px solid var(--border-color)',
                           borderRadius: '6px',
                           marginBottom: exIdx < pair.examples.length - 1 ? '10px' : '0',
                           fontSize: '13px',
@@ -512,7 +517,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
                           {example.headline}
                         </div>
                         <div style={{
-                          color: '#4b5563',
+                          color: 'var(--text-secondary)',
                           fontStyle: 'italic',
                           background: '#fef3c7',
                           padding: '8px',
@@ -533,14 +538,14 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
         <div style={{
           padding: '40px 20px',
           textAlign: 'center',
-          background: '#f9fafb',
+          background: 'var(--bg-secondary)',
           borderRadius: '8px',
-          border: '1px dashed #d1d5db'
+          border: '1px dashed var(--border-color)'
         }}>
-          <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#374151' }}>
+          <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-primary)' }}>
             No Entity Relationships Found
           </div>
-          <div style={{ fontSize: '13px', color: '#6b7280' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
             Try selecting a different entity type or add more articles to the database
           </div>
         </div>
@@ -586,7 +591,7 @@ export const EntityTimeline: React.FC = () => {
     loadEntities();
   }, []);
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
   if (topEntities.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No entity data available.</strong>
@@ -596,7 +601,7 @@ export const EntityTimeline: React.FC = () => {
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Top Entities</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Most frequently mentioned people, organizations, and locations across all articles
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -608,20 +613,20 @@ export const EntityTimeline: React.FC = () => {
               key={idx}
               style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '10px 14px', background: 'white',
-                border: '1px solid #e5e7eb', borderLeft: `4px solid ${typeColor}`,
+                padding: '10px 14px', background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)', borderLeft: `4px solid ${typeColor}`,
                 borderRadius: '8px',
               }}
             >
               <div style={{
                 minWidth: '28px', height: '28px', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: '#f3f4f6', borderRadius: '6px',
-                fontSize: '12px', fontWeight: '700', color: '#6b7280'
+                justifyContent: 'center', background: 'var(--bg-tertiary)', borderRadius: '6px',
+                fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)'
               }}>
                 #{idx + 1}
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
                   {entity.text}
                 </div>
               </div>
@@ -692,7 +697,7 @@ export const ArticleLengthDistribution: React.FC = () => {
     loadData();
   }, []);
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
   if (data.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No data available.</strong>
@@ -704,7 +709,7 @@ export const ArticleLengthDistribution: React.FC = () => {
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Article Length Distribution</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Distribution of articles by word count — shows typical article length patterns
       </p>
       <ResponsiveContainer width="100%" height={420}>
@@ -713,7 +718,7 @@ export const ArticleLengthDistribution: React.FC = () => {
           <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
           <YAxis tick={{ fontSize: 11 }} />
           <Tooltip
-            contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}
+            contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
           />
           <Bar dataKey="count" name="Articles">
             {data.map((_entry, index) => (
@@ -728,13 +733,14 @@ export const ArticleLengthDistribution: React.FC = () => {
 
 // Coverage Heatmap - Shows publication intensity by month
 export const CoverageHeatmap: React.FC = () => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const { data: raw, loading } = useAnalyticsCache('coverage_heatmap', async () => {
     const response = await axios.get(`${API_BASE}/analytics/articles-over-time`);
     return response.data.timeline || [];
   });
   const data: any[] = raw || [];
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
   if (data.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No coverage data available.</strong>
@@ -744,8 +750,11 @@ export const CoverageHeatmap: React.FC = () => {
   const maxCount = Math.max(...data.map((d: any) => d.count));
 
   return (
-    <div>
-      <h3 style={{ marginBottom: '10px' }}>Coverage Intensity</h3>
+    <div ref={chartRef}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+        <h3 style={{ margin: 0 }}>Coverage Intensity</h3>
+        <ChartExportButton targetRef={chartRef} filenamePrefix="mediascope-coverage" />
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
         {data.map((item, idx) => {
           const intensity = item.count / maxCount;
@@ -760,7 +769,7 @@ export const CoverageHeatmap: React.FC = () => {
                 background: bgColor,
                 borderRadius: '6px',
                 textAlign: 'center',
-                color: intensity > 0.5 ? 'white' : '#1f2937',
+                color: intensity > 0.5 ? 'white' : 'var(--text-primary)',
                 fontWeight: 500,
                 fontSize: '12px'
               }}
@@ -920,7 +929,7 @@ export const TopicTrendsOverTime: React.FC = () => {
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Topic Trends Over Time</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Select topics below to compare how they rise and fall over time
       </p>
 
@@ -928,30 +937,30 @@ export const TopicTrendsOverTime: React.FC = () => {
       <div style={{
         display: 'flex', gap: '1rem', marginBottom: '1rem',
         flexWrap: 'wrap', alignItems: 'center',
-        padding: '0.75rem 1rem', background: '#f9fafb', borderRadius: '8px'
+        padding: '0.75rem 1rem', background: 'var(--bg-secondary)', borderRadius: '8px'
       }}>
         <div>
-          <label style={{ fontSize: '13px', fontWeight: '600', marginRight: '8px', color: '#374151' }}>Granularity:</label>
+          <label style={{ fontSize: '13px', fontWeight: '600', marginRight: '8px', color: 'var(--text-primary)' }}>Granularity:</label>
           <select value={granularity} onChange={(e) => setGranularity(e.target.value as any)}
-            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' }}>
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' }}>
             <option value="year">Yearly</option>
             <option value="month">Monthly</option>
             <option value="day">Daily</option>
           </select>
         </div>
         <div>
-          <label style={{ fontSize: '13px', fontWeight: '600', marginRight: '8px', color: '#374151' }}>From:</label>
+          <label style={{ fontSize: '13px', fontWeight: '600', marginRight: '8px', color: 'var(--text-primary)' }}>From:</label>
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' }} />
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' }} />
         </div>
         <div>
-          <label style={{ fontSize: '13px', fontWeight: '600', marginRight: '8px', color: '#374151' }}>To:</label>
+          <label style={{ fontSize: '13px', fontWeight: '600', marginRight: '8px', color: 'var(--text-primary)' }}>To:</label>
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' }} />
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' }} />
         </div>
         {(startDate || endDate) && (
           <button onClick={() => { setStartDate(''); setEndDate(''); }}
-            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', fontSize: '13px', cursor: 'pointer', color: '#6b7280' }}>
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '13px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
             Clear
           </button>
         )}
@@ -965,18 +974,18 @@ export const TopicTrendsOverTime: React.FC = () => {
       ) : (
         <>
           {/* Topic picker */}
-          <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
                 Topics ({selectedTopics.size} selected)
               </span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => setSelectedTopics(new Set(allTopics.slice(0, 5).map(t => t.raw)))}
-                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid #d1d5db', background: 'white', fontSize: '12px', cursor: 'pointer', color: '#374151' }}>
+                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '12px', cursor: 'pointer', color: 'var(--text-primary)' }}>
                   Top 5
                 </button>
                 <button onClick={() => setSelectedTopics(new Set())}
-                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid #d1d5db', background: 'white', fontSize: '12px', cursor: 'pointer', color: '#6b7280' }}>
+                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '12px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                   Clear all
                 </button>
               </div>
@@ -990,9 +999,9 @@ export const TopicTrendsOverTime: React.FC = () => {
                     title={topic.raw.replace(/_/g, ' ')}
                     style={{
                       padding: '4px 10px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                      border: `2px solid ${active ? color : '#d1d5db'}`,
-                      background: active ? color : 'white',
-                      color: active ? 'white' : '#374151',
+                      border: `2px solid ${active ? color : 'var(--border-color)'}`,
+                      background: active ? color : 'var(--bg-primary)',
+                      color: active ? 'white' : 'var(--text-primary)',
                       fontWeight: active ? '600' : '400',
                       transition: 'all 0.15s ease',
                     }}>
@@ -1008,7 +1017,7 @@ export const TopicTrendsOverTime: React.FC = () => {
 
           {/* Chart */}
           {selectedList.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: '#9ca3af', fontSize: '14px', border: '2px dashed #e5e7eb', borderRadius: '8px' }}>
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '14px', border: '2px dashed var(--border-color)', borderRadius: '8px' }}>
               Select one or more topics above to see their trend lines
             </div>
           ) : (
@@ -1018,7 +1027,7 @@ export const TopicTrendsOverTime: React.FC = () => {
                 <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
                 <YAxis tick={{ fontSize: 11 }} label={{ value: 'Articles', angle: -90, position: 'insideLeft', fontSize: 12 }} />
                 <Tooltip
-                  contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}
+                  contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
                   formatter={(value: any, name: string | undefined) => [value, name ? toReadableTopicName(name) : name]}
                 />
                 <Legend
@@ -1114,12 +1123,12 @@ export const TopicSentimentOverTime: React.FC = () => {
 
   const selectedList = topics.filter(t => selectedTopicIds.has(t.topic_id));
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
 
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Topic Sentiment Over Time</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Track how sentiment changes for each topic over time — select topics to compare
       </p>
 
@@ -1127,14 +1136,14 @@ export const TopicSentimentOverTime: React.FC = () => {
       <div style={{
         display: 'flex', gap: '1rem', marginBottom: '1rem',
         flexWrap: 'wrap', alignItems: 'center',
-        padding: '0.75rem 1rem', background: '#f9fafb',
-        borderRadius: '8px', border: '1px solid #e5e7eb'
+        padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
+        borderRadius: '8px', border: '1px solid var(--border-color)'
       }}>
-        <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Granularity:</label>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Granularity:</label>
         <select
           value={granularity}
           onChange={(e) => setGranularity(e.target.value as 'year' | 'month' | 'day')}
-          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' }}
+          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' }}
         >
           <option value="year">Yearly</option>
           <option value="month">Monthly</option>
@@ -1150,21 +1159,21 @@ export const TopicSentimentOverTime: React.FC = () => {
       ) : (
         <>
           {/* Topic pill picker */}
-          <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
                 Topics ({selectedTopicIds.size} selected)
               </span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   onClick={() => setSelectedTopicIds(new Set(topics.slice(0, 3).map(t => t.topic_id)))}
-                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid #d1d5db', background: 'white', fontSize: '12px', cursor: 'pointer', color: '#374151' }}
+                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '12px', cursor: 'pointer', color: 'var(--text-primary)' }}
                 >
                   Top 3
                 </button>
                 <button
                   onClick={() => setSelectedTopicIds(new Set())}
-                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid #d1d5db', background: 'white', fontSize: '12px', cursor: 'pointer', color: '#6b7280' }}
+                  style={{ padding: '3px 10px', borderRadius: '5px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '12px', cursor: 'pointer', color: 'var(--text-secondary)' }}
                 >
                   Clear all
                 </button>
@@ -1182,9 +1191,9 @@ export const TopicSentimentOverTime: React.FC = () => {
                     title={topic.keywords?.join(', ')}
                     style={{
                       padding: '4px 10px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                      border: `2px solid ${active ? color : '#d1d5db'}`,
-                      background: active ? color : 'white',
-                      color: active ? 'white' : '#374151',
+                      border: `2px solid ${active ? color : 'var(--border-color)'}`,
+                      background: active ? color : 'var(--bg-primary)',
+                      color: active ? 'white' : 'var(--text-primary)',
                       fontWeight: active ? '600' : '400',
                       transition: 'all 0.15s ease',
                     }}
@@ -1198,7 +1207,7 @@ export const TopicSentimentOverTime: React.FC = () => {
           </div>
 
           {selectedList.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: '#9ca3af', fontSize: '14px', border: '2px dashed #e5e7eb', borderRadius: '8px' }}>
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '14px', border: '2px dashed var(--border-color)', borderRadius: '8px' }}>
               Select one or more topics above to see their sentiment lines
             </div>
           ) : (
@@ -1212,7 +1221,7 @@ export const TopicSentimentOverTime: React.FC = () => {
                   label={{ value: 'Avg Sentiment', angle: -90, position: 'insideLeft', fontSize: 11 }}
                 />
                 <Tooltip
-                  contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}
+                  contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
                   formatter={(value: any, name?: string) => {
                     if (name && name.startsWith('t_')) {
                       const tid = parseInt(name.replace('t_', ''));
@@ -1313,12 +1322,12 @@ export const EntitySentimentOverTime: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [granularity, entity]);
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
 
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Entity Sentiment Over Time</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Track sentiment changes for a specific entity — click a pill to switch entities
       </p>
 
@@ -1326,14 +1335,14 @@ export const EntitySentimentOverTime: React.FC = () => {
       <div style={{
         display: 'flex', gap: '1rem', marginBottom: '1rem',
         flexWrap: 'wrap', alignItems: 'center',
-        padding: '0.75rem 1rem', background: '#f9fafb',
-        borderRadius: '8px', border: '1px solid #e5e7eb'
+        padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
+        borderRadius: '8px', border: '1px solid var(--border-color)'
       }}>
-        <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Granularity:</label>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Granularity:</label>
         <select
           value={granularity}
           onChange={(e) => setGranularity(e.target.value as 'year' | 'month' | 'day')}
-          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' }}
+          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' }}
         >
           <option value="year">Yearly</option>
           <option value="month">Monthly</option>
@@ -1343,8 +1352,8 @@ export const EntitySentimentOverTime: React.FC = () => {
 
       {/* Entity pill picker */}
       {topEntities.length > 0 && (
-        <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-          <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '0.6rem' }}>
+        <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.6rem' }}>
             Select entity:
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -1356,9 +1365,9 @@ export const EntitySentimentOverTime: React.FC = () => {
                   onClick={() => setEntity(ent)}
                   style={{
                     padding: '4px 12px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                    border: `2px solid ${active ? '#3b82f6' : '#d1d5db'}`,
-                    background: active ? '#3b82f6' : 'white',
-                    color: active ? 'white' : '#374151',
+                    border: `2px solid ${active ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                    background: active ? 'var(--primary-color)' : 'var(--bg-primary)',
+                    color: active ? 'white' : 'var(--text-primary)',
                     fontWeight: active ? '600' : '400',
                     transition: 'all 0.15s ease',
                   }}
@@ -1383,7 +1392,7 @@ export const EntitySentimentOverTime: React.FC = () => {
               label={{ value: 'Avg Sentiment', angle: -90, position: 'insideLeft', fontSize: 11 }}
             />
             <Tooltip
-              contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}
+              contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
               formatter={(value: any, name?: string) => {
                 if (name === 'sentiment') return [typeof value === 'number' ? value.toFixed(3) : value, 'Sentiment'];
                 return [value, 'Articles'];
@@ -1457,12 +1466,12 @@ export const KeywordSentimentOverTime: React.FC = () => {
     setKeyword(kw);
   };
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>;
+  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
 
   return (
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Keyword Sentiment Over Time</h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
         Track sentiment changes for specific keywords across the archive
       </p>
 
@@ -1470,23 +1479,23 @@ export const KeywordSentimentOverTime: React.FC = () => {
       <div style={{
         display: 'flex', gap: '1rem', marginBottom: '1rem',
         flexWrap: 'wrap', alignItems: 'center',
-        padding: '0.75rem 1rem', background: '#f9fafb',
-        borderRadius: '8px', border: '1px solid #e5e7eb'
+        padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
+        borderRadius: '8px', border: '1px solid var(--border-color)'
       }}>
-        <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Keyword:</label>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Keyword:</label>
         <input
           type="text"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
           placeholder="Enter keyword..."
-          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white', minWidth: '160px' }}
+          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)', minWidth: '160px' }}
         />
-        <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Granularity:</label>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Granularity:</label>
         <select
           value={granularity}
           onChange={(e) => setGranularity(e.target.value as 'year' | 'month' | 'day')}
-          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' }}
+          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' }}
         >
           <option value="year">Yearly</option>
           <option value="month">Monthly</option>
@@ -1496,7 +1505,7 @@ export const KeywordSentimentOverTime: React.FC = () => {
           onClick={handleSearch}
           style={{
             padding: '5px 16px', borderRadius: '6px', border: 'none',
-            background: '#3b82f6', color: 'white',
+            background: 'var(--primary-color)', color: 'white',
             fontSize: '13px', fontWeight: '600', cursor: 'pointer'
           }}
         >
@@ -1505,8 +1514,8 @@ export const KeywordSentimentOverTime: React.FC = () => {
       </div>
 
       {/* Quick-select keyword pills */}
-      <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-        <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>Quick select:</div>
+      <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Quick select:</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
           {QUICK_KEYWORDS.map(kw => {
             const active = keyword === kw;
@@ -1516,9 +1525,9 @@ export const KeywordSentimentOverTime: React.FC = () => {
                 onClick={() => handlePillClick(kw)}
                 style={{
                   padding: '4px 12px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                  border: `2px solid ${active ? '#10b981' : '#d1d5db'}`,
-                  background: active ? '#10b981' : 'white',
-                  color: active ? 'white' : '#374151',
+                  border: `2px solid ${active ? '#10b981' : 'var(--border-color)'}`,
+                  background: active ? '#10b981' : 'var(--bg-primary)',
+                  color: active ? 'white' : 'var(--text-primary)',
                   fontWeight: active ? '600' : '400',
                   transition: 'all 0.15s ease',
                 }}
@@ -1542,7 +1551,7 @@ export const KeywordSentimentOverTime: React.FC = () => {
               label={{ value: 'Avg Sentiment', angle: -90, position: 'insideLeft', fontSize: 11 }}
             />
             <Tooltip
-              contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}
+              contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
               formatter={(value: any, name?: string) => {
                 if (name === 'sentiment') return [typeof value === 'number' ? value.toFixed(3) : value, 'Sentiment'];
                 return [value, 'Articles'];

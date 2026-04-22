@@ -57,6 +57,69 @@ def list_articles(limit: int = 100, offset: int = 0):
         raise HTTPException(500, f"Database error: {str(e)}")
 
 
+# NOTE: These two routes MUST be declared before /articles/{article_id}
+# because FastAPI matches path routes in declaration order.
+@router.get("/articles/random")
+def random_article():
+    """Return a single random non-classified article from the archive."""
+    import random
+    try:
+        db = get_db()
+        from datetime import datetime as _dt, timedelta as _td
+        start = _dt(1990, 1, 1)
+        end = _dt(1992, 12, 31)
+        delta_days = (end - start).days
+        pick = start + _td(days=random.randint(0, delta_days))
+        next_day = pick + _td(days=1)
+
+        q = (db.db.collection('articles')
+               .where('publication_date', '>=', pick)
+               .where('publication_date', '<', next_day)
+               .limit(50))
+        docs = list(q.stream())
+        candidates = [d.to_dict() for d in docs]
+        candidates = [c for c in candidates if not _is_classified(c)]
+        if not candidates:
+            fallback = list(db.db.collection('articles').order_by(
+                'publication_date', direction='DESCENDING').limit(200).stream())
+            candidates = [d.to_dict() for d in fallback if not _is_classified(d.to_dict())]
+        if not candidates:
+            raise HTTPException(404, "No articles available")
+        choice = random.choice(candidates)
+        return {"article": choice}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@router.get("/articles/on-this-day")
+def on_this_day(month: Optional[int] = None, day: Optional[int] = None, limit: int = 10):
+    """Return articles published on today's month/day across archive years."""
+    from datetime import datetime as _dt
+    now = _dt.utcnow()
+    m = int(month or now.month)
+    d = int(day or now.day)
+    try:
+        db = get_db()
+        docs = db.db.collection('articles').order_by(
+            'publication_date', direction='DESCENDING').limit(2000).stream()
+        hits = []
+        for doc in docs:
+            data = doc.to_dict()
+            pd = data.get('publication_date')
+            if pd and hasattr(pd, 'month') and pd.month == m and pd.day == d:
+                if _is_classified(data):
+                    continue
+                data['content_preview'] = (data.get('content') or '')[:200]
+                hits.append(data)
+                if len(hits) >= limit:
+                    break
+        return {"month": m, "day": d, "articles": hits, "count": len(hits)}
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
 @router.get("/articles/{article_id}")
 def get_article(article_id: str):
     # gets one specific article by its id
@@ -283,6 +346,154 @@ def get_related_articles(article_id: str):
         raise
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@router.post("/chat/ask")
+def ask_archive(request: dict):
+    """
+    Ask-the-Archive: natural-language Q&A grounded in article search.
+
+    Body: { "question": "...", "max_context": 6 }
+    """
+    question = (request.get("question") or "").strip()
+    if not question:
+        raise HTTPException(400, "question is required")
+    if not genai:
+        raise HTTPException(500, "google-generativeai package not installed")
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(500, "GEMINI_API_KEY not configured")
+
+    max_context = min(int(request.get("max_context", 6)), 12)
+
+    try:
+        db = get_db()
+        # Retrieve candidate articles via keyword search on the question terms
+        terms = [t for t in question.split() if len(t) >= 4][:4]
+        candidates: list = []
+        seen = set()
+        for term in terms:
+            try:
+                hits = db.search_articles(term, limit=10) or []
+            except Exception:
+                hits = []
+            for h in hits:
+                aid = h.get('id')
+                if aid and aid not in seen:
+                    seen.add(aid)
+                    candidates.append(h)
+                if len(candidates) >= max_context * 2:
+                    break
+            if len(candidates) >= max_context * 2:
+                break
+
+        # Rank by naive keyword overlap with question
+        ql = question.lower()
+        def _score(a):
+            txt = ((a.get('headline') or '') + ' ' + (a.get('content_preview') or a.get('content') or '')).lower()
+            return sum(1 for t in terms if t.lower() in txt) + (2 if any(w in txt for w in ql.split()) else 0)
+        candidates.sort(key=_score, reverse=True)
+        context_articles = candidates[:max_context]
+
+        if not context_articles:
+            return {
+                "question": question,
+                "answer": "I couldn't find any articles in the archive that match this question.",
+                "sources": [],
+            }
+
+        blocks = []
+        sources = []
+        for i, a in enumerate(context_articles, 1):
+            pd = a.get('publication_date', '')
+            if hasattr(pd, 'strftime'):
+                date_str = pd.strftime('%B %d, %Y')
+            else:
+                date_str = str(pd)[:10]
+            headline = (a.get('headline') or 'Untitled').strip()
+            excerpt = (a.get('content') or a.get('content_preview') or '')[:500].strip()
+            blocks.append(f"[{i}] ({date_str}) {headline}\n{excerpt}")
+            sources.append({
+                "id": a.get('id'),
+                "headline": headline,
+                "publication_date": date_str,
+                "citation_index": i,
+            })
+
+        prompt = f"""You are a research assistant for the Dawn newspaper archive (Pakistan, 1990-1992).
+
+Answer the user's question using ONLY the articles below. Cite each claim with [number] notation pointing to the article it came from. If the articles don't answer the question, say so honestly — do not make up facts.
+
+ARTICLES:
+{chr(10).join(blocks)}
+
+QUESTION: {question}
+
+Answer (with [#] citations):"""
+
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return {
+            "question": question,
+            "answer": response.text.strip(),
+            "sources": sources,
+            "model": "gemini-1.5-flash",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Chat error: {str(e)}")
+
+
+@router.post("/entities/{entity_text}/bio")
+def generate_entity_bio(entity_text: str):
+    """Generate a short AI bio for an entity based on articles mentioning it."""
+    if not genai:
+        raise HTTPException(500, "google-generativeai package not installed")
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(500, "GEMINI_API_KEY not configured")
+
+    try:
+        from urllib.parse import unquote
+        entity = unquote(entity_text)
+        db = get_db()
+        hits = db.search_by_entity(entity, limit=10) or []
+        if not hits:
+            raise HTTPException(404, f"No articles mention '{entity}'")
+
+        blocks = []
+        for i, a in enumerate(hits[:10], 1):
+            pd = a.get('publication_date', '')
+            if hasattr(pd, 'strftime'):
+                date_str = pd.strftime('%b %d, %Y')
+            else:
+                date_str = str(pd)[:10]
+            headline = (a.get('headline') or '').strip()
+            excerpt = (a.get('content') or a.get('content_preview') or '')[:400].strip()
+            blocks.append(f"({date_str}) {headline}\n{excerpt}")
+
+        prompt = f"""Based ONLY on the Dawn newspaper (Pakistan, 1990-1992) articles below, write a 3-4 sentence factual profile of "{entity}" — who or what they are, their role in these articles, and the main events they were associated with. Do not invent details that are not in the articles.
+
+ARTICLES:
+{chr(10).join(blocks)}
+
+Profile:"""
+
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return {
+            "entity": entity,
+            "bio": response.text.strip(),
+            "source_count": len(hits),
+            "model": "gemini-1.5-flash",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Bio generation failed: {str(e)}")
 
 
 @router.delete("/articles/{article_id}")

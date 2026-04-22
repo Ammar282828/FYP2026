@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../config';
+import { useToast } from './ui/Toast';
 import './AdBrowserTab.css'; // Reuse the beautiful styles
-
-const API_BASE = 'http://localhost:8000/api';
 
 interface AdAnalysis {
   analysis: any; // The structured JSON analysis
@@ -21,6 +21,7 @@ interface UploadedAd {
 }
 
 const ImageAnalysisTab: React.FC = () => {
+  const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -228,10 +229,10 @@ const ImageAnalysisTab: React.FC = () => {
       });
 
       setUploadedAd(response.data);
-      alert('Ad uploaded successfully!');
+      toast('Ad uploaded successfully!', 'success');
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Failed to upload ad image');
+      toast('Failed to upload ad image', 'error');
     } finally {
       setUploading(false);
     }
@@ -249,7 +250,7 @@ const ImageAnalysisTab: React.FC = () => {
       setAnalysis(response.data.analysis);
     } catch (error) {
       console.error('Analysis error:', error);
-      alert('Failed to analyze ad image');
+      toast('Failed to analyze ad image', 'error');
     } finally {
       setAnalyzing(false);
     }

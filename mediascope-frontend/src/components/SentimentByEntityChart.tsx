@@ -42,16 +42,16 @@ const SentimentByEntityChart: React.FC = () => {
   };
 
   const getSentimentColor = (avgSentiment: number) => {
-    if (avgSentiment > 0.1) return '#10b981'; // positive - green
-    if (avgSentiment < -0.1) return '#ef4444'; // negative - red
-    return '#6b7280'; // neutral - gray
+    if (avgSentiment > 0.1) return 'var(--positive)'; // positive - green
+    if (avgSentiment < -0.1) return 'var(--negative)'; // negative - red
+    return 'var(--text-secondary)'; // neutral - gray
   };
 
   return (
     <div className="sentiment-by-entity-chart">
       <div className="chart-header">
         <h3>Sentiment by Entity</h3>
-        <p style={{ fontSize: '13px', color: '#6b7280', margin: '8px 0 16px 0' }}>
+        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>
           How people, organizations, and locations are portrayed in articles (positive, neutral, or negative sentiment)
         </p>
         <select

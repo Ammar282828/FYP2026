@@ -98,7 +98,7 @@ export const InteractiveKeywords: React.FC = () => {
 
   return (
     <div style={{
-      background: 'white',
+      background: 'var(--bg-primary)',
       borderRadius: '12px',
       padding: '24px',
       boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
@@ -106,7 +106,7 @@ export const InteractiveKeywords: React.FC = () => {
       <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600' }}>
         📊 Top Keywords
       </h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 20px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>
         Click any keyword to see articles where it appears
       </p>
 
@@ -124,8 +124,8 @@ export const InteractiveKeywords: React.FC = () => {
               onClick={() => handleKeywordClick(kw)}
               style={{
                 fontSize: `${size}px`,
-                color: selectedKeyword?.keyword === kw.keyword ? '#ffffff' : '#3b82f6',
-                background: selectedKeyword?.keyword === kw.keyword ? '#3b82f6' : '#eff6ff',
+                color: selectedKeyword?.keyword === kw.keyword ? '#ffffff' : 'var(--primary-color)',
+                background: selectedKeyword?.keyword === kw.keyword ? 'var(--primary-color)' : '#eff6ff',
                 border: 'none',
                 padding: '8px 16px',
                 borderRadius: '20px',
@@ -155,15 +155,15 @@ export const InteractiveKeywords: React.FC = () => {
 
       {selectedKeyword && (
         <div style={{
-          borderTop: '2px solid #e5e7eb',
+          borderTop: '2px solid var(--border-color)',
           paddingTop: '20px'
         }}>
           <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600' }}>
             Articles mentioning "{selectedKeyword.keyword}" ({keywordArticles.length} found)
           </h4>
-          
+
           {loadingArticles ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               Loading articles...
             </div>
           ) : keywordArticles.length > 0 ? (
@@ -174,39 +174,39 @@ export const InteractiveKeywords: React.FC = () => {
                   onClick={() => navigate(`/article/${article.id}`)}
                   style={{
                     padding: '16px',
-                    background: '#f9fafb',
+                    background: 'var(--bg-secondary)',
                     borderRadius: '8px',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
-                    border: '1px solid #e5e7eb'
+                    border: '1px solid var(--border-color)'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f3f4f6';
-                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.background = 'var(--bg-tertiary)';
+                    e.currentTarget.style.borderColor = 'var(--primary-color)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.background = 'var(--bg-secondary)';
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
                   }}
                 >
-                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#111827' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
                     {article.headline}
                   </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                     {new Date(article.publication_date).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric'
                     })}
                   </div>
-                  <div style={{ fontSize: '13px', color: '#4b5563', lineHeight: '1.5' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                     {article.content_preview}...
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               No articles found
             </div>
           )}
@@ -270,7 +270,7 @@ export const InteractiveEntityExplorer: React.FC = () => {
 
   return (
     <div style={{
-      background: 'white',
+      background: 'var(--bg-primary)',
       borderRadius: '12px',
       padding: '24px',
       boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
@@ -278,7 +278,7 @@ export const InteractiveEntityExplorer: React.FC = () => {
       <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600' }}>
         🏷️ Named Entity Explorer
       </h3>
-      <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 20px 0' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>
         Discover people, organizations, and locations mentioned in articles
       </p>
 
@@ -296,9 +296,9 @@ export const InteractiveEntityExplorer: React.FC = () => {
                 onClick={() => setEntityType(type)}
                 style={{
                   padding: '10px 16px',
-                  background: entityType === type ? info.color : 'white',
-                  color: entityType === type ? 'white' : '#374151',
-                  border: `2px solid ${entityType === type ? info.color : '#e5e7eb'}`,
+                  background: entityType === type ? info.color : 'var(--bg-primary)',
+                  color: entityType === type ? 'white' : 'var(--text-primary)',
+                  border: `2px solid ${entityType === type ? info.color : 'var(--border-color)'}`,
                   borderRadius: '8px',
                   cursor: 'pointer',
                   fontWeight: '600',
@@ -320,11 +320,11 @@ export const InteractiveEntityExplorer: React.FC = () => {
         {entityType !== 'all' && ENTITY_TYPE_INFO[entityType] && (
           <div style={{
             padding: '12px 16px',
-            background: '#f9fafb',
+            background: 'var(--bg-secondary)',
             borderLeft: `4px solid ${ENTITY_TYPE_INFO[entityType].color}`,
             borderRadius: '6px',
             fontSize: '13px',
-            color: '#4b5563'
+            color: 'var(--text-secondary)'
           }}>
             <strong>{ENTITY_TYPE_INFO[entityType].label}:</strong> {ENTITY_TYPE_INFO[entityType].description}
           </div>
@@ -332,7 +332,7 @@ export const InteractiveEntityExplorer: React.FC = () => {
       </div>
 
       {loading ? (
-        <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
           Loading entities...
         </div>
       ) : (
@@ -345,8 +345,8 @@ export const InteractiveEntityExplorer: React.FC = () => {
                 onClick={() => handleEntityClick(entity)}
                 style={{
                   padding: '16px',
-                  background: selectedEntity?.text === entity.text ? '#eff6ff' : 'white',
-                  border: `2px solid ${selectedEntity?.text === entity.text ? info.color : '#e5e7eb'}`,
+                  background: selectedEntity?.text === entity.text ? '#eff6ff' : 'var(--bg-primary)',
+                  border: `2px solid ${selectedEntity?.text === entity.text ? info.color : 'var(--border-color)'}`,
                   borderRadius: '8px',
                   cursor: 'pointer',
                   textAlign: 'left',
@@ -359,7 +359,7 @@ export const InteractiveEntityExplorer: React.FC = () => {
                 }}
                 onMouseLeave={(e) => {
                   if (selectedEntity?.text !== entity.text) {
-                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
                   }
                   e.currentTarget.style.transform = 'translateY(0)';
                   e.currentTarget.style.boxShadow = 'none';
@@ -378,10 +378,10 @@ export const InteractiveEntityExplorer: React.FC = () => {
                     {info.label}
                   </span>
                 </div>
-                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#111827' }}>
+                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
                   {entity.text || entity.entity}
                 </div>
-                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {entity.count} mentions
                   {entity.avg_sentiment !== undefined && entity.avg_sentiment !== null && (
                     <>
@@ -403,7 +403,7 @@ export const InteractiveEntityExplorer: React.FC = () => {
 
       {selectedEntity && (
         <div style={{
-          borderTop: '2px solid #e5e7eb',
+          borderTop: '2px solid var(--border-color)',
           paddingTop: '20px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
@@ -414,15 +414,15 @@ export const InteractiveEntityExplorer: React.FC = () => {
               <h4 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '600' }}>
                 {selectedEntity.text || selectedEntity.entity}
               </h4>
-              <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                {ENTITY_TYPE_INFO[selectedEntity.type]?.label || selectedEntity.type} • 
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                {ENTITY_TYPE_INFO[selectedEntity.type]?.label || selectedEntity.type} •
                 {selectedEntity.count} mentions across {entityArticles.length} articles
               </div>
             </div>
           </div>
           
           {loadingArticles ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               Loading articles...
             </div>
           ) : entityArticles.length > 0 ? (
@@ -433,39 +433,39 @@ export const InteractiveEntityExplorer: React.FC = () => {
                   onClick={() => navigate(`/article/${article.id}`)}
                   style={{
                     padding: '16px',
-                    background: '#f9fafb',
+                    background: 'var(--bg-secondary)',
                     borderRadius: '8px',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
-                    border: '1px solid #e5e7eb'
+                    border: '1px solid var(--border-color)'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f3f4f6';
-                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.background = 'var(--bg-tertiary)';
+                    e.currentTarget.style.borderColor = 'var(--primary-color)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.background = 'var(--bg-secondary)';
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
                   }}
                 >
-                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#111827' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
                     {article.headline}
                   </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                     {new Date(article.publication_date).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric'
                     })}
                   </div>
-                  <div style={{ fontSize: '13px', color: '#4b5563', lineHeight: '1.5' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                     {article.content_preview}...
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               No articles found
             </div>
           )}

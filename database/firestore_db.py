@@ -46,6 +46,9 @@ class FirestoreDB:
         self._cache = {}
         self._cache_timestamp = {}
         self._cache_ttl = 3600  # 1 hour — data is a historical archive, never changes
+        # Persist cache to disk so analytics is instant across server restarts.
+        self._cache_file = os.getenv('ANALYTICS_CACHE_FILE', '.analytics_cache.json')
+        self._load_persistent_cache()
 
         if not firebase_admin._apps:
             service_account_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH')
@@ -81,6 +84,49 @@ class FirestoreDB:
         self._cache[key] = value
         self._cache_timestamp[key] = time.time()
         print(f"[CACHE SET] {key}")
+        # Persist to disk so restarts don't lose warm cache.
+        try:
+            self._save_persistent_cache()
+        except Exception as e:
+            print(f"[CACHE WARN] Failed to persist cache: {e}")
+
+    def _load_persistent_cache(self):
+        """Load cached analytics from disk, skipping expired entries."""
+        import time
+        try:
+            if not os.path.exists(self._cache_file):
+                return
+            with open(self._cache_file, 'r') as f:
+                payload = json.load(f)
+            entries = payload.get('entries', {})
+            timestamps = payload.get('timestamps', {})
+            now = time.time()
+            loaded = 0
+            for key, value in entries.items():
+                ts = timestamps.get(key, 0)
+                if now - ts < self._cache_ttl:
+                    self._cache[key] = value
+                    self._cache_timestamp[key] = ts
+                    loaded += 1
+            if loaded:
+                print(f"[CACHE] Loaded {loaded} persisted analytics entries from {self._cache_file}")
+        except Exception as e:
+            print(f"[CACHE WARN] Failed to load persisted cache: {e}")
+
+    def _save_persistent_cache(self):
+        """Write current cache snapshot to disk atomically."""
+        try:
+            payload = {
+                'entries': self._cache,
+                'timestamps': self._cache_timestamp,
+            }
+            tmp_path = self._cache_file + '.tmp'
+            with open(tmp_path, 'w') as f:
+                json.dump(payload, f, default=str)
+            os.replace(tmp_path, self._cache_file)
+        except (TypeError, ValueError) as e:
+            # Value not JSON-serializable — skip silently.
+            print(f"[CACHE WARN] Non-serializable cache value skipped: {e}")
 
     def _clear_analytics_cache(self):
         """Clear all analytics caches when new data is written."""
@@ -91,6 +137,12 @@ class FirestoreDB:
         # Update article_count cache too
         self._cache.pop('article_count', None)
         self._cache_timestamp.pop('article_count', None)
+        # Remove persisted file so next restart starts clean.
+        try:
+            if os.path.exists(self._cache_file):
+                os.remove(self._cache_file)
+        except Exception as e:
+            print(f"[CACHE WARN] Failed to delete persisted cache: {e}")
         print("[CACHE CLEARED] Analytics cache invalidated due to new data")
 
     def store_article(self, article_data: Dict) -> str:

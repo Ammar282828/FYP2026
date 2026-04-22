@@ -65,8 +65,8 @@ export const KeywordFrequencyOverTime: React.FC = () => {
   const [granularity, setGranularity] = useState('month');
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  const ctrlStyle = { padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: 'white' };
-  const labelStyle = { fontSize: '13px', fontWeight: '600' as const, color: '#374151', marginRight: '8px' };
+  const ctrlStyle = { padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' };
+  const labelStyle = { fontSize: '13px', fontWeight: '600' as const, color: 'var(--text-primary)', marginRight: '8px' };
 
   useEffect(() => {
     axios.get(`${API_BASE}/analytics/top-keywords?limit=30`)
@@ -114,7 +114,7 @@ export const KeywordFrequencyOverTime: React.FC = () => {
         />
         <button
           onClick={() => search(inputValue)}
-          style={{ padding: '7px 18px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+          style={{ padding: '7px 18px', borderRadius: '6px', border: 'none', background: 'var(--primary-color)', color: 'white', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
         >
           Search
         </button>
@@ -129,9 +129,9 @@ export const KeywordFrequencyOverTime: React.FC = () => {
               onClick={() => { setInputValue(kw); search(kw); }}
               style={{
                 padding: '3px 10px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                border: `2px solid ${keyword === kw ? '#3b82f6' : '#d1d5db'}`,
-                background: keyword === kw ? '#3b82f6' : 'white',
-                color: keyword === kw ? 'white' : '#374151',
+                border: `2px solid ${keyword === kw ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                background: keyword === kw ? 'var(--primary-color)' : 'var(--bg-primary)',
+                color: keyword === kw ? 'white' : 'var(--text-primary)',
                 fontWeight: keyword === kw ? '600' : '400',
               }}
             >
@@ -142,7 +142,7 @@ export const KeywordFrequencyOverTime: React.FC = () => {
       )}
 
       {/* Controls */}
-      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', padding: '0.75rem 1rem', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
         <div>
           <label style={labelStyle}>Granularity:</label>
           <select value={granularity} onChange={e => setGranularity(e.target.value)} style={ctrlStyle}>
@@ -162,7 +162,7 @@ export const KeywordFrequencyOverTime: React.FC = () => {
       </div>
 
       {loading ? (
-        <p style={{ margin: '1rem 0', fontSize: '14px', color: '#6b7280' }}>Loading...</p>
+        <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>
       ) : data.length > 0 ? (
         <>
           {/* Stats row */}
@@ -171,7 +171,7 @@ export const KeywordFrequencyOverTime: React.FC = () => {
             <span>Peak: <strong style={{ color: '#0369a1' }}>{peak} in one period</strong></span>
             <span style={{ marginLeft: 'auto' }}>
               <button onClick={() => exportToCSV(data, `keyword_${keyword}_frequency`)}
-                style={{ padding: '3px 12px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', fontSize: '12px', cursor: 'pointer' }}>
+                style={{ padding: '3px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '12px', cursor: 'pointer' }}>
                 Export CSV
               </button>
             </span>
@@ -181,7 +181,7 @@ export const KeywordFrequencyOverTime: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
               <YAxis tick={{ fontSize: 11 }} label={{ value: 'Mentions', angle: -90, position: 'insideLeft', fontSize: 12 }} />
-              <Tooltip contentStyle={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }} />
+              <Tooltip contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }} />
               <Bar dataKey="count" fill="#3b82f6" name={`"${keyword}" mentions`} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

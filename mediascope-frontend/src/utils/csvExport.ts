@@ -4,7 +4,7 @@
 
 export const exportToCSV = (data: any[], filename: string) => {
   if (!data || data.length === 0) {
-    alert('No data to export');
+    console.warn('No data to export');
     return;
   }
 

@@ -39,7 +39,7 @@ def list_stories(
     Query params:
       limit       Max results (default 20, max 100)
       offset      Pagination offset
-      topic_id    Filter by BERTopic topic_id
+      topic_id    Filter by topic_id
       start_date  YYYY-MM-DD — stories that started on or after this date
       end_date    YYYY-MM-DD — stories that ended on or before this date
     """
@@ -279,6 +279,68 @@ The story arc must include:
 Write in the style of a concise historical narrative. Use active voice. Reference specific dates and named actors from the articles. Do not use bullet points — write in flowing paragraphs.
 
 Story Arc:"""
+
+
+# ─── POST /api/stories/rebuild ───────────────────────────────────────────────
+
+_REBUILD_STATUS: dict = {"running": False, "started_at": None, "finished_at": None,
+                        "stories_created": 0, "last_error": None}
+
+
+@router.post("/rebuild")
+def rebuild_stories(request: dict, background_tasks: BackgroundTasks):
+    """
+    Rebuild the stories collection from scratch.
+
+    Body: { "date_window": 30, "jaccard": 0.15, "clear": true }
+    """
+    if _REBUILD_STATUS["running"]:
+        raise HTTPException(status_code=409, detail="A rebuild is already running")
+
+    date_window = int(request.get("date_window", 30))
+    jaccard = float(request.get("jaccard", 0.15))
+    clear = bool(request.get("clear", True))
+
+    background_tasks.add_task(_rebuild_stories_bg, date_window, jaccard, clear)
+    return {"status": "started", "date_window": date_window, "jaccard": jaccard, "clear": clear}
+
+
+@router.get("/rebuild/status")
+def rebuild_status():
+    return _REBUILD_STATUS
+
+
+def _rebuild_stories_bg(date_window: int, jaccard: float, clear: bool):
+    from datetime import datetime as dt
+    _REBUILD_STATUS.update({
+        "running": True, "started_at": dt.utcnow().isoformat() + "Z",
+        "finished_at": None, "stories_created": 0, "last_error": None,
+    })
+    try:
+        import subprocess, sys as _sys, os as _os
+        cmd = [_sys.executable, "scripts/build_stories.py",
+               "--date-window", str(date_window), "--jaccard", str(jaccard)]
+        if clear:
+            cmd.append("--clear")
+        env = _os.environ.copy()
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=1800)
+        if result.returncode != 0:
+            _REBUILD_STATUS["last_error"] = (result.stderr or result.stdout)[-2000:]
+        else:
+            # Parse something like "Created N stories" from stdout
+            for line in (result.stdout or "").splitlines():
+                line = line.strip().lower()
+                if "stories created" in line or "created" in line and "stor" in line:
+                    for tok in line.split():
+                        if tok.isdigit():
+                            _REBUILD_STATUS["stories_created"] = int(tok)
+                            break
+    except Exception as e:
+        _REBUILD_STATUS["last_error"] = str(e)
+    finally:
+        from datetime import datetime as dt
+        _REBUILD_STATUS["running"] = False
+        _REBUILD_STATUS["finished_at"] = dt.utcnow().isoformat() + "Z"
 
 
 # ─── POST /api/stories/{story_id}/assign ─────────────────────────────────────

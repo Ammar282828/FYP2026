@@ -5,12 +5,12 @@ MediaScope Complete Processing Pipeline
 - Layout Detection
 - Named Entity Recognition (spaCy)
 - Sentiment Analysis (RoBERTa/DistilBERT)
-- Topic Modeling (BERTopic)
-- Database Storage (PostgreSQL + Elasticsearch)
+- Topic Classification (Gemini API)
+- Database Storage (Firestore)
 """
 
 # this is the main processing pipeline that does OCR and NLP stuff
-# it uses gemini for OCR, spacy for entities, and bertopic for topics
+# it uses gemini for OCR, spacy for entities, and gemini for topics
 
 import os
 import re
@@ -28,22 +28,34 @@ import google.generativeai as genai
 
 import spacy
 from transformers import pipeline
-from bertopic import BERTopic
-from sentence_transformers import SentenceTransformer
 
 from database.firestore_db import get_db as get_firestore_db
 
 from dataclasses import dataclass
 
+def _load_gemini_keys() -> tuple:
+    """Load Gemini API keys from environment variables.
+
+    Supports GEMINI_API_KEY (single) and GEMINI_API_KEYS (comma-separated rotation).
+    Returns a tuple of keys. Empty tuple if none set.
+    """
+    keys = []
+    primary = os.getenv("GEMINI_API_KEY", "").strip()
+    if primary:
+        keys.append(primary)
+    rotation = os.getenv("GEMINI_API_KEYS", "").strip()
+    if rotation:
+        for k in rotation.split(","):
+            k = k.strip()
+            if k and k not in keys:
+                keys.append(k)
+    return tuple(keys)
+
+
 @dataclass
 class Config:
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "AIzaSyDp1jVDg9M8Da6EHFA2rlDImEDI5r_B-mw")
-    GEMINI_API_KEYS: tuple = (
-        "AIzaSyDp1jVDg9M8Da6EHFA2rlDImEDI5r_B-mw",
-        "AIzaSyBEw0r3jugyGTKj4OTEMVNwPsjSikmzweo",
-        "AIzaSyDDOoeD__L-xXzb2d4K3L5iq0wtjtAhVHs",
-        "AIzaSyBAzxW1_gTyaQWL58fQtngWMsVTo6I61Vo",
-    )
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_API_KEYS: tuple = _load_gemini_keys()
     GEMINI_MODEL: str = "gemini-3.1-pro-preview"
     
     DB_HOST: str = "localhost"
@@ -63,7 +75,6 @@ class Config:
     
     SPACY_MODEL: str = "en_core_web_lg"
     SENTIMENT_MODEL: str = "cardiffnlp/twitter-roberta-base-sentiment-latest"
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
 
 
 class MediaScopeDatabase:
@@ -575,21 +586,38 @@ Respond ONLY in valid JSON:
             raw_ads = data.get('ads', [])
 
             cropped_ads = []
+            pad_w = int(width * 0.02)
+            pad_h = int(height * 0.02)
             for ad in raw_ads:
                 try:
-                    x1 = int(float(ad['x1']) * width)
-                    y1 = int(float(ad['y1']) * height)
-                    x2 = int(float(ad['x2']) * width)
-                    y2 = int(float(ad['y2']) * height)
+                    x1 = int(float(ad['x1']) * width) - pad_w
+                    y1 = int(float(ad['y1']) * height) - pad_h
+                    x2 = int(float(ad['x2']) * width) + pad_w
+                    y2 = int(float(ad['y2']) * height) + pad_h
 
                     x1 = max(0, min(x1, width - 1))
                     y1 = max(0, min(y1, height - 1))
-                    x2 = max(x1 + 20, min(x2, width))
-                    y2 = max(y1 + 20, min(y2, height))
+                    x2 = max(x1 + 1, min(x2, width))
+                    y2 = max(y1 + 1, min(y2, height))
+
+                    crop_w = x2 - x1
+                    crop_h = y2 - y1
+
+                    # Skip tiny crops (< 60px in either dimension)
+                    if crop_w < 60 or crop_h < 60:
+                        print(f"  [SKIP] Ad crop too small: {crop_w}x{crop_h}px")
+                        continue
 
                     # Skip regions that are too large (likely the whole page, not an ad)
-                    region_fraction = ((x2 - x1) * (y2 - y1)) / (width * height)
+                    region_fraction = (crop_w * crop_h) / (width * height)
                     if region_fraction > 0.7:
+                        print(f"  [SKIP] Ad crop too large: {region_fraction:.1%} of page")
+                        continue
+
+                    # Skip degenerate aspect ratios (extreme slivers → thin black lines)
+                    aspect = min(crop_w, crop_h) / max(crop_w, crop_h)
+                    if aspect < 0.15:
+                        print(f"  [SKIP] Ad crop degenerate aspect ratio: {aspect:.2f}")
                         continue
 
                     cropped = image.crop((x1, y1, x2, y2))
@@ -613,7 +641,7 @@ Respond ONLY in valid JSON:
 
 
 class NLPProcessor:
-    
+
     def __init__(self, config: Config):
         self.config = config
 
@@ -635,16 +663,41 @@ class NLPProcessor:
             top_k=None
         )
 
-        print("Loading topic modeling...")
-        self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL, device='cpu')
-        self.topic_model = None
+        # Load topic taxonomy for Gemini-based classification
+        self.topics_taxonomy = self._load_topics_taxonomy()
+        self.topic_assignments = []
+        self.article_metadata = []
 
-        print("[OK] NLP models loaded")
-    
+        # Set up Gemini for topic classification (reuses pipeline API keys)
+        self._topic_key_index = 0
+        self._topic_keys = list(config.GEMINI_API_KEYS)
+
+        print("[OK] NLP models loaded (topics via Gemini API)")
+
+    def _load_topics_taxonomy(self) -> List[Dict]:
+        """Load the predefined topic taxonomy from topics_data.json"""
+        topics_file = Path(__file__).parent.parent / "data" / "topics_data.json"
+        if topics_file.exists():
+            with open(topics_file, 'r') as f:
+                data = json.load(f)
+            topics = [t for t in data.get('topics', []) if t['topic_id'] != -1]
+            print(f"[OK] Loaded {len(topics)} topic categories for Gemini classification")
+            return topics
+        print("[WARNING] topics_data.json not found, topic classification will be limited")
+        return []
+
+    def _build_topic_prompt(self) -> str:
+        """Build the topic list portion of the Gemini classification prompt."""
+        lines = []
+        for t in self.topics_taxonomy:
+            keywords = ', '.join(t.get('keywords', [])[:5])
+            lines.append(f"  {t['topic_id']}: {t['name']} (keywords: {keywords})")
+        return '\n'.join(lines)
+
     def extract_entities(self, text: str) -> List[Dict]:
         doc = self.nlp(text)
         entities = []
-        
+
         for ent in doc.ents:
             entities.append({
                 'text': ent.text,
@@ -653,100 +706,196 @@ class NLPProcessor:
                 'end': ent.end_char,
                 'confidence': 1.0
             })
-        
+
         return entities
-    
+
     def analyze_sentiment(self, text: str) -> Dict:
         text = text[:1000]
-        
+
         results = self.sentiment_analyzer(text)[0]
-        
+
         label_map = {'negative': -1, 'neutral': 0, 'positive': 1}
-        
+
         top_result = max(results, key=lambda x: x['score'])
         label = top_result['label'].lower()
-        
+
         score = 0
         for result in results:
             lbl = result['label'].lower()
             score += label_map.get(lbl, 0) * result['score']
-        
+
         return {
             'score': round(score, 3),
             'label': label,
             'confidence': round(top_result['score'], 3)
         }
-    
-    def train_topic_model(self, documents: List[str]) -> BERTopic:
-        print("Training topic model...")
-
-        from sklearn.feature_extraction.text import CountVectorizer
-
-        vectorizer_model = CountVectorizer(
-            ngram_range=(1, 2),
-            stop_words="english",
-            min_df=2,
-            max_df=0.7
-        )
-
-        self.topic_model = BERTopic(
-            embedding_model=self.embedding_model,
-            vectorizer_model=vectorizer_model,
-            nr_topics="auto",
-            min_topic_size=15,
-            calculate_probabilities=True,
-            verbose=True
-        )
-
-        topics, probs = self.topic_model.fit_transform(documents)
-
-        self.topic_documents = documents
-        self.topic_assignments = topics
-
-        print(f"[OK] Discovered {len(set(topics))} topics")
-        return self.topic_model
-
-    def save_topic_model(self, path: str = "data/topic_model"):
-        if self.topic_model is None:
-            raise ValueError("No topic model to save. Train the model first.")
-
-        import os
-        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-
-        self.topic_model.save(path, serialization="pickle", save_ctfidf=True, save_embedding_model=False)
-        print(f"Topic model saved to {path}")
-
-    def load_topic_model(self, path: str = "data/topic_model"):
-        import os
-        if not os.path.exists(path):
-            return False
-
-        self.topic_model = BERTopic.load(path, embedding_model=self.embedding_model)
-
-        self.topic_assignments = []
-        self.article_metadata = []
-        self.topic_documents = []
-
-        print(f"Topic model loaded from {path}")
-        return True
 
     def assign_topic(self, text: str) -> Dict:
-        if not self.topic_model:
+        """Classify article text into a topic using Gemini API."""
+        if not self.topics_taxonomy:
             return {'topic_id': -1, 'topic_label': 'Uncategorized'}
-        
-        topic, prob = self.topic_model.transform([text])
-        
-        if topic[0] == -1:
-            return {'topic_id': -1, 'topic_label': 'Uncategorized'}
-        
-        topic_info = self.topic_model.get_topic(topic[0])
-        keywords = [word for word, _ in topic_info[:5]]
-        
-        return {
-            'topic_id': int(topic[0]),
-            'topic_label': '_'.join(keywords),
-            'confidence': float(prob[0])
-        }
+
+        topic_list_str = self._build_topic_prompt()
+        snippet = text[:1500]  # Limit text to keep prompt manageable
+
+        prompt = f"""You are a newspaper article topic classifier for Dawn newspaper (Pakistan, 1990-1992).
+
+Classify the following article into exactly ONE of these topics:
+
+{topic_list_str}
+
+If the article does not clearly fit any topic, respond with topic_id -1.
+
+Article text:
+\"\"\"
+{snippet}
+\"\"\"
+
+Respond with ONLY valid JSON, no markdown:
+{{"topic_id": <number>, "topic_label": "<topic name>", "confidence": <0.0-1.0>}}"""
+
+        # Try Gemini classification
+        keys_tried = 0
+        while keys_tried < len(self._topic_keys):
+            try:
+                genai.configure(api_key=self._topic_keys[self._topic_key_index])
+                model = genai.GenerativeModel('gemini-2.0-flash')
+                response = model.generate_content(prompt)
+                raw = response.text.strip() if response.parts else ""
+
+                # Parse JSON from response
+                if '```json' in raw:
+                    raw = raw.split('```json')[1].split('```')[0].strip()
+                elif '```' in raw:
+                    raw = raw.split('```')[1].split('```')[0].strip()
+
+                result = json.loads(raw)
+                topic_id = int(result.get('topic_id', -1))
+
+                # Validate topic_id exists in taxonomy
+                valid_ids = {t['topic_id'] for t in self.topics_taxonomy}
+                if topic_id not in valid_ids:
+                    topic_id = -1
+
+                if topic_id == -1:
+                    return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+
+                # Find the matching topic
+                for t in self.topics_taxonomy:
+                    if t['topic_id'] == topic_id:
+                        return {
+                            'topic_id': topic_id,
+                            'topic_label': '_'.join(t.get('keywords', [])[:5]),
+                            'confidence': float(result.get('confidence', 0.8))
+                        }
+
+                return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+
+            except Exception as e:
+                if any(x in str(e).lower() for x in ['quota', '429', 'rate', '403']):
+                    keys_tried += 1
+                    self._topic_key_index = (self._topic_key_index + 1) % len(self._topic_keys)
+                    if keys_tried < len(self._topic_keys):
+                        print(f"  [INFO] Topic classifier rotating to key {self._topic_key_index + 1}")
+                    continue
+                else:
+                    print(f"  [WARNING] Gemini topic classification failed: {e}")
+                    return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+
+        print(f"  [ERROR] All API keys exhausted for topic classification")
+        return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+
+    def assign_topics_batch(self, texts: List[str]) -> List[Dict]:
+        """Classify multiple articles using Gemini API with batching.
+        Sends up to 10 articles per Gemini call for efficiency."""
+        if not self.topics_taxonomy:
+            return [{'topic_id': -1, 'topic_label': 'Uncategorized'} for _ in texts]
+
+        topic_list_str = self._build_topic_prompt()
+        results = []
+        batch_size = 10
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            articles_block = ""
+            for j, text in enumerate(batch):
+                snippet = text[:800]
+                articles_block += f"\n--- ARTICLE {j} ---\n{snippet}\n"
+
+            prompt = f"""You are a newspaper article topic classifier for Dawn newspaper (Pakistan, 1990-1992).
+
+Classify each article below into exactly ONE of these topics:
+
+{topic_list_str}
+
+If an article does not clearly fit any topic, use topic_id -1.
+
+{articles_block}
+
+Respond with ONLY a valid JSON array, no markdown:
+[{{"article_index": 0, "topic_id": <number>, "topic_label": "<topic name>"}}, ...]"""
+
+            keys_tried = 0
+            classified = False
+            while keys_tried < len(self._topic_keys):
+                try:
+                    genai.configure(api_key=self._topic_keys[self._topic_key_index])
+                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    response = model.generate_content(prompt)
+                    raw = response.text.strip() if response.parts else ""
+
+                    if '```json' in raw:
+                        raw = raw.split('```json')[1].split('```')[0].strip()
+                    elif '```' in raw:
+                        raw = raw.split('```')[1].split('```')[0].strip()
+
+                    batch_results = json.loads(raw)
+                    valid_ids = {t['topic_id'] for t in self.topics_taxonomy}
+
+                    # Map results by article_index
+                    result_map = {}
+                    for r in batch_results:
+                        idx = r.get('article_index', -1)
+                        tid = int(r.get('topic_id', -1))
+                        if tid not in valid_ids:
+                            tid = -1
+                        result_map[idx] = tid
+
+                    for j in range(len(batch)):
+                        tid = result_map.get(j, -1)
+                        if tid == -1:
+                            results.append({'topic_id': -1, 'topic_label': 'Uncategorized'})
+                        else:
+                            for t in self.topics_taxonomy:
+                                if t['topic_id'] == tid:
+                                    results.append({
+                                        'topic_id': tid,
+                                        'topic_label': '_'.join(t.get('keywords', [])[:5])
+                                    })
+                                    break
+                            else:
+                                results.append({'topic_id': -1, 'topic_label': 'Uncategorized'})
+
+                    classified = True
+                    break
+
+                except Exception as e:
+                    if any(x in str(e).lower() for x in ['quota', '429', 'rate', '403']):
+                        keys_tried += 1
+                        self._topic_key_index = (self._topic_key_index + 1) % len(self._topic_keys)
+                        continue
+                    else:
+                        print(f"  [WARNING] Batch topic classification failed: {e}")
+                        break
+
+            if not classified:
+                for _ in batch:
+                    results.append({'topic_id': -1, 'topic_label': 'Uncategorized'})
+
+            if (i + batch_size) % 50 == 0:
+                print(f"  [INFO] Classified {min(i + batch_size, len(texts))}/{len(texts)} articles...")
+
+        return results
 
 
 class MediaScopePipeline:
@@ -819,7 +968,10 @@ class MediaScopePipeline:
                     sentiment = self.nlp_processor.analyze_sentiment(article['text'])
                     print(f"    [OK] Sentiment: {sentiment['label']} ({sentiment['score']})")
 
-                    topic = {'topic_id': None, 'topic_label': None}
+                    print("    Classifying topic (Gemini)...")
+                    combined_text = f"{article['headline']}\n\n{article['text']}"
+                    topic = self.nlp_processor.assign_topic(combined_text)
+                    print(f"    [OK] Topic: {topic.get('topic_label', 'N/A')} (id={topic.get('topic_id')})")
 
                     article_data = {
                         'article_number': article['number'],

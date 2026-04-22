@@ -10,9 +10,11 @@ import os
 import google.generativeai as genai
 from collections import Counter
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCfNJ89hLJAPqrklHqk7sE-83czHYBIM_U")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+else:
+    print("[WARNING] GEMINI_API_KEY not set — AI-powered analytics endpoints will be unavailable")
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -60,7 +62,7 @@ def articles_over_time():
     # shows how many articles were published each month
     try:
         db = get_db()
-        timeline = db.get_analytics_articles_over_time()
+        timeline = _cached("articles_over_time", lambda: db.get_analytics_articles_over_time())
         return {"timeline": timeline}
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
@@ -71,7 +73,7 @@ def sentiment_over_time():
     # gets the sentiment (positive/negative) for articles over time
     try:
         db = get_db()
-        timeline = db.get_analytics_sentiment_over_time()
+        timeline = _cached("sentiment_over_time", lambda: db.get_analytics_sentiment_over_time())
         return {"timeline": timeline}
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
@@ -98,8 +100,10 @@ def top_entities(entity_type: Optional[str] = None, limit: int = 15,
     limit = min(limit, 100)
     try:
         db = get_db()
-        entities = db.get_top_entities(entity_type=entity_type, limit=limit,
-                                      start_date=start_date, end_date=end_date)
+        key = f"top_entities:{entity_type}:{limit}:{start_date}:{end_date}"
+        entities = _cached(key, lambda: db.get_top_entities(
+            entity_type=entity_type, limit=limit,
+            start_date=start_date, end_date=end_date))
         return {"entities": entities}
     except HTTPException:
         raise
@@ -113,7 +117,9 @@ def sentiment_by_entity(entity_type: Optional[str] = None, limit: int = 20):
     limit = min(limit, 100)
     try:
         db = get_db()
-        entities = db.get_sentiment_by_entity(entity_type=entity_type, limit=limit)
+        key = f"sentiment_by_entity:{entity_type}:{limit}"
+        entities = _cached(key, lambda: db.get_sentiment_by_entity(
+            entity_type=entity_type, limit=limit))
         return {
             "entities": entities,
             "entity_type": entity_type
@@ -131,7 +137,9 @@ def entity_cooccurrence(entity_type: Optional[str] = None, min_count: int = 3, l
     limit = min(limit, 200)
     try:
         db = get_db()
-        pairs = db.get_entity_cooccurrence(entity_type=entity_type, min_count=min_count, limit=limit)
+        key = f"entity_cooccurrence:{entity_type}:{min_count}:{limit}"
+        pairs = _cached(key, lambda: db.get_entity_cooccurrence(
+            entity_type=entity_type, min_count=min_count, limit=limit))
 
         return {
             "pairs": pairs,
@@ -147,7 +155,7 @@ def topic_distribution():
     # shows what topics articles are about and how many articles per topic
     try:
         db = get_db()
-        topics = db.get_topic_distribution()
+        topics = _cached("topic_distribution", lambda: db.get_topic_distribution())
 
         return {
             "topics": topics,
