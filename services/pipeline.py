@@ -153,8 +153,13 @@ class MediaScopeDatabase:
             'sentiment_label': article_data.get('sentiment_label', 'neutral'),
             'topic_label': article_data.get('topic_label', ''),
             'topic_id': article_data.get('topic_id'),
-            'publication_date': article_data.get('publication_date', datetime(1990, 1, 1)),
-            'page_number': article_data.get('page_number', 1),
+            # IMPORTANT: do NOT fabricate (1990-01-01, 1) defaults here. Pass
+            # through whatever the caller gives — including None — so the
+            # dashboards can render an honest "Unknown" bucket instead of
+            # hiding extraction failures behind a fake date and page. See
+            # scripts/backfill_metadata.py for the corresponding clean-up.
+            'publication_date': article_data.get('publication_date'),
+            'page_number': article_data.get('page_number'),
             'entities': []
         }
 
@@ -298,9 +303,46 @@ class ImageProcessor:
                 else:
                     raise
     
-    def extract_date_from_filename(self, image_path: str) -> Optional[datetime]:
+    # Map of 3-letter month abbreviations to numeric month, used by the
+    # ``Mon_DD_YY_pN`` filename pattern below. The Dawn 1990–1992 corpus is
+    # named that way (e.g. ``Jun_10_90_p6.jpg``); previously this format was
+    # unparseable and the pipeline silently fell back to (1990-01-01, page=1)
+    # — see the data-quality bug investigation.
+    _MONTH_ABBR = {
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+    }
+
+    def parse_filename_metadata(self, image_path: str) -> Dict[str, Optional[object]]:
+        """Extract ``(date, page)`` from the source-image filename.
+
+        Recognises:
+          * ``Mon_DD_YY_pN.jpg`` (Dawn corpus convention) — returns both date
+            and page.
+          * Numeric date patterns (``YYYY-MM-DD``, ``DD_MM_YYYY``, ``YYYYMMDD``)
+            — returns date only, page=None.
+
+        Returns ``{'date': datetime|None, 'page': int|None}``. Either or both
+        keys may be ``None``; callers must handle both cases. Crucially this
+        function NEVER fabricates a default — that's what the legacy code
+        did and is the source of the 1990-01-01 / page=1 bug.
+        """
         filename = Path(image_path).stem
 
+        # ``Jun_10_90_p6`` — month abbr + day + 2-digit year + page.
+        m = re.match(r'^([A-Za-z]{3})_(\d{1,2})_(\d{2})_p(\d{1,2})$', filename)
+        if m:
+            mon_abbr, day, yy, page = m.groups()
+            mn = self._MONTH_ABBR.get(mon_abbr.lower())
+            if mn is not None:
+                try:
+                    year = 1900 + int(yy) if int(yy) >= 50 else 2000 + int(yy)
+                    return {'date': datetime(year, mn, int(day)),
+                            'page': int(page)}
+                except ValueError:
+                    pass  # fall through to numeric patterns
+
+        # Numeric date patterns (legacy support — e.g. iPhone-renamed scans).
         patterns = [
             r'(\d{4})-(\d{2})-(\d{2})',
             r'(\d{4})_(\d{2})_(\d{2})',
@@ -308,7 +350,6 @@ class ImageProcessor:
             r'(\d{2})_(\d{2})_(\d{4})',
             r'(\d{8})',
         ]
-
         for pattern in patterns:
             match = re.search(pattern, filename)
             if match:
@@ -324,17 +365,42 @@ class ImageProcessor:
                         year = int(date_str[:4])
                         month = int(date_str[4:6])
                         day = int(date_str[6:8])
-
-                    date = datetime(year, month, day)
-                    print(f"  [OK] Extracted date from filename: {date.strftime('%Y-%m-%d')}")
-                    return date
+                    return {'date': datetime(year, month, day), 'page': None}
                 except (ValueError, IndexError):
                     continue
 
-        return None
+        return {'date': None, 'page': None}
+
+    def extract_date_from_filename(self, image_path: str) -> Optional[datetime]:
+        """Back-compat shim — returns just the date or None."""
+        return self.parse_filename_metadata(image_path)['date']
 
     def extract_metadata(self, image_path: str) -> Dict:
-        filename_date = self.extract_date_from_filename(image_path)
+        """Extract publication date + page number from a newspaper scan.
+
+        Order of preference (most reliable first):
+
+          1. **Filename** — if the file is named like ``Mon_DD_YY_pN.jpg`` we
+             trust it absolutely. The Dawn corpus is named that way and the
+             filename was set when the scan was filed, so it's authoritative.
+          2. **OCR (Gemini Vision)** — read the masthead and page corner.
+          3. **Filename (date only)** — for numeric-date filenames where
+             page wasn't encoded.
+
+        On total failure we now return ``date=None, page=None`` instead of
+        the legacy ``(datetime(1990,1,1), 1)`` defaults that masked the
+        failure as real data — see the data-quality bug investigation that
+        traced 2,689 articles to a fake 1990-01-01 default. Callers (and
+        ``insert_article``) must handle ``None`` and persist it as ``None``
+        so the dashboards show an honest "Unknown" bucket.
+        """
+        fname = self.parse_filename_metadata(image_path)
+        # If the filename gives us date AND page (Mon_DD_YY_pN format), trust
+        # it without burning a Vision call.
+        if fname['date'] is not None and fname['page'] is not None:
+            print(f"  [OK] Filename metadata: "
+                  f"{fname['date'].strftime('%Y-%m-%d')} | Page: {fname['page']}")
+            return {'date': fname['date'], 'page': fname['page'], 'success': True}
 
         try:
             img = Image.open(image_path)
@@ -350,49 +416,59 @@ DAY: [day number]
 YEAR: [4-digit year like 1990]
 PAGE: [page number]
 
-If not found, write UNKNOWN."""
+If a field cannot be read confidently, write UNKNOWN for that field."""
 
             response = self._generate([prompt, img])
             text = response.text if response.parts else ""
 
-            month_match = re.search(r'MONTH:\s*(\w+)', text, re.IGNORECASE)
+            month_match = re.search(r'MONTH:\s*([A-Za-z]+)', text, re.IGNORECASE)
             day_match = re.search(r'DAY:\s*(\d+)', text, re.IGNORECASE)
             year_match = re.search(r'YEAR:\s*(\d+)', text, re.IGNORECASE)
             page_match = re.search(r'PAGE:\s*(\d+)', text, re.IGNORECASE)
 
-            if filename_date and (not month_match or not day_match or not year_match):
-                pub_date = filename_date
+            # Date: prefer OCR if all three components parsed, else use filename
+            # date if any, else None. We never invent year=1990 / day=1.
+            pub_date: Optional[datetime] = None
+            if month_match and day_match and year_match:
+                try:
+                    month_num = datetime.strptime(month_match.group(1)[:3].title(), '%b').month
+                    pub_date = datetime(int(year_match.group(1)),
+                                        month_num,
+                                        int(day_match.group(1)))
+                except ValueError:
+                    pub_date = None
+            if pub_date is None and fname['date'] is not None:
+                pub_date = fname['date']
                 print(f"  [OK] Using filename date: {pub_date.strftime('%Y-%m-%d')}")
+
+            # Page: OCR first, then filename, then None.
+            page: Optional[int] = None
+            if page_match:
+                try:
+                    page = int(page_match.group(1))
+                    if page <= 0 or page > 100:  # sanity-bound
+                        page = None
+                except ValueError:
+                    page = None
+            if page is None and fname['page'] is not None:
+                page = fname['page']
+
+            success = pub_date is not None or page is not None
+            if success:
+                print(f"  [OK] Metadata: "
+                      f"date={pub_date.strftime('%Y-%m-%d') if pub_date else 'UNKNOWN'} | "
+                      f"page={page if page is not None else 'UNKNOWN'}")
             else:
-                month = month_match.group(1) if month_match else "January"
-                day = int(day_match.group(1)) if day_match else 1
-                year = int(year_match.group(1)) if year_match else 1990
+                print(f"  [WARNING] Metadata not extractable; storing date=None page=None")
 
-                month_num = datetime.strptime(month[:3], '%b').month
-                pub_date = datetime(year, month_num, day)
-
-            page = int(page_match.group(1)) if page_match else 1
-            print(f"  [OK] Date detected: {pub_date.strftime('%Y-%m-%d')} | Page: {page}")
-
-            return {
-                'date': pub_date,
-                'page': page,
-                'success': True
-            }
+            return {'date': pub_date, 'page': page, 'success': success}
 
         except Exception as e:
             print(f"  [WARNING] Metadata extraction failed: {e}")
-            if filename_date:
-                return {
-                    'date': filename_date,
-                    'page': 1,
-                    'success': True
-                }
-            return {
-                'date': datetime(1990, 1, 1),
-                'page': 1,
-                'success': False
-            }
+            # On total failure we still return whatever the filename gave us
+            # (could be both None — that's fine, callers handle it).
+            return {'date': fname['date'], 'page': fname['page'],
+                    'success': fname['date'] is not None or fname['page'] is not None}
     
     def enhance_image(self, image: Image.Image) -> Image.Image:
         try:
@@ -1087,7 +1163,12 @@ class MediaScopePipeline:
                 page_num = metadata['page']
             else:
                 pub_date = publication_date
-                page_num = 1
+                # Caller passed a date but not a page — try filename parse
+                # before defaulting to None. Page=1 used to be hardcoded
+                # here which is part of how 95% of the corpus ended up on
+                # page 1.
+                fname_meta = self.image_processor.parse_filename_metadata(image_path)
+                page_num = fname_meta['page']  # may be None — that's fine
             
             newspaper_id = self.db.insert_newspaper(
                 pub_date=pub_date,
