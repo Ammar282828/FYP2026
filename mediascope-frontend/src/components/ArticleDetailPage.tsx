@@ -5,6 +5,8 @@ import { API_BASE, API_BASE_URL } from '../config';
 import BookmarkButton from './BookmarkButton';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './ui/Toast';
+import ArticleAnalytics from './ArticleAnalytics';
+import ErrorBoundary from './ui/ErrorBoundary';
 
 interface ArticleDetail {
   id: number;
@@ -588,6 +590,13 @@ const ArticleDetailPage: React.FC = () => {
 
           {/* Right Column - Newspaper Image & Related */}
           <div className="article-sidebar">
+            {/* About this article */}
+            <div style={{ marginBottom: '1rem' }}>
+              <ErrorBoundary label="Article analytics">
+                <ArticleAnalytics article={article} />
+              </ErrorBoundary>
+            </div>
+
             {/* Newspaper Image */}
             {article.image_path && (
               <div className="newspaper-image-section">

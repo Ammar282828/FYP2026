@@ -8,6 +8,10 @@ import {
   Tooltip, Legend, ResponsiveContainer, LineChart, Line
 } from 'recharts';
 import ChartExportButton from './ChartExportButton';
+import { Skeleton, SkeletonChart } from './ui/Skeleton';
+import EmptyStatePrim from './ui/EmptyState';
+import { chartColors } from '../theme/chartColors';
+import { entityInfo } from '../data/entityTypes';
 
 // Summary Cards Component
 export const AnalyticsSummary: React.FC = () => {
@@ -29,46 +33,52 @@ export const AnalyticsSummary: React.FC = () => {
     return { totalArticles, avgSentiment, dateRange, topEntitiesCount: entitiesRes.data.entities?.length || 0 };
   });
 
-  if (loading) return <div>Loading summary...</div>;
+  if (loading) return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem',
+      padding: '0.85rem 1rem', background: 'var(--bg-primary)',
+      border: '1px solid var(--border-color)', borderRadius: '8px', marginBottom: '1rem',
+    }}>
+      <Skeleton height="2.5rem" />
+      <Skeleton height="2.5rem" />
+      <Skeleton height="2.5rem" />
+    </div>
+  );
   if (!stats) return null;
+
+  // Card chrome matches the other analytics-card widgets so the summary row
+  // doesn't visually float above a different design language.
+  const sentNum = parseFloat(stats.avgSentiment);
+  const sentColor = sentNum > 0.1 ? chartColors.positive : sentNum < -0.1 ? chartColors.negative : chartColors.neutral;
 
   return (
     <div style={{
-      display: 'flex',
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
       gap: '1rem',
-      padding: '0.75rem',
-      background: 'var(--bg-secondary)',
+      padding: '0.85rem 1rem',
+      background: 'var(--bg-primary)',
+      border: '1px solid var(--border-color)',
       borderRadius: '8px',
       marginBottom: '1rem',
-      fontSize: '14px'
+      fontSize: '14px',
     }}>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Total Articles</div>
-          <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>
-            {stats.totalArticles.toLocaleString()}
-          </div>
+      <div>
+        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Total Articles</div>
+        <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+          {stats.totalArticles.toLocaleString()}
         </div>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Coverage Period</div>
-          <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
-            {stats.dateRange}
-          </div>
+      <div>
+        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Coverage Period</div>
+        <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+          {stats.dateRange}
         </div>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Overall Sentiment</div>
-          <div style={{
-            fontSize: '18px',
-            fontWeight: '700',
-            color: parseFloat(stats.avgSentiment) > 0.1 ? '#10b981' :
-                     parseFloat(stats.avgSentiment) < -0.1 ? '#ef4444' : '#6b7280'
-          }}>
-            {parseFloat(stats.avgSentiment) > 0 ? '+' : ''}{stats.avgSentiment}
-          </div>
+      <div>
+        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Overall Sentiment</div>
+        <div style={{ fontSize: '20px', fontWeight: 700, color: sentColor, marginTop: 2 }}>
+          {sentNum > 0 ? '+' : ''}{stats.avgSentiment}
         </div>
       </div>
     </div>
@@ -76,7 +86,15 @@ export const AnalyticsSummary: React.FC = () => {
 };
 
 // Sentiment Distribution Pie Chart
-export const SentimentDistribution: React.FC = () => {
+interface SentimentDistributionProps {
+  /**
+   * Drill-through: fired when the user clicks a slice or legend tile.
+   * The dashboard wires this to pin a sentiment filter on the search view.
+   */
+  onSliceClick?: (label: 'positive' | 'neutral' | 'negative') => void;
+}
+
+export const SentimentDistribution: React.FC<SentimentDistributionProps> = ({ onSliceClick }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const { data: raw, loading } = useAnalyticsCache('sentiment_distribution', async () => {
     const response = await axios.get(`${API_BASE}/analytics/sentiment-over-time`);
@@ -96,14 +114,23 @@ export const SentimentDistribution: React.FC = () => {
   });
   const data: any[] = raw || [];
 
-  const COLORS = ['#10b981', '#6b7280', '#ef4444'];
+  const COLORS = [chartColors.positive, chartColors.neutral, chartColors.negative];
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
+  if (loading) return <SkeletonChart />;
   if (data.length === 0) return (
-    <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
-      <strong>No sentiment data available.</strong>
-    </div>
+    <EmptyStatePrim title="No sentiment data available" description="Sentiment hasn't been computed for any articles yet." />
   );
+
+  // Net sentiment = positive − negative as a share of all articles. Useful at
+  // a glance: a single signed number that says "is the corpus net-positive?"
+  const totalArticles = data.reduce((sum, d) => sum + d.value, 0);
+  const positiveCount = data.find(d => d.name === 'Positive')?.value || 0;
+  const negativeCount = data.find(d => d.name === 'Negative')?.value || 0;
+  const netPct = totalArticles > 0
+    ? (((positiveCount - negativeCount) / totalArticles) * 100).toFixed(1)
+    : '0.0';
+  const netNum = parseFloat(netPct);
+  const netColor = netNum > 0 ? chartColors.positive : netNum < 0 ? chartColors.negative : chartColors.neutral;
 
   return (
     <div ref={chartRef}>
@@ -112,7 +139,10 @@ export const SentimentDistribution: React.FC = () => {
         <ChartExportButton targetRef={chartRef} filenamePrefix="mediascope-sentiment" />
       </div>
       <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
-        Breakdown of positive, neutral, and negative articles across the entire archive
+        Breakdown of positive, neutral, and negative articles across the entire archive ·
+        <span style={{ marginLeft: 8, fontWeight: 600, color: netColor }}>
+          Net {netNum > 0 ? '+' : ''}{netPct}%
+        </span>
       </p>
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <ResponsiveContainer width="100%" height={300}>
@@ -126,6 +156,8 @@ export const SentimentDistribution: React.FC = () => {
               outerRadius={110}
               fill="#8884d8"
               dataKey="value"
+              onClick={onSliceClick ? (e: any) => onSliceClick(String(e?.name || '').toLowerCase() as any) : undefined}
+              style={onSliceClick ? { cursor: 'pointer' } : undefined}
             >
               {data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index]} />
@@ -138,19 +170,38 @@ export const SentimentDistribution: React.FC = () => {
         </ResponsiveContainer>
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', marginTop: '1rem' }}>
-        {data.map((entry, index) => (
-          <div key={entry.name} style={{ textAlign: 'center' }}>
-            <div style={{
-              width: '12px', height: '12px', borderRadius: '50%',
-              background: COLORS[index], display: 'inline-block', marginRight: '6px'
-            }} />
-            <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{entry.name}</span>
-            <div style={{ fontSize: '18px', fontWeight: '700', color: COLORS[index], marginTop: '2px' }}>
-              {entry.percentage}%
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{entry.value.toLocaleString()} articles</div>
-          </div>
-        ))}
+        {data.map((entry, index) => {
+          const lbl = entry.name.toLowerCase() as 'positive' | 'neutral' | 'negative';
+          const clickable = !!onSliceClick;
+          return (
+            <button
+              key={entry.name}
+              onClick={() => onSliceClick?.(lbl)}
+              disabled={!clickable}
+              title={clickable ? `Filter search to ${lbl} articles` : undefined}
+              style={{
+                textAlign: 'center',
+                background: 'transparent',
+                border: 'none',
+                padding: '4px 8px',
+                borderRadius: 6,
+                cursor: clickable ? 'pointer' : 'default',
+              }}
+              onMouseEnter={e => { if (clickable) e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{
+                width: '12px', height: '12px', borderRadius: '50%',
+                background: COLORS[index], display: 'inline-block', marginRight: '6px'
+              }} />
+              <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{entry.name}</span>
+              <div style={{ fontSize: '18px', fontWeight: '700', color: COLORS[index], marginTop: '2px' }}>
+                {entry.percentage}%
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{entry.value.toLocaleString()} articles</div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -166,7 +217,7 @@ export const TopicDistribution: React.FC = () => {
   });
   const data: any[] = raw || [];
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
+  if (loading) return <SkeletonChart />;
   if (data.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No topics found.</strong> Train the topic model first, or topics may need more articles (minimum 30 per topic).
@@ -270,14 +321,14 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
     }
   }, [entityType]);
 
-  const ENTITY_TYPE_INFO: Record<string, { label: string; icon: string; color: string }> = {
-    'PERSON': { label: 'Person', icon: '', color: '#3b82f6' },
-    'ORG': { label: 'Organization', icon: '', color: '#8b5cf6' },
-    'GPE': { label: 'Location', icon: '', color: '#10b981' },
-    'NORP': { label: 'Group', icon: '', color: '#f59e0b' },
-    'LOC': { label: 'Place', icon: '', color: '#06b6d4' },
-    'EVENT': { label: 'Event', icon: '', color: '#ef4444' }
-  };
+  // Adapter from the central entityTypes map → the shape this widget expects.
+  // (`icon` is no longer used; kept as '' for back-compat with the JSX below.)
+  const ENTITY_TYPE_INFO = new Proxy({} as Record<string, { label: string; icon: string; color: string }>, {
+    get: (_t, k: string) => {
+      const info = entityInfo(k);
+      return { label: info.singular, icon: '', color: info.color };
+    },
+  });
 
   return (
     <div className="entity-cooccurrence-network">
@@ -341,7 +392,7 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
           </p>
         </div>
       ) : loading ? (
-        <p style={{ margin: '2rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading relationships... (this may take a minute)</p>
+        <SkeletonChart />
       ) : cooccurrences.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {cooccurrences.map((pair, idx) => {
@@ -554,183 +605,6 @@ export const EntityCooccurrenceNetwork: React.FC = () => {
   );
 };
 
-// Entity Timeline - shows top entities with counts and type badges
-export const EntityTimeline: React.FC = () => {
-  const [topEntities, setTopEntities] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const ENTITY_TYPE_COLORS: Record<string, string> = {
-    'PERSON': '#3b82f6',
-    'ORG': '#8b5cf6',
-    'GPE': '#10b981',
-    'NORP': '#f59e0b',
-    'LOC': '#06b6d4',
-    'EVENT': '#ef4444',
-  };
-  const ENTITY_TYPE_LABELS: Record<string, string> = {
-    'PERSON': 'Person',
-    'ORG': 'Org',
-    'GPE': 'Location',
-    'NORP': 'Group',
-    'LOC': 'Place',
-    'EVENT': 'Event',
-  };
-
-  useEffect(() => {
-    const loadEntities = async () => {
-      try {
-        const entitiesRes = await axios.get(`${API_BASE}/analytics/top-entities-fixed?limit=15`);
-        const entities = entitiesRes.data.entities || [];
-        setTopEntities(entities);
-      } catch (error) {
-        console.error('Failed to load entity timeline:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadEntities();
-  }, []);
-
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
-  if (topEntities.length === 0) return (
-    <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
-      <strong>No entity data available.</strong>
-    </div>
-  );
-
-  return (
-    <div>
-      <h3 style={{ marginBottom: '0.5rem' }}>Top Entities</h3>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
-        Most frequently mentioned people, organizations, and locations across all articles
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {topEntities.map((entity, idx) => {
-          const typeColor = ENTITY_TYPE_COLORS[entity.entity_type] || '#6b7280';
-          const typeLabel = ENTITY_TYPE_LABELS[entity.entity_type] || entity.entity_type;
-          return (
-            <div
-              key={idx}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '10px 14px', background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)', borderLeft: `4px solid ${typeColor}`,
-                borderRadius: '8px',
-              }}
-            >
-              <div style={{
-                minWidth: '28px', height: '28px', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: 'var(--bg-tertiary)', borderRadius: '6px',
-                fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)'
-              }}>
-                #{idx + 1}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                  {entity.text}
-                </div>
-              </div>
-              <span style={{
-                fontSize: '11px', padding: '2px 8px',
-                background: typeColor, color: 'white',
-                borderRadius: '4px', fontWeight: '600'
-              }}>
-                {typeLabel}
-              </span>
-              <span style={{
-                fontSize: '13px', fontWeight: '700', color: typeColor,
-                background: `${typeColor}15`, padding: '4px 10px',
-                borderRadius: '12px', whiteSpace: 'nowrap'
-              }}>
-                {entity.count} mentions
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-// Article Length Distribution
-export const ArticleLengthDistribution: React.FC = () => {
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const response = await axios.get(`${API_BASE}/articles`);
-        const articles = response.data.articles || [];
-
-        // Group by word count ranges
-        const ranges: any = {
-          '0-100': 0,
-          '101-300': 0,
-          '301-500': 0,
-          '501-800': 0,
-          '800+': 0
-        };
-
-        articles.forEach((article: any) => {
-          const wc = article.word_count || 0;
-          if (wc <= 100) ranges['0-100']++;
-          else if (wc <= 300) ranges['101-300']++;
-          else if (wc <= 500) ranges['301-500']++;
-          else if (wc <= 800) ranges['501-800']++;
-          else ranges['800+']++;
-        });
-
-        setData([
-          { range: '0-100', count: ranges['0-100'], label: 'Very Short' },
-          { range: '101-300', count: ranges['101-300'], label: 'Short' },
-          { range: '301-500', count: ranges['301-500'], label: 'Medium' },
-          { range: '501-800', count: ranges['501-800'], label: 'Long' },
-          { range: '800+', count: ranges['800+'], label: 'Very Long' }
-        ]);
-      } catch (error) {
-        console.error('Failed to load article lengths:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, []);
-
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
-  if (data.length === 0) return (
-    <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
-      <strong>No data available.</strong>
-    </div>
-  );
-
-  const BAR_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
-
-  return (
-    <div>
-      <h3 style={{ marginBottom: '0.5rem' }}>Article Length Distribution</h3>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
-        Distribution of articles by word count — shows typical article length patterns
-      </p>
-      <ResponsiveContainer width="100%" height={420}>
-        <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
-          <YAxis tick={{ fontSize: 11 }} />
-          <Tooltip
-            contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
-          />
-          <Bar dataKey="count" name="Articles">
-            {data.map((_entry, index) => (
-              <Cell key={`cell-${index}`} fill={BAR_COLORS[index % BAR_COLORS.length]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-};
-
 // Coverage Heatmap - Shows publication intensity by month
 export const CoverageHeatmap: React.FC = () => {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -740,7 +614,7 @@ export const CoverageHeatmap: React.FC = () => {
   });
   const data: any[] = raw || [];
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
+  if (loading) return <SkeletonChart />;
   if (data.length === 0) return (
     <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
       <strong>No coverage data available.</strong>
@@ -924,7 +798,7 @@ export const TopicTrendsOverTime: React.FC = () => {
 
   const selectedList = allTopics.filter(t => selectedTopics.has(t.raw));
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px' }}>Loading topic trends...</p>;
+  if (loading) return <SkeletonChart />;
 
   return (
     <div>
@@ -1123,7 +997,7 @@ export const TopicSentimentOverTime: React.FC = () => {
 
   const selectedList = topics.filter(t => selectedTopicIds.has(t.topic_id));
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
+  if (loading) return <SkeletonChart />;
 
   return (
     <div>
@@ -1322,7 +1196,7 @@ export const EntitySentimentOverTime: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [granularity, entity]);
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
+  if (loading) return <SkeletonChart />;
 
   return (
     <div>
@@ -1466,7 +1340,7 @@ export const KeywordSentimentOverTime: React.FC = () => {
     setKeyword(kw);
   };
 
-  if (loading) return <p style={{ margin: '1rem 0', fontSize: '14px', color: 'var(--text-secondary)' }}>Loading...</p>;
+  if (loading) return <SkeletonChart />;
 
   return (
     <div>

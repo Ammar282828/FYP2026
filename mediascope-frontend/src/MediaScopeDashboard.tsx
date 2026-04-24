@@ -19,6 +19,10 @@ import {
   KeywordFrequencyOverTime
 } from './components/AdvancedAnalytics';
 import { InteractiveKeywords, InteractiveEntityExplorer } from './components/ProfessionalAnalytics';
+import { ArticlesOverTime } from './components/AnalyticsCharts';
+import { WordCountDistribution, PageDistribution, SourceDistribution } from './components/CorpusAnalytics';
+import CalendarHeatmap from './components/CalendarHeatmap';
+import CompareTab from './components/CompareTab';
 import OCRTab from './components/OCRTab';
 import AdBrowserTab from './components/AdBrowserTab';
 import StoriesTab from './components/StoriesTab';
@@ -34,6 +38,12 @@ import ShortcutsPanel from './components/ShortcutsPanel';
 import { useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
 import { API_BASE } from './config';
+import { useDateBounds } from './hooks/useDataVersion';
+import { useQueryState } from './hooks/useQueryState';
+import DateRangePicker from './components/ui/DateRangePicker';
+import ErrorBoundary from './components/ui/ErrorBoundary';
+import { Skeleton } from './components/ui/Skeleton';
+import EmptyState from './components/ui/EmptyState';
 import './mediascope-dashboard.css';
 
 const api = {
@@ -50,25 +60,36 @@ const api = {
   },
 
   getSentimentOverview: async () => {
-    const response = await axios.get(`${API_BASE}/analytics/sentiment-fixed`);
+    const response = await axios.get(`${API_BASE}/analytics/sentiment-overview`);
     return response.data;
   }
 };
 
 const TopEntitiesPanel: React.FC = () => {
+  const [minBound, maxBound] = useDateBounds();
   const [entityType, setEntityType] = useState<string>('');
   const [entities, setEntities] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [startDate, setStartDate] = useState('1990-01-01');
-  const [endDate, setEndDate] = useState('1992-12-31');
+  const [error, setError] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState(minBound);
+  const [endDate, setEndDate] = useState(maxBound);
+
+  // Sync the inputs to the corpus bounds once they arrive (only if the user
+  // hasn't moved them away from the previous defaults).
+  useEffect(() => {
+    setStartDate(prev => (!prev || prev === '1990-01-01' ? minBound : prev));
+    setEndDate(prev => (!prev || prev === '1992-12-31' ? maxBound : prev));
+  }, [minBound, maxBound]);
 
   const loadTopEntities = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await api.getTopEntities(entityType || undefined, 15, startDate, endDate);
       setEntities(data.entities || []);
-    } catch (error) {
-      console.error('Error loading entities:', error);
+    } catch (err: any) {
+      console.error('Error loading entities:', err);
+      setError(err?.message || 'Failed to load entities');
     } finally {
       setLoading(false);
     }
@@ -76,7 +97,8 @@ const TopEntitiesPanel: React.FC = () => {
 
   useEffect(() => {
     loadTopEntities();
-  }, [entityType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityType, startDate, endDate]);
 
   const getEntityIcon = (_type: string) => '';
 
@@ -102,10 +124,12 @@ const TopEntitiesPanel: React.FC = () => {
           <option value="GPE">Locations</option>
           <option value="NORP">Nationalities</option>
         </select>
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-               style={{ padding: '4px 8px', fontSize: '12px', border: '1px solid var(--border-color)', borderRadius: '4px' }} />
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-               style={{ padding: '4px 8px', fontSize: '12px', border: '1px solid var(--border-color)', borderRadius: '4px' }} />
+        <DateRangePicker
+          from={startDate}
+          to={endDate}
+          onChange={(f, t) => { setStartDate(f); setEndDate(t); }}
+          compact
+        />
         <button onClick={loadTopEntities}
                 style={{ padding: '4px 12px', fontSize: '13px', background: 'var(--primary-color)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
           Refresh
@@ -113,7 +137,13 @@ const TopEntitiesPanel: React.FC = () => {
       </div>
 
       {loading ? (
-        <p style={{ margin: '1rem 0', fontSize: '14px' }}>Loading...</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
+          {Array.from({ length: 12 }).map((_, i) => (
+            <Skeleton key={i} height="56px" borderRadius="4px" />
+          ))}
+        </div>
+      ) : error ? (
+        <EmptyState icon="!" title="Couldn't load entities" description={error} action={{ label: 'Retry', onClick: loadTopEntities }} />
       ) : entities.length > 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
           {entities.map((entity, idx) => (
@@ -136,7 +166,11 @@ const TopEntitiesPanel: React.FC = () => {
           ))}
         </div>
       ) : (
-        <p style={{ margin: '1rem 0', fontSize: '14px' }}>No entities found</p>
+        <EmptyState
+          icon=""
+          title="No entities in this range"
+          description="Try widening the date range or switching the entity type filter."
+        />
       )}
     </div>
   );
@@ -147,6 +181,7 @@ const MediaScopeDashboard: React.FC = () => {
   const { user } = useAuth();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [minBound, maxBound] = useDateBounds();
 
   const openRandomArticle = async () => {
     try {
@@ -158,8 +193,14 @@ const MediaScopeDashboard: React.FC = () => {
     }
   };
   const [searchResults, setSearchResults] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser' | 'bookmarks' | 'chat' | 'compare'>('home');
-  const [analyticsSubTab, setAnalyticsSubTab] = useState<'overview' | 'topics' | 'entities' | 'keywords'>('overview');
+  // Persist the top-level tab and the analytics sub-tab in the URL so views
+  // are linkable: e.g. /?tab=analytics&sub=corpus opens straight to that view.
+  const [tabParam, setTabParam] = useQueryState('tab', 'home');
+  const [subParam, setSubParam] = useQueryState('sub', 'overview');
+  const activeTab = tabParam as 'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser' | 'bookmarks' | 'chat' | 'compare' | 'periods';
+  const setActiveTab = (t: typeof activeTab) => setTabParam(t);
+  const analyticsSubTab = subParam as 'overview' | 'topics' | 'entities' | 'keywords' | 'corpus';
+  const setAnalyticsSubTab = (t: typeof analyticsSubTab) => setSubParam(t);
   const [searchFilters, setSearchFilters] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAuth, setShowAuth] = useState(false);
@@ -214,8 +255,21 @@ const MediaScopeDashboard: React.FC = () => {
               {'\uD83C\uDFB2'} Random
             </button>
             <button className="theme-toggle" onClick={toggleTheme}
-              title={theme === 'light' ? 'Dark mode' : 'Light mode'}>
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
               {theme === 'light' ? '\u263D' : '\u2600'}
+            </button>
+            <button
+              className="theme-toggle"
+              onClick={() => {
+                // ShortcutsPanel listens for '?' globally — synthesize one.
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }));
+              }}
+              title="Keyboard shortcuts"
+              aria-label="Keyboard shortcuts"
+              style={{ fontSize: 14, fontWeight: 700 }}
+            >
+              ?
             </button>
             <UserMenu
               onShowBookmarks={() => {
@@ -229,57 +283,62 @@ const MediaScopeDashboard: React.FC = () => {
             />
           </div>
         </div>
-        <nav className="dashboard-nav">
-          <button
-            className={activeTab === 'search' ? 'active' : ''}
-            onClick={() => setActiveTab('search')}
-          >
-            Search
-          </button>
-          <button
-            className={activeTab === 'stories' ? 'active' : ''}
-            onClick={() => setActiveTab('stories')}
-          >
-            Stories
-          </button>
-          <button
-            className={activeTab === 'chat' ? 'active' : ''}
-            onClick={() => setActiveTab('chat')}
-          >
-            {'\u{1F4AC}'} Ask AI
-          </button>
-          <button
-            className={activeTab === 'analytics' ? 'active' : ''}
-            onClick={() => setActiveTab('analytics')}
-          >
-            Analytics
-          </button>
-          {user && (
-            <button
-              className={activeTab === 'bookmarks' ? 'active' : ''}
-              onClick={() => setActiveTab('bookmarks')}
-            >
-              Bookmarks
-            </button>
-          )}
-          <button
-            className={activeTab === 'ocr' ? 'active' : ''}
-            onClick={() => setActiveTab('ocr')}
-          >
-            OCR
-          </button>
-          <button
-            className={activeTab === 'ad-browser' ? 'active' : ''}
-            onClick={() => setActiveTab('ad-browser')}
-          >
-            Ad Browser
-          </button>
-          <button
-            className={activeTab === 'compare' ? 'active' : ''}
-            onClick={() => setActiveTab('compare')}
-          >
-            {'\u2194\uFE0F'} Compare
-          </button>
+        {/*
+          Top nav is grouped into four sections (Read / Analyze / Tools / You)
+          to make a 9-button bar scannable. Group rendering is data-driven so
+          adding a new tab only edits the array, not JSX. Emojis removed for
+          consistency — the whole bar uses plain text labels.
+        */}
+        <nav className="dashboard-nav" aria-label="Primary">
+          {([
+            {
+              group: 'Read',
+              items: [
+                { id: 'search', label: 'Search' },
+                { id: 'stories', label: 'Stories' },
+              ],
+            },
+            {
+              group: 'Analyze',
+              items: [
+                { id: 'analytics', label: 'Analytics' },
+                { id: 'periods', label: 'Compare periods', title: 'Compare two date ranges' },
+                { id: 'compare', label: 'Compare articles', title: 'Compare two specific articles' },
+                { id: 'chat', label: 'Ask AI' },
+              ],
+            },
+            {
+              group: 'Tools',
+              items: [
+                { id: 'ocr', label: 'OCR' },
+                { id: 'ad-browser', label: 'Ad Browser' },
+              ],
+            },
+            ...(user
+              ? [{
+                  group: 'You',
+                  items: [{ id: 'bookmarks', label: 'Bookmarks' }],
+                }]
+              : []),
+          ] as { group: string; items: { id: typeof activeTab; label: string; title?: string }[] }[])
+            .map((section, idx, arr) => (
+              <React.Fragment key={section.group}>
+                <div className="nav-group" role="group" aria-label={section.group}>
+                  {section.items.map(item => (
+                    <button
+                      key={item.id}
+                      className={activeTab === item.id ? 'active' : ''}
+                      onClick={() => setActiveTab(item.id)}
+                      title={item.title}
+                      aria-current={activeTab === item.id ? 'page' : undefined}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                {idx < arr.length - 1 && <span className="nav-group-sep" aria-hidden />}
+              </React.Fragment>
+            ))}
         </nav>
       </header>
 
@@ -302,6 +361,7 @@ const MediaScopeDashboard: React.FC = () => {
               onResults={setSearchResults}
               onFiltersChange={setSearchFilters}
               onQueryChange={setSearchQuery}
+              externalFilters={searchFilters}
             />
             {searchResults && (
               <div className="search-results">
@@ -313,8 +373,8 @@ const MediaScopeDashboard: React.FC = () => {
                     setSearchFilters((prev: any) => {
                       if (!prev) return prev;
                       const updated = { ...prev };
-                      if (key === 'startDate') updated.startDate = '1990-01-01';
-                      else if (key === 'endDate') updated.endDate = '1992-12-31';
+                      if (key === 'startDate') updated.startDate = minBound;
+                      else if (key === 'endDate') updated.endDate = maxBound;
                       else (updated as any)[key] = '';
                       return updated;
                     });
@@ -339,18 +399,23 @@ const MediaScopeDashboard: React.FC = () => {
           <div className="analytics-view">
             <AnalyticsSummary />
 
-            {/* Analytics sub-nav */}
-            <div className="analytics-subnav">
-              {(['overview', 'topics', 'entities', 'keywords'] as const).map(tab => (
+            {/* Analytics sub-nav — labels are data, not 5-line conditional JSX. */}
+            <div className="analytics-subnav" role="tablist" aria-label="Analytics sections">
+              {([
+                { id: 'overview', label: 'Overview' },
+                { id: 'topics', label: 'Topics' },
+                { id: 'entities', label: 'Entities' },
+                { id: 'keywords', label: 'Keywords' },
+                { id: 'corpus', label: 'Corpus' },
+              ] as const).map(t => (
                 <button
-                  key={tab}
-                  className={`analytics-subnav-btn ${analyticsSubTab === tab ? 'active' : ''}`}
-                  onClick={() => setAnalyticsSubTab(tab)}
+                  key={t.id}
+                  role="tab"
+                  aria-selected={analyticsSubTab === t.id}
+                  className={`analytics-subnav-btn ${analyticsSubTab === t.id ? 'active' : ''}`}
+                  onClick={() => setAnalyticsSubTab(t.id)}
                 >
-                  {tab === 'overview' && 'Overview'}
-                  {tab === 'topics' && 'Topics'}
-                  {tab === 'entities' && 'Entities'}
-                  {tab === 'keywords' && 'Keywords'}
+                  {t.label}
                 </button>
               ))}
             </div>
@@ -359,10 +424,43 @@ const MediaScopeDashboard: React.FC = () => {
               {analyticsSubTab === 'overview' && (
                 <>
                   <div className="analytics-card full-width">
-                    <CoverageHeatmap />
+                    <ErrorBoundary label="Coverage calendar">
+                      <CalendarHeatmap onDayClick={(date) => {
+                        // Drill in: switch to search and pin both date filters to this day.
+                        setSearchFilters((prev: any) => ({ ...(prev || {}), startDate: date, endDate: date }));
+                        setActiveTab('search');
+                      }} />
+                    </ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <SentimentDistribution />
+                    <ErrorBoundary label="Articles over time">
+                      <ArticlesOverTime
+                        onMonthClick={(month) => {
+                          // month is YYYY-MM. Snap to first/last day of that month.
+                          if (!/^\d{4}-\d{2}$/.test(month)) return;
+                          const [y, m] = month.split('-').map(Number);
+                          const last = new Date(y, m, 0).getDate();
+                          const start = `${month}-01`;
+                          const end = `${month}-${String(last).padStart(2, '0')}`;
+                          setSearchFilters((prev: any) => ({ ...(prev || {}), startDate: start, endDate: end }));
+                          setActiveTab('search');
+                        }}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                  <div className="analytics-card full-width">
+                    <ErrorBoundary label="Coverage by month"><CoverageHeatmap /></ErrorBoundary>
+                  </div>
+                  <div className="analytics-card full-width">
+                    <ErrorBoundary label="Sentiment distribution">
+                      <SentimentDistribution
+                        onSliceClick={(label) => {
+                          // Drill in: pin sentiment filter and switch to search.
+                          setSearchFilters((prev: any) => ({ ...(prev || {}), sentiment: label }));
+                          setActiveTab('search');
+                        }}
+                      />
+                    </ErrorBoundary>
                   </div>
                 </>
               )}
@@ -370,13 +468,13 @@ const MediaScopeDashboard: React.FC = () => {
               {analyticsSubTab === 'topics' && (
                 <>
                   <div className="analytics-card full-width">
-                    <TopicDistribution />
+                    <ErrorBoundary label="Topic distribution"><TopicDistribution /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <TopicTrendsOverTime />
+                    <ErrorBoundary label="Topic trends over time"><TopicTrendsOverTime /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <TopicSentimentOverTime />
+                    <ErrorBoundary label="Topic sentiment over time"><TopicSentimentOverTime /></ErrorBoundary>
                   </div>
                 </>
               )}
@@ -384,16 +482,16 @@ const MediaScopeDashboard: React.FC = () => {
               {analyticsSubTab === 'entities' && (
                 <>
                   <div className="analytics-card full-width">
-                    <InteractiveEntityExplorer />
+                    <ErrorBoundary label="Entity explorer"><InteractiveEntityExplorer /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <TopEntitiesPanel />
+                    <ErrorBoundary label="Top entities"><TopEntitiesPanel /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <EntityCooccurrenceNetwork />
+                    <ErrorBoundary label="Entity co-occurrence network"><EntityCooccurrenceNetwork /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <EntitySentimentOverTime />
+                    <ErrorBoundary label="Entity sentiment over time"><EntitySentimentOverTime /></ErrorBoundary>
                   </div>
                 </>
               )}
@@ -401,13 +499,27 @@ const MediaScopeDashboard: React.FC = () => {
               {analyticsSubTab === 'keywords' && (
                 <>
                   <div className="analytics-card full-width">
-                    <InteractiveKeywords />
+                    <ErrorBoundary label="Interactive keywords"><InteractiveKeywords /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <KeywordFrequencyOverTime />
+                    <ErrorBoundary label="Keyword frequency over time"><KeywordFrequencyOverTime /></ErrorBoundary>
                   </div>
                   <div className="analytics-card full-width">
-                    <KeywordSentimentOverTime />
+                    <ErrorBoundary label="Keyword sentiment over time"><KeywordSentimentOverTime /></ErrorBoundary>
+                  </div>
+                </>
+              )}
+
+              {analyticsSubTab === 'corpus' && (
+                <>
+                  <div className="analytics-card full-width">
+                    <ErrorBoundary label="Article length"><WordCountDistribution /></ErrorBoundary>
+                  </div>
+                  <div className="analytics-card full-width">
+                    <ErrorBoundary label="Page distribution"><PageDistribution /></ErrorBoundary>
+                  </div>
+                  <div className="analytics-card full-width">
+                    <ErrorBoundary label="Source distribution"><SourceDistribution /></ErrorBoundary>
                   </div>
                 </>
               )}
@@ -422,6 +534,10 @@ const MediaScopeDashboard: React.FC = () => {
         {activeTab === 'ad-browser' && <AdBrowserTab />}
 
         {activeTab === 'chat' && <ChatTab />}
+
+        {activeTab === 'periods' && (
+          <ErrorBoundary label="Compare periods"><CompareTab /></ErrorBoundary>
+        )}
       </main>
     </div>
   );

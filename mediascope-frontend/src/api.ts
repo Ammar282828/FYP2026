@@ -55,8 +55,18 @@ export default {
   },
 
   getSentimentOverview: async () => {
-    const response = await api.get('/api/analytics/sentiment-fixed');
+    const response = await api.get('/api/analytics/sentiment-overview');
     return response.data;
+  },
+
+  getDataVersion: async () => {
+    const response = await api.get('/api/analytics/data-version');
+    return response.data as {
+      article_count: number;
+      version: string;
+      min_date: string | null;
+      max_date: string | null;
+    };
   },
 
   getKeywordTrend: async (keyword: string, startDate?: string, endDate?: string) => {

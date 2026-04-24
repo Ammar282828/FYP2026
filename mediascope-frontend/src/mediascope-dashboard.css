@@ -123,6 +123,27 @@ textarea {
   display: flex;
   gap: 0.5rem;
   margin-top: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Visual grouping inside the nav: tight cluster per group, separator
+   between groups. Lets a 9-button bar feel like 4 sections. */
+.nav-group {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.nav-group-sep {
+  display: inline-block;
+  width: 1px;
+  height: 22px;
+  background: var(--border-color);
+  margin: 0 0.5rem;
+  opacity: 0.6;
+}
+@media (max-width: 768px) {
+  .nav-group-sep { display: none; }
 }
 
 .dashboard-nav button {
@@ -2615,4 +2636,60 @@ textarea {
 
 [data-theme="dark"] .facet-negative {
   background: rgba(239, 68, 68, 0.2);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Mobile polish (< 768px)
+   ─────────────────────────────────────────────────────────────────────────
+   Goals:
+     - Filter chips wrap and stack instead of overflowing horizontally.
+     - Secondary chart legends hide below 768px (the chart itself is enough
+       on a phone; legends double the vertical real-estate cost).
+     - Analytics sub-nav becomes horizontally scrollable rather than
+       wrapping into multiple rows that push content down.
+     - Cards drop their fixed grid widths and span full width.
+   ────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Stack filter chip rows: target chip-style buttons and pill containers. */
+  .filter-chip,
+  .filter-pill,
+  .chip-row,
+  .filter-pills,
+  .pill-row {
+    flex-wrap: wrap !important;
+  }
+
+  /* Recharts secondary legend (.recharts-default-legend) — hide below 768px
+     so the chart gets all the vertical room. Charts that *need* their legend
+     opt out by adding the .keep-legend class to their wrapping element. */
+  .analytics-card:not(.keep-legend) .recharts-default-legend {
+    display: none !important;
+  }
+
+  /* Sub-nav: scroll horizontally rather than wrap. */
+  .analytics-subnav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .analytics-subnav::-webkit-scrollbar { display: none; }
+  .analytics-subnav-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* Analytics cards: full width, no fixed grid columns. */
+  .analytics-card,
+  .analytics-card.full-width,
+  .analytics-card.half-width {
+    width: 100% !important;
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Date pickers: stack the two date inputs vertically. */
+  .date-range-picker {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

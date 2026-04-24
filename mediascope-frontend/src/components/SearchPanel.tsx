@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_BASE } from '../config';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './ui/Toast';
+import { useDateBounds } from '../hooks/useDataVersion';
 
 interface SearchFilters {
   startDate?: string;
@@ -24,11 +25,21 @@ interface SearchPanelProps {
   onResults: (results: any) => void;
   onFiltersChange?: (filters: SearchFilters) => void;
   onQueryChange?: (query: string) => void;
+  /**
+   * Externally controlled filter overrides — used when another widget
+   * (e.g. CalendarHeatmap day-click, SentimentDistribution slice-click)
+   * wants to drill into search with a pinned filter. We merge the override
+   * into the panel's internal state when it changes by reference.
+   */
+  externalFilters?: Partial<SearchFilters> | null;
 }
 
-const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, onQueryChange }) => {
+const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, onQueryChange, externalFilters }) => {
   const { user } = useAuth();
   const { toast } = useToast();
+  // Date bounds come from /data-version so we never silently exclude
+  // articles when the corpus expands beyond 1990-1992.
+  const [minBound, maxBound] = useDateBounds();
   const [searchType, setSearchType] = useState<'keyword' | 'entity'>('keyword');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -39,16 +50,44 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
   const [showSaved, setShowSaved] = useState(false);
 
   const [filters, setFilters] = useState<SearchFilters>({
-    startDate: '1990-01-01',
-    endDate: '1992-12-31',
+    startDate: minBound,
+    endDate: maxBound,
     sentiment: '',
     topic: '',
     entityType: ''
   });
 
+  // When data-version arrives async after first render, widen the date
+  // range to the corpus bounds — but only if the user hasn't touched the
+  // dates yet (i.e. they're still equal to the previous bounds).
+  useEffect(() => {
+    setFilters(prev => {
+      const wasUntouched = !prev.startDate || prev.startDate === '1990-01-01';
+      const wasUntouchedEnd = !prev.endDate || prev.endDate === '2030-12-31';
+      if (!wasUntouched && !wasUntouchedEnd) return prev;
+      return {
+        ...prev,
+        ...(wasUntouched ? { startDate: minBound } : {}),
+        ...(wasUntouchedEnd ? { endDate: maxBound } : {}),
+      };
+    });
+  }, [minBound, maxBound]);
+
   useEffect(() => {
     loadSuggestions();
   }, []);
+
+  // Merge in external filter overrides whenever the parent passes a new
+  // reference. Skip when the override is null/empty so we don't fight the
+  // user typing into a field. Filters that come in but are empty strings
+  // are treated as "clear that field".
+  useEffect(() => {
+    if (!externalFilters) return;
+    setFilters(prev => ({ ...prev, ...externalFilters }));
+    // Open the filters drawer so the user sees what just got pinned.
+    if (Object.keys(externalFilters).length > 0) setShowFilters(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalFilters]);
 
   const loadSavedSearches = useCallback(async () => {
     if (!user) return;

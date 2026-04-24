@@ -34,13 +34,73 @@ def _cached(key, fn):
 
 @router.get("/data-version")
 def get_data_version():
-    """Returns the article count — used by the frontend to detect when new data has been added."""
+    """
+    Returns the article count plus the publication-date span of the corpus.
+
+    The frontend uses `article_count` as a cache-buster and `min_date` / `max_date`
+    to seed date-picker defaults instead of hardcoding 1990-01-01 / 1992-12-31.
+    """
     try:
         db = get_firestore_db()
         count = db.get_article_count()
-        return {"article_count": count, "version": str(count)}
+
+        # Derive min/max publication_date from the in-memory snapshot so this
+        # endpoint stays fast even on cold starts (it's already populated by
+        # any other analytics call).
+        min_date = None
+        max_date = None
+        try:
+            articles = db._get_articles_snapshot()
+            for a in articles:
+                pub = a.get('publication_date')
+                if not pub:
+                    continue
+                if hasattr(pub, 'isoformat'):
+                    iso = pub.isoformat()[:10]
+                elif isinstance(pub, str):
+                    iso = pub[:10]
+                else:
+                    continue
+                if min_date is None or iso < min_date:
+                    min_date = iso
+                if max_date is None or iso > max_date:
+                    max_date = iso
+        except Exception as inner:
+            # If the snapshot isn't available we still want to return the count.
+            print(f"[data-version] could not derive date range: {inner}")
+
+        return {
+            "article_count": count,
+            "version": str(count),
+            "min_date": min_date,
+            "max_date": max_date,
+        }
     except Exception as e:
         raise HTTPException(500, f"Failed to get data version: {str(e)}")
+
+
+@router.get("/sentiment-overview")
+def sentiment_overview():
+    """
+    Aggregate sentiment counts across the corpus.
+
+    Returns: { positive, neutral, negative, total }
+
+    This replaces the legacy postgres-era /sentiment-fixed endpoint. It folds
+    the monthly sentiment-over-time series so we don't pay a second full scan.
+    """
+    try:
+        db = get_db()
+        timeline = _cached("sentiment_over_time", lambda: db.get_analytics_sentiment_over_time())
+        totals = {"positive": 0, "neutral": 0, "negative": 0}
+        for row in timeline or []:
+            totals["positive"] += int(row.get("positive", 0) or 0)
+            totals["neutral"] += int(row.get("neutral", 0) or 0)
+            totals["negative"] += int(row.get("negative", 0) or 0)
+        totals["total"] = totals["positive"] + totals["neutral"] + totals["negative"]
+        return totals
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
 
 
 @router.get("/total-articles")
@@ -62,6 +122,39 @@ def articles_over_time():
         db = get_db()
         timeline = _cached("articles_over_time", lambda: db.get_analytics_articles_over_time())
         return {"timeline": timeline}
+    except Exception as e:
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@router.get("/articles-by-day")
+def articles_by_day():
+    """
+    Daily article counts across the corpus, used by the calendar heatmap.
+
+    Returns: { "days": [{"date": "1990-01-15", "count": 12}, ...] }
+    Sorted ascending. Days with zero articles are omitted (the heatmap fills them).
+    """
+    def _compute():
+        from collections import Counter
+        db = get_db()
+        articles = db._get_articles_snapshot()
+        counts: Counter = Counter()
+        for data in articles:
+            pub = data.get('publication_date')
+            if not pub:
+                continue
+            if hasattr(pub, 'strftime'):
+                key = pub.strftime('%Y-%m-%d')
+            elif isinstance(pub, str):
+                key = pub[:10]
+            else:
+                continue
+            counts[key] += 1
+        days = [{"date": d, "count": c} for d, c in sorted(counts.items())]
+        return {"days": days, "total": sum(counts.values())}
+
+    try:
+        return _cached("articles_by_day", _compute)
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
 

@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { useDateBounds } from '../hooks/useDataVersion';
+import MarkdownLite from './ui/MarkdownLite';
 
 interface SearchFilters {
   startDate?: string;
@@ -27,13 +29,14 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
 }) => {
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [minBound, maxBound] = useDateBounds();
 
   const generateSummary = async () => {
     setLoading(true);
     try {
       const response = await axios.post(`${API_BASE}/analytics/ai-summary`, {
-        start_date: filters?.startDate || '1990-01-01',
-        end_date: filters?.endDate || '1992-12-31',
+        start_date: filters?.startDate || minBound,
+        end_date: filters?.endDate || maxBound,
         topic: filters?.topic
       });
       setSummary(response.data.summary);
@@ -70,8 +73,8 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
   if (filters?.sentiment) activeFilters.push({ key: 'sentiment', label: `Sentiment: ${filters.sentiment}` });
   if (filters?.topic) activeFilters.push({ key: 'topic', label: `Topic: ${filters.topic}` });
   if (filters?.entityType) activeFilters.push({ key: 'entityType', label: `Entity: ${filters.entityType}` });
-  if (filters?.startDate && filters.startDate !== '1990-01-01') activeFilters.push({ key: 'startDate', label: `From: ${filters.startDate}` });
-  if (filters?.endDate && filters.endDate !== '1992-12-31') activeFilters.push({ key: 'endDate', label: `Until: ${filters.endDate}` });
+  if (filters?.startDate && filters.startDate !== minBound) activeFilters.push({ key: 'startDate', label: `From: ${filters.startDate}` });
+  if (filters?.endDate && filters.endDate !== maxBound) activeFilters.push({ key: 'endDate', label: `Until: ${filters.endDate}` });
 
   return (
     <div className="search-results-summary">
@@ -132,11 +135,7 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
       {summary && (
         <div className="ai-summary-box">
           <h4>AI-Generated Summary</h4>
-          <div className="summary-content">
-            {summary.split('\n').map((para, idx) => (
-              para.trim() && <p key={idx}>{para}</p>
-            ))}
-          </div>
+          <MarkdownLite source={summary} className="summary-content" />
         </div>
       )}
     </div>

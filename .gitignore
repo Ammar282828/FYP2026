@@ -52,6 +52,10 @@ backup.sql
 # IDE
 .vscode/
 .idea/
+.claude/
+
+# Test artifacts
+pipeline_test_report.json
 
 
 # Keep sample newspapers for friends to test with
