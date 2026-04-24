@@ -77,6 +77,22 @@ class Config:
     
     SPACY_MODEL: str = "en_core_web_lg"
     SENTIMENT_MODEL: str = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+    # Sentiment backend: "roberta" (legacy HF Twitter model) or "gemini"
+    # (services/sentiment_gemini, full-article LLM scoring). Gemini is more
+    # accurate on Dawn 1990s prose — see scripts/audit_sentiment.py — but
+    # costs an API call per article, so it's opt-in at runtime via env var.
+    SENTIMENT_BACKEND: str = os.getenv("SENTIMENT_BACKEND", "roberta").strip().lower()
+
+    # Topic backend: "curated" (default — services/topics_gemini, classifies
+    # against the curated 38-topic taxonomy in data/topics_taxonomy.json and
+    # writes clean human-readable labels) or "legacy" (the original code path
+    # which classifies against the BERTopic-derived taxonomy in
+    # data/topics_data.json and writes underscore-joined keyword strings).
+    # Both routes use Gemini under the hood; the difference is the label set.
+    TOPIC_BACKEND: str = os.getenv("TOPIC_BACKEND", "curated").strip().lower()
+    # Model to use for topic classification. Routed through gemini_adapter, so
+    # a Vertex Express key (AQ.…) lands on Vertex automatically.
+    TOPIC_MODEL: str = os.getenv("TOPIC_MODEL", "gemini-2.5-flash").strip()
 
 
 class MediaScopeDatabase:
@@ -770,30 +786,118 @@ class NLPProcessor:
         return entities
 
     def analyze_sentiment(self, text: str) -> Dict:
-        text = text[:1000]
+        """
+        Sentiment scorer with two backends:
+          - "roberta" (default): HuggingFace Twitter RoBERTa, 1000-char window.
+            Fast (local), but heavily biased toward 'neutral' on formal
+            newspaper prose — see scripts/audit_sentiment.py for evidence.
+          - "gemini": services.sentiment_gemini, full-article LLM scoring.
+            Slower and costs an API call per article, but reads paragraph
+            4-N where the editorial stance actually lives.
 
-        results = self.sentiment_analyzer(text)[0]
+        Selected via Config.SENTIMENT_BACKEND (env var SENTIMENT_BACKEND).
+        Always falls back to RoBERTa on Gemini failure so ingestion never
+        stalls. The returned dict gains a `method` field so consumers /
+        analytics can tell which scorer ran.
+        """
+        backend = getattr(self.config, 'SENTIMENT_BACKEND', 'roberta')
+        if backend == 'gemini':
+            try:
+                from services.sentiment_gemini import analyze_sentiment_gemini
+                result = analyze_sentiment_gemini(text)
+                # Treat unparseable / no-key returns (confidence=0) as a miss
+                # and fall back to RoBERTa so we always get *some* signal.
+                if result.get('confidence', 0) > 0:
+                    result['method'] = 'gemini'
+                    return result
+                print(f"[SENTIMENT] Gemini returned no signal ({result.get('reasoning', '')[:80]}); "
+                      f"falling back to RoBERTa")
+            except Exception as exc:
+                print(f"[SENTIMENT] Gemini failed: {exc}; falling back to RoBERTa")
 
+        # Legacy RoBERTa path (also the fallback).
+        snippet = text[:1000]
+        results = self.sentiment_analyzer(snippet)[0]
         label_map = {'negative': -1, 'neutral': 0, 'positive': 1}
-
         top_result = max(results, key=lambda x: x['score'])
         label = top_result['label'].lower()
-
-        score = 0
-        for result in results:
-            lbl = result['label'].lower()
-            score += label_map.get(lbl, 0) * result['score']
-
+        score = 0.0
+        for r in results:
+            lbl = r['label'].lower()
+            score += label_map.get(lbl, 0) * r['score']
         return {
             'score': round(score, 3),
             'label': label,
-            'confidence': round(top_result['score'], 3)
+            'confidence': round(top_result['score'], 3),
+            'method': 'roberta',
         }
 
     def assign_topic(self, text: str) -> Dict:
-        """Classify article text into a topic using Gemini API."""
+        """Classify article text into a topic.
+
+        Two backends, picked by Config.TOPIC_BACKEND (env TOPIC_BACKEND):
+
+          - "curated" (default): services.topics_gemini classifies against the
+            curated 38-topic taxonomy in data/topics_taxonomy.json. Returns
+            stable, human-readable labels ("Crime & Violence", "Cricket"…)
+            so the frontend doesn't need its TOPIC_NAME_MAP humanization
+            shim. Routed through services.gemini_adapter so a Vertex Express
+            key (AQ.*) lands on Vertex automatically.
+
+          - "legacy": original code path that classifies against the
+            BERTopic-derived taxonomy in data/topics_data.json and writes
+            underscore-joined keyword strings ("kgs_grams_oil_40 kgs"…).
+            Kept around so old labels stay queryable until backfill runs.
+
+        Both paths return a dict with topic_id, topic_label, confidence, and
+        a `method` field so consumers can tell which classifier ran.
+        """
+        backend = getattr(self.config, 'TOPIC_BACKEND', 'curated')
+
+        if backend == 'curated':
+            return self._assign_topic_curated(text)
+
+        # Legacy path (BERTopic-derived taxonomy + underscore label format).
+        return self._assign_topic_legacy(text)
+
+    def _assign_topic_curated(self, text: str) -> Dict:
+        """Classify against the curated taxonomy with key rotation."""
+        from services.topics_gemini import classify_topic_gemini, _OTHER_ID, _OTHER_LABEL, _OTHER_KEY
+
+        model_name = getattr(self.config, 'TOPIC_MODEL', 'gemini-2.5-flash')
+        # Try each rotation key once on quota/rate errors. classify_topic_gemini
+        # itself swallows errors and returns confidence=0; we re-call against
+        # the next key when that happens AND the reasoning hints at quota.
+        keys = self._topic_keys or [getattr(self.config, 'GEMINI_API_KEY', '') or '']
+        attempts = max(1, len(keys))
+        for attempt in range(attempts):
+            cur_key = keys[self._topic_key_index] if keys else ''
+            result = classify_topic_gemini(text, model_name=model_name, api_key=cur_key)
+            reasoning = result.get('reasoning', '').lower()
+            quota_hit = (
+                result.get('confidence', 0.0) == 0.0
+                and any(x in reasoning for x in ('quota', 'rate', '429', '403', 'permission'))
+            )
+            if not quota_hit:
+                result['method'] = 'gemini-curated'
+                return result
+            # rotate and retry
+            if keys:
+                self._topic_key_index = (self._topic_key_index + 1) % len(keys)
+                if attempt < attempts - 1:
+                    print(f"  [INFO] Topic classifier rotating to key {self._topic_key_index + 1}")
+
+        # All keys exhausted — return Other with method tag.
+        print("  [ERROR] All API keys exhausted for topic classification")
+        return {
+            'topic_id': _OTHER_ID, 'topic_key': _OTHER_KEY, 'topic_label': _OTHER_LABEL,
+            'confidence': 0.0, 'reasoning': 'all keys exhausted', 'method': 'gemini-curated',
+        }
+
+    def _assign_topic_legacy(self, text: str) -> Dict:
+        """Original BERTopic-keyword classifier. Kept for back-compat."""
         if not self.topics_taxonomy:
-            return {'topic_id': -1, 'topic_label': 'Uncategorized'}
+            return {'topic_id': -1, 'topic_label': 'Uncategorized', 'method': 'legacy'}
 
         topic_list_str = self._build_topic_prompt()
         snippet = text[:1500]  # Limit text to keep prompt manageable
@@ -819,7 +923,7 @@ Respond with ONLY valid JSON, no markdown:
         while keys_tried < len(self._topic_keys):
             try:
                 cur_key = self._topic_keys[self._topic_key_index]
-                model = _create_gemini_model(cur_key, 'gemini-2.0-flash')
+                model = _create_gemini_model(cur_key, getattr(self.config, 'TOPIC_MODEL', 'gemini-2.5-flash'))
                 response = model.generate_content(prompt)
                 raw = response.text.strip() if response.parts else ""
 
@@ -838,7 +942,7 @@ Respond with ONLY valid JSON, no markdown:
                     topic_id = -1
 
                 if topic_id == -1:
-                    return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+                    return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0, 'method': 'legacy'}
 
                 # Find the matching topic
                 for t in self.topics_taxonomy:
@@ -846,10 +950,11 @@ Respond with ONLY valid JSON, no markdown:
                         return {
                             'topic_id': topic_id,
                             'topic_label': '_'.join(t.get('keywords', [])[:5]),
-                            'confidence': float(result.get('confidence', 0.8))
+                            'confidence': float(result.get('confidence', 0.8)),
+                            'method': 'legacy',
                         }
 
-                return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+                return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0, 'method': 'legacy'}
 
             except Exception as e:
                 if any(x in str(e).lower() for x in ['quota', '429', 'rate', '403']):
@@ -860,10 +965,10 @@ Respond with ONLY valid JSON, no markdown:
                     continue
                 else:
                     print(f"  [WARNING] Gemini topic classification failed: {e}")
-                    return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+                    return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0, 'method': 'legacy'}
 
-        print(f"  [ERROR] All API keys exhausted for topic classification")
-        return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0}
+        print("  [ERROR] All API keys exhausted for topic classification")
+        return {'topic_id': -1, 'topic_label': 'Uncategorized', 'confidence': 0.0, 'method': 'legacy'}
 
     def assign_topics_batch(self, texts: List[str]) -> List[Dict]:
         """Classify multiple articles using Gemini API with batching.
@@ -1026,12 +1131,14 @@ class MediaScopePipeline:
 
                     print("    Analyzing sentiment...")
                     sentiment = self.nlp_processor.analyze_sentiment(article['text'])
-                    print(f"    [OK] Sentiment: {sentiment['label']} ({sentiment['score']})")
+                    print(f"    [OK] Sentiment: {sentiment['label']} ({sentiment['score']}) "
+                          f"via {sentiment.get('method', 'roberta')}")
 
                     print("    Classifying topic (Gemini)...")
                     combined_text = f"{article['headline']}\n\n{article['text']}"
                     topic = self.nlp_processor.assign_topic(combined_text)
-                    print(f"    [OK] Topic: {topic.get('topic_label', 'N/A')} (id={topic.get('topic_id')})")
+                    print(f"    [OK] Topic: {topic.get('topic_label', 'N/A')} "
+                          f"(id={topic.get('topic_id')}, via {topic.get('method', 'legacy')})")
 
                     article_data = {
                         'article_number': article['number'],
@@ -1041,8 +1148,13 @@ class MediaScopePipeline:
                         'bounding_box': None,
                         'sentiment_score': sentiment['score'],
                         'sentiment_label': sentiment['label'],
+                        'sentiment_method': sentiment.get('method', 'roberta'),
                         'topic_id': topic['topic_id'],
                         'topic_label': topic['topic_label'],
+                        # New fields (curated path only — legacy path leaves them None):
+                        'topic_key': topic.get('topic_key'),
+                        'topic_confidence': topic.get('confidence'),
+                        'topic_method': topic.get('method', 'legacy'),
                         'publication_date': pub_date,
                         'page_number': page_num
                     }
