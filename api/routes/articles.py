@@ -28,6 +28,10 @@ try:
     import google.generativeai as genai
 except ImportError:
     genai = None
+try:
+    from services.gemini_adapter import create_model as _create_gemini_model
+except ImportError:
+    _create_gemini_model = None
 
 
 router = APIRouter(prefix="/api", tags=["articles"])
@@ -251,10 +255,8 @@ def generate_article_summary(article_id: str):
         if not gemini_key:
             raise HTTPException(500, "GEMINI_API_KEY not configured")
 
-        genai.configure(api_key=gemini_key)
-
         try:
-            model = genai.GenerativeModel('gemini-3-pro-preview')
+            model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
 
             prompt = f"""You are analyzing a historical newspaper article from 1990-1992.
 
@@ -396,11 +398,34 @@ def ask_archive(request: dict):
         context_articles = candidates[:max_context]
 
         if not context_articles:
-            return {
-                "question": question,
-                "answer": "I couldn't find any articles in the archive that match this question.",
-                "sources": [],
-            }
+            # Fall back to a direct LLM answer with a clear disclaimer so the
+            # user gets *something* useful when the archive search is empty
+            # (e.g. Firestore quota exceeded, or genuinely no matching docs).
+            try:
+                fallback_prompt = f"""You are a research assistant for the Dawn newspaper archive (Pakistan, 1990-1992).
+
+The archive search returned no matching articles for the user's question, so you must answer from general historical knowledge of Pakistan in 1990-1992. Keep the answer brief (3-5 sentences) and START with this exact disclaimer line:
+
+"⚠️ No matching articles in the archive — answering from general historical context."
+
+QUESTION: {question}
+
+Answer:"""
+                model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
+                resp = model.generate_content(fallback_prompt)
+                return {
+                    "question": question,
+                    "answer": resp.text.strip(),
+                    "sources": [],
+                    "model": "gemini-2.5-flash",
+                    "grounded": False,
+                }
+            except Exception as e:
+                return {
+                    "question": question,
+                    "answer": f"I couldn't find any articles in the archive that match this question, and the AI fallback also failed: {e}",
+                    "sources": [],
+                }
 
         blocks = []
         sources = []
@@ -431,14 +456,13 @@ QUESTION: {question}
 
 Answer (with [#] citations):"""
 
-        genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
         response = model.generate_content(prompt)
         return {
             "question": question,
             "answer": response.text.strip(),
             "sources": sources,
-            "model": "gemini-1.5-flash",
+            "model": "gemini-2.5-flash",
         }
     except HTTPException:
         raise
@@ -481,14 +505,13 @@ ARTICLES:
 
 Profile:"""
 
-        genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
         response = model.generate_content(prompt)
         return {
             "entity": entity,
             "bio": response.text.strip(),
             "source_count": len(hits),
-            "model": "gemini-1.5-flash",
+            "model": "gemini-2.5-flash",
         }
     except HTTPException:
         raise

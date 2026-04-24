@@ -128,6 +128,56 @@ class FirestoreDB:
             # Value not JSON-serializable — skip silently.
             print(f"[CACHE WARN] Non-serializable cache value skipped: {e}")
 
+    # ─── Firestore quota cool-down ──────────────────────────────────────────
+    # When Firestore returns 429 / DeadlineExceeded, every retry blocks for
+    # ~5 minutes. We mark the client as "blocked" for a short window so
+    # subsequent calls fail fast instead of stacking 5-minute waits.
+    _FIRESTORE_COOLDOWN_SECONDS = 60
+
+    def _is_firestore_blocked(self) -> bool:
+        import time
+        until = getattr(self, '_firestore_blocked_until', 0)
+        return until > time.time()
+
+    def _maybe_mark_firestore_blocked(self, exc):
+        import time
+        msg = str(exc).lower()
+        if any(s in msg for s in ('429', 'quota', 'deadline', 'exhausted', 'unavailable',
+                                   'timed out', 'timeout', 'exceeded')) or isinstance(exc, TimeoutError):
+            self._firestore_blocked_until = time.time() + self._FIRESTORE_COOLDOWN_SECONDS
+            print(f"[FIRESTORE COOLDOWN] Blocked for {self._FIRESTORE_COOLDOWN_SECONDS}s after: {exc}")
+
+    def _run_with_deadline(self, func, deadline_seconds: float = 10.0, label: str = ''):
+        """Run a callable in a daemon thread with a hard wall-clock deadline.
+
+        Required because Firestore SDK retries swallow per-RPC timeouts and
+        can stretch a single failed call to 5 minutes. We use a daemon
+        thread so the response can return even if the underlying RPC
+        continues to hang in the background — the leaked thread won't
+        block process exit.
+        """
+        import threading
+        result_box = []
+        exc_box = []
+
+        def runner():
+            try:
+                result_box.append(func())
+            except BaseException as e:  # noqa: BLE001
+                exc_box.append(e)
+
+        t = threading.Thread(target=runner, daemon=True, name=f"firestore-deadline:{label}")
+        t.start()
+        t.join(deadline_seconds)
+        if t.is_alive():
+            msg = f"{label or func.__name__} exceeded {deadline_seconds}s"
+            print(f"[FIRESTORE DEADLINE] {msg}")
+            self._maybe_mark_firestore_blocked(TimeoutError(msg))
+            raise TimeoutError(msg)
+        if exc_box:
+            raise exc_box[0]
+        return result_box[0] if result_box else None
+
     def _clear_analytics_cache(self):
         """Clear all analytics caches when new data is written."""
         keys_to_clear = [k for k in self._cache if k != 'article_count']
@@ -195,66 +245,65 @@ class FirestoreDB:
             return None
 
     def search_articles(self, query: str, limit: int = 50) -> List[Dict]:
-        try:
-            all_articles = self.db.collection('articles').stream()
+        # Short-circuit if Firestore is already known to be quota-blocked,
+        # so callers don't stack up 5-minute timeouts.
+        if self._is_firestore_blocked():
+            print(f"[SEARCH] Skipped — Firestore in cool-down ({query!r})")
+            return []
 
+        def _scan():
             results_with_score = []
             query_lower = query.lower()
-
+            all_articles = self.db.collection('articles').stream(timeout=10.0)
             for doc in all_articles:
                 data = doc.to_dict()
                 headline = data.get('headline', '').lower()
                 content = data.get('content', '').lower()
                 combined_text = headline + ' ' + content
-
                 if query_lower in combined_text:
                     mention_count = combined_text.count(query_lower)
-
                     created_at = data.get('created_at')
-                    if created_at:
-                        timestamp = created_at.timestamp() if hasattr(created_at, 'timestamp') else 0
-                    else:
-                        timestamp = 0
-
+                    timestamp = created_at.timestamp() if created_at and hasattr(created_at, 'timestamp') else 0
                     results_with_score.append({
                         'data': data,
                         'mentions': mention_count,
-                        'timestamp': timestamp
+                        'timestamp': timestamp,
                     })
-
             results_with_score.sort(key=lambda x: (x['mentions'], x['timestamp']), reverse=True)
+            return [item['data'] for item in results_with_score[:limit]]
 
-            results = [item['data'] for item in results_with_score[:limit]]
-
-            return results
-
+        try:
+            return self._run_with_deadline(_scan, deadline_seconds=12, label=f"search_articles({query!r})")
         except Exception as e:
             print(f"[ERROR] Search failed: {e}")
+            self._maybe_mark_firestore_blocked(e)
             return []
 
     def search_by_entity(self, entity_name: str, entity_type: Optional[str] = None, limit: int = 50) -> List[Dict]:
-        try:
+        if self._is_firestore_blocked():
+            print(f"[ENTITY SEARCH] Skipped — Firestore in cool-down ({entity_name!r})")
+            return []
+
+        def _scan():
             results = []
-
-            articles = self.db.collection('articles').limit(300).stream()
-
+            articles = self.db.collection('articles').limit(300).stream(timeout=10.0)
             for doc in articles:
                 data = doc.to_dict()
                 entities = data.get('entities', [])
-
                 for entity in entities:
                     if entity.get('text', '').lower() == entity_name.lower():
                         if entity_type is None or entity.get('type') == entity_type:
                             results.append(data)
                             break
-
                 if len(results) >= limit:
                     break
-
             return results
 
+        try:
+            return self._run_with_deadline(_scan, deadline_seconds=12, label=f"search_by_entity({entity_name!r})")
         except Exception as e:
             print(f"[ERROR] Entity search failed: {e}")
+            self._maybe_mark_firestore_blocked(e)
             return []
 
     def get_analytics_articles_over_time(self) -> List[Dict]:
