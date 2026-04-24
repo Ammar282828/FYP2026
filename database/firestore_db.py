@@ -45,10 +45,21 @@ class FirestoreDB:
     def __init__(self):
         self._cache = {}
         self._cache_timestamp = {}
-        self._cache_ttl = 3600  # 1 hour — data is a historical archive, never changes
+        # 24h — data is a historical archive and only changes on writes,
+        # which call _clear_analytics_cache() to invalidate.
+        self._cache_ttl = 86400
         # Persist cache to disk so analytics is instant across server restarts.
         self._cache_file = os.getenv('ANALYTICS_CACHE_FILE', '.analytics_cache.json')
         self._load_persistent_cache()
+
+        # Shared in-memory snapshot of every article doc. The Analytics
+        # dashboard fires ~7 endpoints in parallel; without this each one
+        # would launch its own full collection scan. The snapshot is
+        # populated once under a lock and reused by every aggregator.
+        import threading
+        self._articles_snapshot = None
+        self._articles_snapshot_ts = 0.0
+        self._snapshot_lock = threading.Lock()
 
         if not firebase_admin._apps:
             service_account_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH')
@@ -114,19 +125,28 @@ class FirestoreDB:
             print(f"[CACHE WARN] Failed to load persisted cache: {e}")
 
     def _save_persistent_cache(self):
-        """Write current cache snapshot to disk atomically."""
-        try:
-            payload = {
-                'entries': self._cache,
-                'timestamps': self._cache_timestamp,
-            }
-            tmp_path = self._cache_file + '.tmp'
-            with open(tmp_path, 'w') as f:
-                json.dump(payload, f, default=str)
-            os.replace(tmp_path, self._cache_file)
-        except (TypeError, ValueError) as e:
-            # Value not JSON-serializable — skip silently.
-            print(f"[CACHE WARN] Non-serializable cache value skipped: {e}")
+        """Write current cache snapshot to disk atomically.
+
+        Holds a per-instance lock — without it, concurrent _set_cached()
+        calls race on the same .tmp filename and the loser hits
+        ENOENT on os.replace().
+        """
+        if not hasattr(self, '_cache_write_lock'):
+            import threading
+            self._cache_write_lock = threading.Lock()
+        with self._cache_write_lock:
+            try:
+                payload = {
+                    'entries': self._cache,
+                    'timestamps': self._cache_timestamp,
+                }
+                tmp_path = self._cache_file + '.tmp'
+                with open(tmp_path, 'w') as f:
+                    json.dump(payload, f, default=str)
+                os.replace(tmp_path, self._cache_file)
+            except (TypeError, ValueError) as e:
+                # Value not JSON-serializable — skip silently.
+                print(f"[CACHE WARN] Non-serializable cache value skipped: {e}")
 
     # ─── Firestore quota cool-down ──────────────────────────────────────────
     # When Firestore returns 429 / DeadlineExceeded, every retry blocks for
@@ -178,6 +198,110 @@ class FirestoreDB:
             raise exc_box[0]
         return result_box[0] if result_box else None
 
+    # Persist the full-collection snapshot to disk too. The aggregates
+    # already use the in-memory cache, but if Firestore quota is exhausted
+    # at startup the next-best thing is to serve from yesterday's snapshot
+    # rather than 500-error every analytics endpoint.
+    _SNAPSHOT_FILE = '.articles_snapshot.json'
+
+    def _load_snapshot_from_disk(self):
+        import time
+        try:
+            path = os.getenv('ARTICLES_SNAPSHOT_FILE', self._SNAPSHOT_FILE)
+            if not os.path.exists(path):
+                return
+            with open(path, 'r') as f:
+                payload = json.load(f)
+            ts = payload.get('timestamp', 0)
+            articles = payload.get('articles', [])
+            if articles and time.time() - ts < self._cache_ttl:
+                self._articles_snapshot = articles
+                self._articles_snapshot_ts = ts
+                print(f"[SNAPSHOT] Loaded {len(articles)} articles from disk cache")
+        except Exception as e:
+            print(f"[SNAPSHOT WARN] Could not read disk snapshot: {e}")
+
+    def _save_snapshot_to_disk(self):
+        try:
+            path = os.getenv('ARTICLES_SNAPSHOT_FILE', self._SNAPSHOT_FILE)
+            tmp = path + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump({
+                    'timestamp': self._articles_snapshot_ts,
+                    'articles': self._articles_snapshot,
+                }, f, default=str)
+            os.replace(tmp, path)
+        except Exception as e:
+            print(f"[SNAPSHOT WARN] Could not write disk snapshot: {e}")
+
+    def _get_articles_snapshot(self) -> List[Dict]:
+        """Return every article doc as a list of dicts.
+
+        Loaded once and shared across all analytics aggregators. Without
+        this, the Analytics dashboard's parallel endpoint fan-out would
+        trigger N independent full collection scans.
+
+        Held under a lock so concurrent first-callers don't each kick off
+        their own scan; subsequent callers within the TTL get the cached
+        list immediately.
+
+        Backed by a disk snapshot — if Firestore is unavailable (quota,
+        cool-down) we fall back to the most recent on-disk copy rather
+        than failing every analytics endpoint.
+        """
+        import time
+        if (
+            self._articles_snapshot is not None
+            and time.time() - self._articles_snapshot_ts < self._cache_ttl
+        ):
+            return self._articles_snapshot
+
+        with self._snapshot_lock:
+            # Double-check inside the lock — another thread may have
+            # populated it while we were waiting.
+            if (
+                self._articles_snapshot is not None
+                and time.time() - self._articles_snapshot_ts < self._cache_ttl
+            ):
+                return self._articles_snapshot
+
+            # Try the disk cache first — instant, no Firestore reads.
+            self._load_snapshot_from_disk()
+            if self._articles_snapshot is not None:
+                return self._articles_snapshot
+
+            # Skip the live fetch if we're already in cool-down. Cache an
+            # empty snapshot for the cool-down so concurrent callers don't
+            # each retry the 30s deadline.
+            if self._is_firestore_blocked():
+                print("[SNAPSHOT] Firestore in cool-down, returning empty")
+                self._articles_snapshot = []
+                self._articles_snapshot_ts = time.time()
+                return []
+
+            def _scan():
+                return [doc.to_dict() for doc in self.db.collection('articles').stream()]
+
+            try:
+                t0 = time.time()
+                # 4243+ docs with full article content takes ~30s end-to-end
+                # over the wire; give the first load enough headroom to
+                # actually finish so subsequent requests can serve from cache.
+                articles = self._run_with_deadline(_scan, deadline_seconds=90, label='articles_snapshot')
+                self._articles_snapshot = articles
+                self._articles_snapshot_ts = time.time()
+                print(f"[SNAPSHOT] Loaded {len(articles)} articles from Firestore in {time.time() - t0:.2f}s")
+                self._save_snapshot_to_disk()
+                return articles
+            except Exception as e:
+                print(f"[SNAPSHOT ERROR] {e}")
+                self._maybe_mark_firestore_blocked(e)
+                # Cache the empty result so concurrent endpoints don't each
+                # block on the deadline.
+                self._articles_snapshot = []
+                self._articles_snapshot_ts = time.time()
+                return []
+
     def _clear_analytics_cache(self):
         """Clear all analytics caches when new data is written."""
         keys_to_clear = [k for k in self._cache if k != 'article_count']
@@ -187,6 +311,16 @@ class FirestoreDB:
         # Update article_count cache too
         self._cache.pop('article_count', None)
         self._cache_timestamp.pop('article_count', None)
+        # Drop the in-memory and on-disk articles snapshot so the next
+        # read picks up the newly written data.
+        self._articles_snapshot = None
+        self._articles_snapshot_ts = 0.0
+        try:
+            path = os.getenv('ARTICLES_SNAPSHOT_FILE', self._SNAPSHOT_FILE)
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception as e:
+            print(f"[SNAPSHOT WARN] Failed to delete disk snapshot: {e}")
         # Remove persisted file so next restart starts clean.
         try:
             if os.path.exists(self._cache_file):
@@ -229,9 +363,18 @@ class FirestoreDB:
         cached = self._get_cached('article_count')
         if cached is not None:
             return cached
-        docs = self.db.collection('articles').select(['id']).stream()
-        count = sum(1 for _ in docs)
-        self._set_cached('article_count', count)
+        # Prefer the shared snapshot (it has a wall-clock deadline so it
+        # can never hang the way a raw .select().stream() can during a
+        # quota outage).
+        if self._articles_snapshot is not None:
+            count = len(self._articles_snapshot)
+        elif self._is_firestore_blocked():
+            return 0
+        else:
+            articles = self._get_articles_snapshot()
+            count = len(articles)
+        if count > 0:
+            self._set_cached('article_count', count)
         return count
 
     def get_article(self, article_id: str) -> Optional[Dict]:
@@ -312,11 +455,10 @@ class FirestoreDB:
             return cached
 
         try:
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
 
             monthly_counts = {}
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date = data.get('publication_date')
                 if pub_date:
                     if isinstance(pub_date, str):
@@ -343,11 +485,10 @@ class FirestoreDB:
             return cached
 
         try:
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
 
             monthly_sentiment = {}
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date = data.get('publication_date')
                 sentiment = data.get('sentiment_label', 'neutral')
 
@@ -386,7 +527,7 @@ class FirestoreDB:
 
         try:
             import re
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
 
             word_freq = {}
             stop_words = {
@@ -403,8 +544,7 @@ class FirestoreDB:
                 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'said', 'page', 'continued', 'back'
             }
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 content = data.get('content', '') + ' ' + data.get('headline', '')
                 words = content.lower().split()
 
@@ -538,13 +678,17 @@ class FirestoreDB:
         return entity_text
 
     def get_sentiment_by_entity(self, entity_type: Optional[str] = None, limit: int = 20) -> List[Dict]:
+        cache_key = f'sentiment_by_entity_{entity_type}_{limit}'
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
         try:
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
 
             entity_sentiment = {}
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 sentiment = data.get('sentiment_label', 'neutral')
                 entities = data.get('entities', [])
 
@@ -592,7 +736,9 @@ class FirestoreDB:
 
             filtered_entities = [e for e in sorted_entities if e['article_count'] >= 2]
 
-            return filtered_entities[:limit]
+            result = filtered_entities[:limit]
+            self._set_cached(cache_key, result)
+            return result
 
         except Exception as e:
             print(f"[ERROR] Entity sentiment analysis failed: {e}")
@@ -608,12 +754,11 @@ class FirestoreDB:
 
         try:
             import re
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
 
             entity_counts = {}
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
 
                 if start_date or end_date:
                     pub_date_raw = data.get('publication_date')
@@ -676,14 +821,13 @@ class FirestoreDB:
             from collections import defaultdict
 
             # Sample up to 1500 articles to keep response time reasonable
-            articles = self.db.collection('articles').limit(1500).stream()
+            articles = self._get_articles_snapshot()[:1500]
 
             pair_counts = defaultdict(int)
             # Store one article per pair for context (not all)
             pair_example = {}
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 entities = data.get('entities', [])
                 article_id = data.get('id', '')
                 headline = data.get('headline', '')
@@ -815,13 +959,12 @@ class FirestoreDB:
 
         try:
             from collections import defaultdict
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
 
             topic_counts = defaultdict(int)
             total_articles = 0
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 topic = data.get('topic_label', 'Uncategorized')
                 topic_counts[topic] += 1
                 total_articles += 1
@@ -861,12 +1004,11 @@ class FirestoreDB:
             from datetime import datetime
             from collections import defaultdict
 
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
             keyword_lower = keyword.lower()
             time_counts = defaultdict(int)
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date_raw = data.get('publication_date')
                 if not pub_date_raw:
                     continue
@@ -907,12 +1049,11 @@ class FirestoreDB:
             from datetime import datetime
             from collections import defaultdict
 
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
             entity_lower = self._normalize_entity_name(entity_name).lower()
             time_data = defaultdict(lambda: {'count': 0, 'positive': 0, 'negative': 0, 'neutral': 0})
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date_raw = data.get('publication_date')
                 if not pub_date_raw:
                     continue
@@ -969,7 +1110,7 @@ class FirestoreDB:
         try:
             from collections import defaultdict
 
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
             entity_data = {name: {
                 'total_mentions': 0,
                 'positive': 0,
@@ -981,8 +1122,7 @@ class FirestoreDB:
 
             normalized_entities = {self._normalize_entity_name(name).lower(): name for name in entity_names}
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date_raw = data.get('publication_date')
                 if not pub_date_raw:
                     continue
@@ -1043,11 +1183,10 @@ class FirestoreDB:
             from datetime import datetime
             from collections import defaultdict
 
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
             time_topics = defaultdict(lambda: defaultdict(int))
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date_raw = data.get('publication_date')
                 if not pub_date_raw:
                     continue
@@ -1091,7 +1230,7 @@ class FirestoreDB:
         try:
             from collections import defaultdict
 
-            articles = self.db.collection('articles').stream()
+            articles = self._get_articles_snapshot()
             location_data = defaultdict(lambda: {
                 'count': 0,
                 'topics': defaultdict(int),
@@ -1099,8 +1238,7 @@ class FirestoreDB:
                 'over_time': defaultdict(int)
             })
 
-            for doc in articles:
-                data = doc.to_dict()
+            for data in articles:
                 pub_date_raw = data.get('publication_date')
                 if not pub_date_raw:
                     continue
@@ -1489,11 +1627,19 @@ class FirestoreDB:
 
 
 _db_instance = None
+import threading as _threading
+_db_init_lock = _threading.Lock()
 
 def get_db() -> FirestoreDB:
+    """Process-wide singleton. Lock guards against the parallel-fan-out
+    race where 11 dashboard endpoints each see _db_instance as None and
+    each call firebase_admin.initialize_app() → ValueError 'default app
+    already exists'."""
     global _db_instance
     if _db_instance is None:
-        _db_instance = FirestoreDB()
+        with _db_init_lock:
+            if _db_instance is None:
+                _db_instance = FirestoreDB()
     return _db_instance
 
 

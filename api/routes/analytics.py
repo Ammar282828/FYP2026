@@ -48,10 +48,9 @@ def count_articles():
     # counts how many articles are in the database
     try:
         db = get_db()
-        count = 0
-        for _ in db.db.collection('articles').stream():
-            count += 1
-        return {"total_articles": count}
+        # Uses cached count when available; otherwise reads from the
+        # warm snapshot if present, falling back to a metadata-only stream.
+        return {"total_articles": db.get_article_count()}
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
 
@@ -425,13 +424,12 @@ def word_count_distribution():
     """Returns article counts bucketed by word count ranges."""
     def _compute():
         db = get_db()
-        articles = db.db.collection('articles').stream()
+        articles = db._get_articles_snapshot()
         buckets = {"0-100": 0, "100-300": 0, "300-500": 0, "500-1000": 0,
                    "1000-2000": 0, "2000-5000": 0, "5000+": 0}
         total_words = 0
         count = 0
-        for doc in articles:
-            data = doc.to_dict()
+        for data in articles:
             wc = data.get('word_count', 0) or 0
             total_words += wc
             count += 1
@@ -455,10 +453,9 @@ def page_distribution():
     """Returns article counts grouped by page number."""
     def _compute():
         db = get_db()
-        articles = db.db.collection('articles').stream()
+        articles = db._get_articles_snapshot()
         pages: dict = {}
-        for doc in articles:
-            data = doc.to_dict()
+        for data in articles:
             page = data.get('page_number') or data.get('page') or 'Unknown'
             page_str = str(page)
             pages[page_str] = pages.get(page_str, 0) + 1
@@ -478,10 +475,9 @@ def source_distribution():
     """Returns article counts and sentiment breakdown per newspaper source."""
     def _compute():
         db = get_db()
-        articles = db.db.collection('articles').stream()
+        articles = db._get_articles_snapshot()
         sources: dict = {}
-        for doc in articles:
-            data = doc.to_dict()
+        for data in articles:
             source = data.get('source') or data.get('newspaper') or 'Unknown'
             if source not in sources:
                 sources[source] = {"count": 0, "positive": 0, "neutral": 0, "negative": 0}
@@ -522,13 +518,14 @@ def generate_date_range_summary(request: dict):
         
         print(f"[AI-SUMMARY] Date range: {start_date_str} to {end_date_str}")
         
-        # Query all articles (Firestore doesn't like range queries on publication_date)
+        # Query all articles (Firestore doesn't like range queries on publication_date).
+        # Uses the shared in-memory snapshot so we don't re-stream the whole
+        # collection for every AI-summary request.
         db = get_firestore_db()
-        all_docs = db.db.collection('articles').stream()
-        
+        all_articles = db._get_articles_snapshot()
+
         articles = []
-        for doc in all_docs:
-            data = doc.to_dict()
+        for data in all_articles:
             pub_date = data.get('publication_date')
             
             # Filter by date range in Python

@@ -32,6 +32,8 @@ elasticsearch_data/
 # Analytics cache
 .analytics_cache.json
 .analytics_cache.json.tmp
+.articles_snapshot.json
+.articles_snapshot.json.tmp
 backup.sql
 
 # Logs
