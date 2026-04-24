@@ -10,11 +10,10 @@ import json
 import os
 import google.generativeai as genai
 from collections import Counter
+from services.gemini_adapter import create_model as _create_gemini_model
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-else:
+if not GEMINI_API_KEY:
     print("[WARNING] GEMINI_API_KEY not set — topic classification endpoints will be unavailable")
 
 
@@ -143,7 +142,7 @@ Respond with ONLY valid JSON array:
 [{{"article_index": 0, "topic_id": <number>}}, ...]"""
 
             try:
-                model = genai.GenerativeModel('gemini-2.0-flash')
+                model = _create_gemini_model(GEMINI_API_KEY, 'gemini-2.5-flash')
                 response = model.generate_content(prompt)
                 raw = response.text.strip() if response.parts else ""
 
@@ -501,7 +500,7 @@ def get_topic_summary(topic_id: int):
         for i, h in enumerate(sample_headlines, 1):
             context += f"{i}. {h}\n"
 
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = _create_gemini_model(GEMINI_API_KEY, 'gemini-2.5-flash')
         prompt = f"""You are analyzing newspaper articles from Dawn (1990-1992) grouped under the same topic.
 
 {context}

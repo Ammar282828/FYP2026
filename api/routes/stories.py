@@ -19,6 +19,10 @@ try:
     import google.generativeai as genai
 except ImportError:
     genai = None
+try:
+    from services.gemini_adapter import create_model as _create_gemini_model
+except ImportError:
+    _create_gemini_model = None
 
 router = APIRouter(prefix="/api/stories", tags=["stories"])
 
@@ -203,8 +207,7 @@ def _generate_narrative_background(story_id: str, gemini_key: str):
 
         prompt = _build_narrative_prompt(story, articles)
 
-        genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
         response = model.generate_content(prompt)
         narrative = response.text.strip()
 

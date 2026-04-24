@@ -355,9 +355,9 @@ def search_newspapers(
 def summarize_newspaper_page(newspaper_id: str):
     """Generate an AI summary of all articles on this newspaper page."""
     try:
-        import google.generativeai as genai
+        from services.gemini_adapter import create_model as _create_gemini_model
     except ImportError:
-        raise HTTPException(500, "google-generativeai package not installed")
+        raise HTTPException(500, "Gemini adapter not available")
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     if not gemini_key:
@@ -401,8 +401,7 @@ Write in clear, flowing prose. Do not use bullet points.
 
 Summary:"""
 
-        genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
         response = model.generate_content(prompt)
         summary = response.text.strip()
 
@@ -410,7 +409,7 @@ Summary:"""
             "newspaper_id": newspaper_id,
             "summary": summary,
             "article_count": len(articles),
-            "model": "gemini-1.5-flash",
+            "model": "gemini-2.5-flash",
         }
     except HTTPException:
         raise

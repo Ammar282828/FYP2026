@@ -22,6 +22,11 @@ except ImportError as e:
     GENAI_AVAILABLE = False
     print(f"Warning: Google Generative AI or PIL not available: {e}")
 
+try:
+    from services.gemini_adapter import create_model as _create_gemini_model
+except ImportError:
+    _create_gemini_model = None
+
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 # ── Crop-quality helpers ─────────────────────────────────────────────────────
@@ -129,8 +134,6 @@ async def analyze_ad_image(request: dict):
         if not gemini_key:
             raise HTTPException(500, "GEMINI_API_KEY not configured")
 
-        genai.configure(api_key=gemini_key)
-
         # Load and convert image to RGB if needed
         img = Image.open(file_path)
         
@@ -200,16 +203,10 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact structure:
 
 Be thorough and specific. Return ONLY the JSON object, nothing else."""
 
-        # Configure model with generation settings
-        generation_config = genai.types.GenerationConfig(
-            temperature=0.2,
-        )
-        
-        model = genai.GenerativeModel(
-            'gemini-3-pro-preview',
-            generation_config=generation_config
-        )
-        
+        # Use the adapter so AQ.* (Vertex) keys also work; model name
+        # is normalized to a real Vertex/Gemini model.
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
+
         response = model.generate_content([prompt, img])
 
         analysis_text = response.text.strip()
@@ -328,8 +325,6 @@ async def analyze_newspaper_ads(newspaper_id: str):
         if not gemini_key:
             raise HTTPException(500, "GEMINI_API_KEY not configured")
 
-        genai.configure(api_key=gemini_key)
-
         # Download the newspaper image
         response = requests.get(image_url)
         if response.status_code != 200:
@@ -346,8 +341,8 @@ async def analyze_newspaper_ads(newspaper_id: str):
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
 
-        # Step 1: Use Gemini to identify ad locations
-        model = genai.GenerativeModel('gemini-3-pro-preview')
+        # Step 1: Use Gemini to identify ad locations (Vertex-aware adapter)
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
 
         detection_prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
 
@@ -651,8 +646,8 @@ async def analyze_image_ads(request: dict):
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
 
-        # Step 1: Use Gemini to identify ad locations
-        model = genai.GenerativeModel('gemini-3-pro-preview')
+        # Step 1: Use Gemini to identify ad locations (Vertex-aware adapter)
+        model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
 
         detection_prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
 

@@ -9,11 +9,10 @@ from database.firestore_db import get_db, get_firestore_db
 import os
 import google.generativeai as genai
 from collections import Counter
+from services.gemini_adapter import create_model as _create_gemini_model
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-else:
+if not GEMINI_API_KEY:
     print("[WARNING] GEMINI_API_KEY not set — AI-powered analytics endpoints will be unavailable")
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -582,8 +581,8 @@ def generate_date_range_summary(request: dict):
             context += f"{i}. {a.get('headline', 'Untitled')}\n"
         
         print("[AI-SUMMARY] Calling Gemini...")
-        # Generate summary with Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        # Generate summary with Gemini (auto-detects key type)
+        model = _create_gemini_model(GEMINI_API_KEY, 'gemini-2.5-flash')
         
         prompt = f"""You are analyzing newspaper articles from {start_date_str} to {end_date_str}.
 
