@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { Calendar, FileText, Newspaper } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useToast } from './ui/Toast';
+import EmptyState from './ui/EmptyState';
 
 interface Article {
   id: string;
@@ -225,11 +227,11 @@ const ArticleComparison: React.FC<Props> = ({ initialLeftId, initialRightId, onC
         </div>
 
         {!article && !id && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)' }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>📰</div>
-            <div>No article selected</div>
-            <div style={{ fontSize: 12, marginTop: 6 }}>Click "Pick article" above</div>
-          </div>
+          <EmptyState
+            icon={<Newspaper size={28} strokeWidth={1.5} />}
+            title="No article selected"
+            description='Pick an article from the list above to compare it side-by-side with another.'
+          />
         )}
         {id && !article && <div style={{ padding: 20 }}>Loading…</div>}
 
@@ -237,8 +239,8 @@ const ArticleComparison: React.FC<Props> = ({ initialLeftId, initialRightId, onC
           <>
             <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.3 }}>{article.headline}</h3>
             <div style={metaRow}>
-              <span>📅 {formatDate(article.publication_date)}</span>
-              {article.word_count != null && <span>📝 {article.word_count} words</span>}
+              <span><Calendar size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: 4 }} />{formatDate(article.publication_date)}</span>
+              {article.word_count != null && <span><FileText size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: 4 }} />{article.word_count} words</span>}
               {article.topic_label && <span style={badge('var(--accent-color, #6366f1)')}>{article.topic_label}</span>}
               {article.sentiment_label && (
                 <span style={badge(sentimentColor(article.sentiment_label))}>

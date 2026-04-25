@@ -4,18 +4,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, PieChart, Pie, Legend,
 } from 'recharts';
+import { Lightbulb } from 'lucide-react';
 import { API_BASE } from '../config';
 import { chartColors, categoricalPalette, colorForSentiment, colorForKey } from '../theme/chartColors';
 import './AdBrowserTab.css';
 
-// Common Recharts tooltip styling — matches the rest of the dashboard
-// (EnhancedAnalytics uses this exact contentStyle on every chart).
-const TOOLTIP_STYLE = {
-  background: 'var(--bg-primary)',
-  border: '1px solid var(--border-color)',
-  borderRadius: '6px',
-  fontSize: '12px',
-};
+import { TOOLTIP_STYLE } from '../theme/chartTheme';
 
 interface Advertisement {
   id: string;
@@ -581,7 +575,10 @@ const AdBrowserTab: React.FC = () => {
                   <strong>Key Insights:</strong>
                   <ul className="insights-list">
                     {assess.keyInsights.map((s: string, i: number) => (
-                      <li key={i} className="insight-item">💡 {s}</li>
+                      <li key={i} className="insight-item">
+                        <Lightbulb size={14} strokeWidth={1.75} className="insight-item__icon" />
+                        <span>{s}</span>
+                      </li>
                     ))}
                   </ul>
                 </div>

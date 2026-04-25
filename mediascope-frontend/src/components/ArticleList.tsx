@@ -1,10 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { Newspaper, Rows3, AlignJustify } from 'lucide-react';
 import { API_BASE } from '../config';
 import BookmarkButton from './BookmarkButton';
 import { useToast } from './ui/Toast';
 import EmptyState from './ui/EmptyState';
+
+// Persist density across mounts. localStorage is the only place where
+// "comfortable vs compact" preference makes sense; per-component state
+// would reset every search.
+const DENSITY_KEY = 'mediascope:articleList:density';
+type Density = 'comfortable' | 'compact';
+function readDensity(): Density {
+  if (typeof window === 'undefined') return 'comfortable';
+  const v = window.localStorage.getItem(DENSITY_KEY);
+  return v === 'compact' ? 'compact' : 'comfortable';
+}
 
 // Removed - using config
 
@@ -58,6 +70,12 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted, h
   const navigate = useNavigate();
   const { toast } = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [density, setDensity] = useState<Density>(readDensity);
+
+  const setAndPersistDensity = (d: Density) => {
+    setDensity(d);
+    try { window.localStorage.setItem(DENSITY_KEY, d); } catch { /* ignore */ }
+  };
 
   const handleDelete = async (articleId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent navigation when clicking delete
@@ -120,18 +138,43 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted, h
   if (!articles || articles.length === 0) {
     return (
       <EmptyState
-        icon={'\uD83D\uDCF0'}
-        title="No articles to show"
-        description="Try a different keyword, widen your date range, or clear active filters to see more results."
+        icon={<Newspaper size={28} strokeWidth={1.5} />}
+        title="No articles in this slice of the archive"
+        description="Try a different keyword, widen the date range, or clear active filters to see more results."
       />
     );
   }
 
   return (
-    <div className="article-list">
+    <div className={`article-list article-list--${density}`}>
+      <div className="article-list__toolbar">
+        <span className="article-list__count">
+          {articles.length.toLocaleString()} article{articles.length === 1 ? '' : 's'}
+        </span>
+        <div className="btn-group" role="group" aria-label="List density">
+          <button
+            type="button"
+            className="btn btn--sm"
+            aria-pressed={density === 'comfortable'}
+            onClick={() => setAndPersistDensity('comfortable')}
+            title="Comfortable spacing"
+          >
+            <Rows3 size={14} />
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm"
+            aria-pressed={density === 'compact'}
+            onClick={() => setAndPersistDensity('compact')}
+            title="Compact spacing"
+          >
+            <AlignJustify size={14} />
+          </button>
+        </div>
+      </div>
       {articles.map((article) => (
-        <div 
-          key={article.id} 
+        <div
+          key={article.id}
           className="article-card"
           onClick={() => navigate(`/article/${article.id}`)}
           style={{ cursor: 'pointer' }}

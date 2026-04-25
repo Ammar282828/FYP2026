@@ -28,6 +28,25 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
 
+  /* Spacing scale on a 4px base. Use these everywhere instead of
+     scattering raw px values across inline `style={}` props. */
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.5rem;   /* 24px */
+  --space-6: 2rem;     /* 32px */
+  --space-8: 3rem;     /* 48px */
+
+  /* Type scale. Body element keeps the 16px rem baseline. */
+  --font-size-xs: 0.6875rem;   /* 11px */
+  --font-size-sm: 0.8125rem;   /* 13px */
+  --font-size-base: 0.9375rem; /* 15px */
+  --font-size-md: 1rem;        /* 16px */
+  --font-size-lg: 1.125rem;    /* 18px */
+  --font-size-xl: 1.375rem;    /* 22px */
+  --font-size-2xl: 1.75rem;    /* 28px */
+
   --chart-grid: #f3f4f6;
   --positive: #10b981;
   --negative: #ef4444;
@@ -2692,4 +2711,167 @@ textarea {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+/* ── Dashboard Home — editorial layout (replaces TailwindUI-style hero) ── */
+
+.dash-hero {
+  margin-bottom: var(--space-5);
+  padding: var(--space-2) 0;
+}
+.dash-hero__eyebrow {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.dash-hero__title {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2) 0;
+}
+.dash-hero__date {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+.dash-hero__subtitle {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  max-width: 64ch;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* Search bar with inset icon. Replaces the prior huge button row. */
+.dash-search-form {
+  position: relative;
+}
+.dash-search-icon {
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.dash-search-form .dash-search-input {
+  padding-left: 2.5rem;
+}
+
+/* On-this-day list — dense rows, NOT a card grid. */
+.dash-otd-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.dash-otd-row {
+  display: grid;
+  grid-template-columns: 4rem 1fr auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.dash-otd-row:hover {
+  background: var(--bg-secondary);
+}
+.dash-otd-year {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+.dash-otd-headline {
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  line-height: 1.4;
+  font-weight: 500;
+}
+.dash-otd-sentiment {
+  font-size: 0.5rem;
+  line-height: 1;
+}
+
+/* Stat band — single horizontal row, not a card grid. */
+.dash-statband {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin: var(--space-5) 0;
+  overflow: hidden;
+}
+.dash-statband__item {
+  padding: var(--space-3) var(--space-4);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dash-statband__item:last-child { border-right: none; }
+.dash-statband__num {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.dash-statband__lbl {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+@media (max-width: 700px) {
+  .dash-statband { grid-template-columns: repeat(2, 1fr); }
+  .dash-statband__item:nth-child(2) { border-right: none; }
+  .dash-statband__item:nth-child(1),
+  .dash-statband__item:nth-child(2) { border-bottom: 1px solid var(--border-subtle); }
+}
+
+/* Quiet quick-nav row — replaces the 3 big CTA cards with emoji. */
+.dash-quicknav {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.dash-quicknav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dash-quicknav__item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+.dash-quicknav__item svg {
+  color: var(--text-tertiary);
+  transition: color 0.15s;
+}
+.dash-quicknav__item:hover svg {
+  color: var(--primary-color);
 }

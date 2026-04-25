@@ -632,7 +632,7 @@ const ArticleDetailPage: React.FC = () => {
             {/* Story Context Panel */}
             {storyId && (
               <div className="related-articles-section">
-                <h3>📰 Ongoing Coverage</h3>
+                <h3>Ongoing coverage</h3>
                 {storyTitle && (
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', fontStyle: 'italic' }}>
                     {storyTitle}

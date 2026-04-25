@@ -98,8 +98,6 @@ const TopEntitiesPanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityType, startDate, endDate]);
 
-  const getEntityIcon = (_type: string) => '';
-
   const getEntityColor = (type: string) => {
     switch(type) {
       case 'PERSON': return '#667eea';
@@ -112,10 +110,13 @@ const TopEntitiesPanel: React.FC = () => {
 
   return (
     <div className="top-entities-panel">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0 }}>Top Entities</h3>
-        <select value={entityType} onChange={(e) => setEntityType(e.target.value)}
-                style={{ padding: '4px 8px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '4px' }}>
+      <div className="entity-toolbar">
+        <h3 className="section-title" style={{ margin: 0 }}>Top entities</h3>
+        <select
+          value={entityType}
+          onChange={(e) => setEntityType(e.target.value)}
+          className="entity-type-select"
+        >
           <option value="">All Types</option>
           <option value="PERSON">People</option>
           <option value="ORG">Organizations</option>
@@ -128,44 +129,41 @@ const TopEntitiesPanel: React.FC = () => {
           onChange={(f, t) => { setStartDate(f); setEndDate(t); }}
           compact
         />
-        <button onClick={loadTopEntities}
-                style={{ padding: '4px 12px', fontSize: '13px', background: 'var(--primary-color)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+        <button onClick={loadTopEntities} className="btn btn--primary btn--sm">
           Refresh
         </button>
       </div>
 
       {loading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
+        <div className="entity-grid">
           {Array.from({ length: 12 }).map((_, i) => (
             <Skeleton key={i} height="56px" borderRadius="4px" />
           ))}
         </div>
       ) : error ? (
-        <EmptyState icon="!" title="Couldn't load entities" description={error} action={{ label: 'Retry', onClick: loadTopEntities }} />
+        <EmptyState
+          title="Couldn't load entities"
+          description={error}
+          action={{ label: 'Retry', onClick: loadTopEntities }}
+        />
       ) : entities.length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
+        <div className="entity-grid">
           {entities.map((entity, idx) => (
-            <div key={idx} style={{
-              padding: '8px',
-              border: '1px solid var(--border-color)',
-              borderLeft: `3px solid ${getEntityColor(entity.type)}`,
-              borderRadius: '4px',
-              fontSize: '13px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
-                <span style={{ fontSize: '14px' }}>{getEntityIcon(entity.type)}</span>
-                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>#{idx + 1}</span>
-              </div>
-              <div style={{ fontWeight: '600', fontSize: '16px', color: getEntityColor(entity.type), marginBottom: '2px' }}>
+            <div
+              key={idx}
+              className="entity-card"
+              style={{ borderLeftColor: getEntityColor(entity.type) }}
+            >
+              <div className="entity-card__rank">#{idx + 1}</div>
+              <div className="entity-card__count" style={{ color: getEntityColor(entity.type) }}>
                 {entity.count.toLocaleString()}
               </div>
-              <div style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text-primary)' }}>{entity.text}</div>
+              <div className="entity-card__text">{entity.text}</div>
             </div>
           ))}
         </div>
       ) : (
         <EmptyState
-          icon=""
           title="No entities in this range"
           description="Try widening the date range or switching the entity type filter."
         />

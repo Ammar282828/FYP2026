@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { Package, Palette, Target, Users, Clock, BarChart, FileText, Lightbulb } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useToast } from './ui/Toast';
 import './AdBrowserTab.css'; // Reuse the beautiful styles
@@ -38,7 +39,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Brand Info Card */}
         {analysisData.brand && (
           <div className="insight-card brand-card">
-            <h3 className="card-title">📦 Brand & Product</h3>
+            <h3 className="card-title"><Package size={16} strokeWidth={1.75} /> Brand &amp; Product</h3>
             <div className="card-content">
               <div className="brand-info">
                 <div className="brand-name">{analysisData.brand.name}</div>
@@ -52,7 +53,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Visual Analysis Card */}
         {analysisData.visualAnalysis && (
           <div className="insight-card visual-card">
-            <h3 className="card-title">🎨 Visual Analysis</h3>
+            <h3 className="card-title"><Palette size={16} strokeWidth={1.75} /> Visual Analysis</h3>
             <div className="card-content">
               <div className="visual-grid">
                 <div className="visual-item">
@@ -79,7 +80,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Strategy Card */}
         {analysisData.advertisingStrategy && (
           <div className="insight-card strategy-card">
-            <h3 className="card-title">🎯 Advertising Strategy</h3>
+            <h3 className="card-title"><Target size={16} strokeWidth={1.75} /> Advertising Strategy</h3>
             <div className="card-content">
               <div className="strategy-item highlight">
                 <strong>Main Message:</strong>
@@ -110,7 +111,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Target Audience Card */}
         {analysisData.targetAudience && (
           <div className="insight-card audience-card">
-            <h3 className="card-title">👥 Target Audience</h3>
+            <h3 className="card-title"><Users size={16} strokeWidth={1.75} /> Target Audience</h3>
             <div className="card-content">
               <div className="audience-item">
                 <span className="audience-label">Demographics:</span>
@@ -127,7 +128,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Cultural Context Card */}
         {analysisData.culturalContext && (
           <div className="insight-card cultural-card">
-            <h3 className="card-title">🕰️ Cultural Context</h3>
+            <h3 className="card-title"><Clock size={16} strokeWidth={1.75} /> Cultural Context</h3>
             <div className="card-content">
               <div className="cultural-item">
                 <strong>Time Period:</strong> <span className="period-badge">{analysisData.culturalContext.timePeriod}</span>
@@ -149,7 +150,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Assessment Card */}
         {analysisData.assessment && (
           <div className="insight-card assessment-card">
-            <h3 className="card-title">📊 Overall Assessment</h3>
+            <h3 className="card-title"><BarChart size={16} strokeWidth={1.75} /> Overall Assessment</h3>
             <div className="card-content">
               <div className="assessment-header">
                 <span className={`sentiment-badge sentiment-${analysisData.assessment.sentiment?.toLowerCase()}`}>
@@ -165,7 +166,10 @@ const ImageAnalysisTab: React.FC = () => {
                   <strong>Key Insights:</strong>
                   <ul className="insights-list">
                     {analysisData.assessment.keyInsights.map((insight: string, idx: number) => (
-                      <li key={idx} className="insight-item">💡 {insight}</li>
+                      <li key={idx} className="insight-item">
+                        <Lightbulb size={14} strokeWidth={1.75} className="insight-item__icon" />
+                        <span>{insight}</span>
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -177,7 +181,7 @@ const ImageAnalysisTab: React.FC = () => {
         {/* Text Content (Collapsible) */}
         {analysisData.textContent && (
           <details className="insight-card text-card">
-            <summary className="card-title">📝 Detected Text Content</summary>
+            <summary className="card-title"><FileText size={16} strokeWidth={1.75} /> Detected Text Content</summary>
             <div className="card-content">
               {analysisData.textContent.headlines?.length > 0 && (
                 <div className="text-section">

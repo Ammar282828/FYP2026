@@ -8,7 +8,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, LineChart, Line
 } from 'recharts';
 import ChartExportButton from './ChartExportButton';
-import { Skeleton, SkeletonChart } from './ui/Skeleton';
+import { SkeletonChart } from './ui/Skeleton';
 import EmptyStatePrim from './ui/EmptyState';
 import { chartColors } from '../theme/chartColors';
 import { entityInfo } from '../data/entityTypes';
@@ -34,52 +34,34 @@ export const AnalyticsSummary: React.FC = () => {
   });
 
   if (loading) return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem',
-      padding: '0.85rem 1rem', background: 'var(--bg-primary)',
-      border: '1px solid var(--border-color)', borderRadius: '8px', marginBottom: '1rem',
-    }}>
-      <Skeleton height="2.5rem" />
-      <Skeleton height="2.5rem" />
-      <Skeleton height="2.5rem" />
+    <div className="stat-grid" style={{ marginBottom: 'var(--space-4)' }}>
+      <div className="skeleton skeleton-stat" />
+      <div className="skeleton skeleton-stat" />
+      <div className="skeleton skeleton-stat" />
     </div>
   );
   if (!stats) return null;
 
-  // Card chrome matches the other analytics-card widgets so the summary row
-  // doesn't visually float above a different design language.
   const sentNum = parseFloat(stats.avgSentiment);
   const sentColor = sentNum > 0.1 ? chartColors.positive : sentNum < -0.1 ? chartColors.negative : chartColors.neutral;
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-      gap: '1rem',
-      padding: '0.85rem 1rem',
-      background: 'var(--bg-primary)',
-      border: '1px solid var(--border-color)',
-      borderRadius: '8px',
-      marginBottom: '1rem',
-      fontSize: '14px',
-    }}>
-      <div>
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Total Articles</div>
-        <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-          {stats.totalArticles.toLocaleString()}
-        </div>
+    <div className="stat-grid" style={{ marginBottom: 'var(--space-4)' }}>
+      <div className="stat-card stat-card--accent">
+        <span className="stat-label">Total Articles</span>
+        <span className="stat-value">{stats.totalArticles.toLocaleString()}</span>
       </div>
-      <div>
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Coverage Period</div>
-        <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+      <div className="stat-card">
+        <span className="stat-label">Coverage Period</span>
+        <span className="stat-value" style={{ fontSize: 'var(--font-size-md)' }}>
           {stats.dateRange}
-        </div>
+        </span>
       </div>
-      <div>
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Overall Sentiment</div>
-        <div style={{ fontSize: '20px', fontWeight: 700, color: sentColor, marginTop: 2 }}>
+      <div className="stat-card">
+        <span className="stat-label">Overall Sentiment</span>
+        <span className="stat-value" style={{ color: sentColor }}>
           {sentNum > 0 ? '+' : ''}{stats.avgSentiment}
-        </div>
+        </span>
       </div>
     </div>
   );

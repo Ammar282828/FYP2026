@@ -1,56 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { API_BASE } from '../config';
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
-} from 'recharts';
+  User, Building2, Globe, Flag, Map, Calendar, CalendarDays,
+  Pin, Sparkles, BarChart as BarChartIcon, Tag,
+  type LucideIcon,
+} from 'lucide-react';
+import { API_BASE } from '../config';
 
-// Entity type labels with descriptions
-const ENTITY_TYPE_INFO: Record<string, { label: string; description: string; icon: string; color: string }> = {
-  'PERSON': { 
-    label: 'People', 
-    description: 'Individuals, historical figures, politicians, celebrities',
-    icon: '👤',
-    color: '#3b82f6'
-  },
-  'ORG': { 
-    label: 'Organizations', 
-    description: 'Companies, government bodies, institutions, political parties',
-    icon: '🏢',
-    color: '#8b5cf6'
-  },
-  'GPE': { 
-    label: 'Locations (Geo-Political)', 
-    description: 'Cities, countries, states, regions with governments',
-    icon: '🌍',
-    color: '#10b981'
-  },
-  'NORP': { 
-    label: 'Nationalities & Groups', 
-    description: 'Nationalities, religious groups, political affiliations',
-    icon: '🏳️',
-    color: '#f59e0b'
-  },
-  'LOC': { 
-    label: 'Locations (Geographic)', 
-    description: 'Mountains, rivers, non-political geographic features',
-    icon: '🗺️',
-    color: '#06b6d4'
-  },
-  'EVENT': { 
-    label: 'Events', 
-    description: 'Wars, sports events, conferences, historical events',
-    icon: '📅',
-    color: '#ef4444'
-  },
-  'DATE': { 
-    label: 'Dates', 
-    description: 'Specific dates or time periods',
-    icon: '📆',
-    color: '#6b7280'
-  }
+// Entity type metadata. The Icon field is a Lucide component constructor
+// — render with `<Icon size={16} />`. (Was emoji until we ripped them
+// out — emoji-as-icon is the most obvious AI-generated-UI tell.)
+interface EntityTypeMeta {
+  label: string;
+  description: string;
+  Icon: LucideIcon;
+  color: string;
+}
+
+const ENTITY_TYPE_INFO: Record<string, EntityTypeMeta> = {
+  PERSON: { label: 'People',                   description: 'Individuals, historical figures, politicians, celebrities',  Icon: User,         color: '#3b82f6' },
+  ORG:    { label: 'Organizations',            description: 'Companies, government bodies, institutions, political parties', Icon: Building2,    color: '#8b5cf6' },
+  GPE:    { label: 'Locations (Geo-Political)', description: 'Cities, countries, states, regions with governments',         Icon: Globe,        color: '#10b981' },
+  NORP:   { label: 'Nationalities & Groups',   description: 'Nationalities, religious groups, political affiliations',     Icon: Flag,         color: '#f59e0b' },
+  LOC:    { label: 'Locations (Geographic)',   description: 'Mountains, rivers, non-political geographic features',        Icon: Map,          color: '#06b6d4' },
+  EVENT:  { label: 'Events',                   description: 'Wars, sports events, conferences, historical events',         Icon: Calendar,     color: '#ef4444' },
+  DATE:   { label: 'Dates',                    description: 'Specific dates or time periods',                              Icon: CalendarDays, color: '#6b7280' },
+};
+
+// Fallback when the entity type isn't in our taxonomy.
+const FALLBACK_ENTITY_META: EntityTypeMeta = {
+  label: 'Other',
+  description: 'Entity type not in the standard taxonomy',
+  Icon: Pin,
+  color: '#6b7280',
+};
+
+const ALL_ENTITIES_META: EntityTypeMeta = {
+  label: 'All Entities',
+  description: 'Browse every entity type at once',
+  Icon: Sparkles,
+  color: '#6b7280',
 };
 
 // Interactive Keyword Component
@@ -92,125 +82,85 @@ export const InteractiveKeywords: React.FC = () => {
     }
   };
 
-  if (loading) return <div style={{ padding: '20px' }}>Loading keywords...</div>;
+  if (loading) return <div className="card"><div className="skeleton skeleton-block" /></div>;
 
   const maxFreq = Math.max(...keywords.map(k => k.frequency));
 
   return (
-    <div style={{
-      background: 'var(--bg-primary)',
-      borderRadius: '12px',
-      padding: '24px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-    }}>
-      <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600' }}>
-        📊 Top Keywords
-      </h3>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>
-        Click any keyword to see articles where it appears
+    <div className="card">
+      <div className="section-header">
+        <div>
+          <div className="section-eyebrow">Frequency</div>
+          <h3 className="section-title">
+            <BarChartIcon size={16} strokeWidth={1.75} style={{ verticalAlign: '-3px', marginRight: 6 }} />
+            Top keywords
+          </h3>
+        </div>
+      </div>
+      <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: '0 0 var(--space-3) 0' }}>
+        Click any keyword to see articles where it appears.
       </p>
 
-      <div style={{ 
-        display: 'flex', 
-        flexWrap: 'wrap', 
-        gap: '12px', 
-        marginBottom: '24px'
-      }}>
+      <div className="kw-cloud">
         {keywords.slice(0, 30).map((kw, idx) => {
-          const size = 12 + (kw.frequency / maxFreq) * 16;
+          const isSelected = selectedKeyword?.keyword === kw.keyword;
+          // Light frequency-driven sizing — clamp to a 2px range so the
+          // cloud doesn't look like a teenager's blog header.
+          const fontPx = 13 + Math.round((kw.frequency / maxFreq) * 4);
           return (
             <button
               key={idx}
               onClick={() => handleKeywordClick(kw)}
-              style={{
-                fontSize: `${size}px`,
-                color: selectedKeyword?.keyword === kw.keyword ? '#ffffff' : 'var(--primary-color)',
-                background: selectedKeyword?.keyword === kw.keyword ? 'var(--primary-color)' : '#eff6ff',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '20px',
-                cursor: 'pointer',
-                fontWeight: 600,
-                transition: 'all 0.2s',
-                boxShadow: selectedKeyword?.keyword === kw.keyword ? '0 2px 8px rgba(59,130,246,0.3)' : 'none'
-              }}
-              onMouseEnter={(e) => {
-                if (selectedKeyword?.keyword !== kw.keyword) {
-                  e.currentTarget.style.background = '#dbeafe';
-                  e.currentTarget.style.transform = 'scale(1.05)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedKeyword?.keyword !== kw.keyword) {
-                  e.currentTarget.style.background = '#eff6ff';
-                  e.currentTarget.style.transform = 'scale(1)';
-                }
-              }}
+              className={`kw-pill${isSelected ? ' kw-pill--selected' : ''}`}
+              style={{ fontSize: `${fontPx}px` }}
             >
-              {kw.keyword} <span style={{ opacity: 0.7, fontSize: '0.8em' }}>({kw.frequency})</span>
+              {kw.keyword}
+              <span className="kw-pill__count">{kw.frequency}</span>
             </button>
           );
         })}
       </div>
 
       {selectedKeyword && (
-        <div style={{
-          borderTop: '2px solid var(--border-color)',
-          paddingTop: '20px'
-        }}>
-          <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600' }}>
-            Articles mentioning "{selectedKeyword.keyword}" ({keywordArticles.length} found)
+        <>
+          <hr className="divider" />
+          <h4 className="section-title" style={{ marginBottom: 'var(--space-2)' }}>
+            Articles mentioning "{selectedKeyword.keyword}"
+            <span style={{ color: 'var(--text-tertiary)', fontWeight: 500 }}> · {keywordArticles.length}</span>
           </h4>
 
           {loadingArticles ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              Loading articles...
+            <div className="stack">
+              <div className="skeleton skeleton-line" />
+              <div className="skeleton skeleton-line" />
+              <div className="skeleton skeleton-line" />
             </div>
           ) : keywordArticles.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto' }}>
+            <ul className="kw-article-list">
               {keywordArticles.map((article) => (
-                <div
+                <li
                   key={article.id}
+                  className="kw-article-row"
                   onClick={() => navigate(`/article/${article.id}`)}
-                  style={{
-                    padding: '16px',
-                    background: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    border: '1px solid var(--border-color)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--bg-tertiary)';
-                    e.currentTarget.style.borderColor = 'var(--primary-color)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'var(--bg-secondary)';
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                  }}
                 >
-                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
-                    {article.headline}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  <div className="kw-article-row__headline">{article.headline}</div>
+                  <div className="kw-article-row__date">
                     {new Date(article.publication_date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
+                      year: 'numeric', month: 'long', day: 'numeric'
                     })}
                   </div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                    {article.content_preview}...
-                  </div>
-                </div>
+                  <div className="kw-article-row__preview">{article.content_preview}…</div>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              No articles found
+            <div className="empty-state">
+              <p className="empty-state__body">
+                No articles indexed under this keyword. Try a different one.
+              </p>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -267,128 +217,93 @@ export const InteractiveEntityExplorer: React.FC = () => {
   };
 
   const entityTypes = ['all', 'PERSON', 'ORG', 'GPE', 'NORP', 'LOC', 'EVENT'];
+  const selectedMeta = selectedEntity
+    ? (ENTITY_TYPE_INFO[selectedEntity.type] || FALLBACK_ENTITY_META)
+    : null;
+  const SelectedIcon = selectedMeta?.Icon ?? Pin;
 
   return (
-    <div style={{
-      background: 'var(--bg-primary)',
-      borderRadius: '12px',
-      padding: '24px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-    }}>
-      <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600' }}>
-        🏷️ Named Entity Explorer
-      </h3>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>
-        Discover people, organizations, and locations mentioned in articles
-      </p>
-
-      {/* Entity Type Selector with Descriptions */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
-          {entityTypes.map((type) => {
-            const info = type === 'all' 
-              ? { label: 'All Entities', icon: '🌟', color: '#6b7280' }
-              : ENTITY_TYPE_INFO[type] || { label: type, icon: '📌', color: '#6b7280' };
-            
-            return (
-              <button
-                key={type}
-                onClick={() => setEntityType(type)}
-                style={{
-                  padding: '10px 16px',
-                  background: entityType === type ? info.color : 'var(--bg-primary)',
-                  color: entityType === type ? 'white' : 'var(--text-primary)',
-                  border: `2px solid ${entityType === type ? info.color : 'var(--border-color)'}`,
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  fontSize: '13px',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <span>{info.icon}</span>
-                {info.label}
-              </button>
-            );
-          })}
+    <div className="card">
+      <div className="section-header">
+        <div>
+          <div className="section-eyebrow">People · places · organisations</div>
+          <h3 className="section-title">
+            <Tag size={16} strokeWidth={1.75} style={{ verticalAlign: '-3px', marginRight: 6 }} />
+            Named entity explorer
+          </h3>
         </div>
-
-        {/* Description for selected type */}
-        {entityType !== 'all' && ENTITY_TYPE_INFO[entityType] && (
-          <div style={{
-            padding: '12px 16px',
-            background: 'var(--bg-secondary)',
-            borderLeft: `4px solid ${ENTITY_TYPE_INFO[entityType].color}`,
-            borderRadius: '6px',
-            fontSize: '13px',
-            color: 'var(--text-secondary)'
-          }}>
-            <strong>{ENTITY_TYPE_INFO[entityType].label}:</strong> {ENTITY_TYPE_INFO[entityType].description}
-          </div>
-        )}
       </div>
 
+      {/* Entity Type Selector */}
+      <div className="ent-type-row">
+        {entityTypes.map((type) => {
+          const meta = type === 'all'
+            ? ALL_ENTITIES_META
+            : (ENTITY_TYPE_INFO[type] || FALLBACK_ENTITY_META);
+          const Icon = meta.Icon;
+          const isActive = entityType === type;
+          return (
+            <button
+              key={type}
+              onClick={() => setEntityType(type)}
+              className={`ent-type-pill${isActive ? ' is-active' : ''}`}
+              style={isActive ? { background: meta.color, borderColor: meta.color, color: '#fff' } : undefined}
+            >
+              <Icon size={14} strokeWidth={2} />
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {entityType !== 'all' && ENTITY_TYPE_INFO[entityType] && (
+        <div
+          className="ent-type-desc"
+          style={{ borderLeftColor: ENTITY_TYPE_INFO[entityType].color }}
+        >
+          <strong>{ENTITY_TYPE_INFO[entityType].label}:</strong>{' '}
+          {ENTITY_TYPE_INFO[entityType].description}
+        </div>
+      )}
+
       {loading ? (
-        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-          Loading entities...
+        <div className="ent-grid">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="skeleton skeleton-block" style={{ height: '5.5rem' }} />
+          ))}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px', marginBottom: '24px' }}>
+        <div className="ent-grid">
           {entities.map((entity, idx) => {
-            const info = ENTITY_TYPE_INFO[entity.type] || { icon: '📌', color: '#6b7280', label: entity.type };
+            const meta = ENTITY_TYPE_INFO[entity.type] || FALLBACK_ENTITY_META;
+            const Icon = meta.Icon;
+            const isSelected = selectedEntity?.text === entity.text;
             return (
               <button
                 key={idx}
                 onClick={() => handleEntityClick(entity)}
-                style={{
-                  padding: '16px',
-                  background: selectedEntity?.text === entity.text ? '#eff6ff' : 'var(--bg-primary)',
-                  border: `2px solid ${selectedEntity?.text === entity.text ? info.color : 'var(--border-color)'}`,
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = info.color;
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedEntity?.text !== entity.text) {
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                  }
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
+                className={`ent-card${isSelected ? ' is-selected' : ''}`}
+                style={{ borderLeftColor: meta.color }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '20px' }}>{info.icon}</span>
-                  <span style={{
-                    fontSize: '11px',
-                    padding: '2px 8px',
-                    background: info.color,
-                    color: 'white',
-                    borderRadius: '4px',
-                    fontWeight: '600'
-                  }}>
-                    {info.label}
+                <div className="ent-card__head">
+                  <Icon size={14} strokeWidth={2} style={{ color: meta.color }} />
+                  <span className="chip" style={{ background: meta.color, color: '#fff' }}>
+                    {meta.label}
                   </span>
                 </div>
-                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
-                  {entity.text || entity.entity}
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {entity.count} mentions
+                <div className="ent-card__name">{entity.text || entity.entity}</div>
+                <div className="ent-card__meta">
+                  {entity.count} mention{entity.count === 1 ? '' : 's'}
                   {entity.avg_sentiment !== undefined && entity.avg_sentiment !== null && (
                     <>
-                      {' • Sentiment: '}
+                      {' · '}
                       <span style={{
-                        color: entity.avg_sentiment > 0.1 ? '#10b981' : entity.avg_sentiment < -0.1 ? '#ef4444' : '#6b7280',
-                        fontWeight: '600'
+                        color: entity.avg_sentiment > 0.1
+                          ? 'var(--positive)'
+                          : entity.avg_sentiment < -0.1
+                            ? 'var(--negative)'
+                            : 'var(--text-tertiary)',
+                        fontWeight: 600,
                       }}>
                         {entity.avg_sentiment > 0 ? '+' : ''}{entity.avg_sentiment.toFixed(2)}
                       </span>
@@ -401,75 +316,51 @@ export const InteractiveEntityExplorer: React.FC = () => {
         </div>
       )}
 
-      {selectedEntity && (
-        <div style={{
-          borderTop: '2px solid var(--border-color)',
-          paddingTop: '20px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-            <span style={{ fontSize: '28px' }}>
-              {ENTITY_TYPE_INFO[selectedEntity.type]?.icon || '📌'}
-            </span>
+      {selectedEntity && selectedMeta && (
+        <>
+          <hr className="divider" />
+          <div className="ent-detail-head">
+            <SelectedIcon size={28} strokeWidth={1.5} style={{ color: selectedMeta.color }} />
             <div>
-              <h4 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '600' }}>
+              <h4 className="section-title" style={{ margin: 0 }}>
                 {selectedEntity.text || selectedEntity.entity}
               </h4>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                {ENTITY_TYPE_INFO[selectedEntity.type]?.label || selectedEntity.type} •
-                {selectedEntity.count} mentions across {entityArticles.length} articles
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+                {selectedMeta.label} · {selectedEntity.count} mentions across {entityArticles.length} articles
               </div>
             </div>
           </div>
-          
+
           {loadingArticles ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              Loading articles...
+            <div className="stack">
+              <div className="skeleton skeleton-line" />
+              <div className="skeleton skeleton-line" />
+              <div className="skeleton skeleton-line" />
             </div>
           ) : entityArticles.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto' }}>
+            <ul className="kw-article-list">
               {entityArticles.map((article) => (
-                <div
+                <li
                   key={article.id}
+                  className="kw-article-row"
                   onClick={() => navigate(`/article/${article.id}`)}
-                  style={{
-                    padding: '16px',
-                    background: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    border: '1px solid var(--border-color)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--bg-tertiary)';
-                    e.currentTarget.style.borderColor = 'var(--primary-color)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'var(--bg-secondary)';
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                  }}
                 >
-                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: 'var(--text-primary)' }}>
-                    {article.headline}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  <div className="kw-article-row__headline">{article.headline}</div>
+                  <div className="kw-article-row__date">
                     {new Date(article.publication_date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
+                      year: 'numeric', month: 'long', day: 'numeric'
                     })}
                   </div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                    {article.content_preview}...
-                  </div>
-                </div>
+                  <div className="kw-article-row__preview">{article.content_preview}…</div>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              No articles found
+            <div className="empty-state">
+              <p className="empty-state__body">No articles found that mention this entity.</p>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );

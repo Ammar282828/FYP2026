@@ -2,7 +2,10 @@ import React from 'react';
 import './ui.css';
 
 interface EmptyStateProps {
-  icon?: string;
+  // Accepts a Lucide icon component, an SVG, or any other ReactNode.
+  // Strings still work for back-compat with callers that pass an emoji,
+  // but new code should pass an icon component (e.g. `<Search size={28} />`).
+  icon?: React.ReactNode;
   title: string;
   description?: string;
   action?: { label: string; onClick: () => void };
