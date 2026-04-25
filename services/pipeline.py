@@ -1234,21 +1234,57 @@ class MediaScopePipeline:
                       f"falling back to per-call disk reads")
                 page_img = None
 
-            if publication_date is None:
+            if page_img is None:
+                # Without page_img we can't share, so fall back to legacy
+                # per-call disk reads inside each helper.
+                page_img = self.image_processor.enhance_image(Image.open(image_path))
+
+            # The three page-level Gemini calls (metadata / detect_ads /
+            # extract_articles) are independent — they all read page_img
+            # and write to disjoint result containers. Run them in parallel
+            # so the wall time collapses from sum(17s + 6s + 227s) to
+            # max(17s, 6s, 227s) ≈ 227s on a typical page. Threads (not
+            # processes) are correct here: each call is network-bound on
+            # the Gemini API, and Python releases the GIL during socket
+            # I/O so true concurrency happens despite the GIL.
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _run_metadata():
+                if publication_date is not None:
+                    fname_meta = self.image_processor.parse_filename_metadata(image_path)
+                    # Page=1 used to be hardcoded here which is part of
+                    # how 95% of the corpus ended up on page 1. Pass
+                    # filename page through (may be None — that's fine).
+                    return {'date': publication_date, 'page': fname_meta['page']}
                 print("Detecting date and page number...")
-                metadata = self.image_processor.extract_metadata(
+                return self.image_processor.extract_metadata(
                     image_path, prepared_image=page_img
                 )
-                pub_date = metadata['date']
-                page_num = metadata['page']
-            else:
-                pub_date = publication_date
-                # Caller passed a date but not a page — try filename parse
-                # before defaulting to None. Page=1 used to be hardcoded
-                # here which is part of how 95% of the corpus ended up on
-                # page 1.
-                fname_meta = self.image_processor.parse_filename_metadata(image_path)
-                page_num = fname_meta['page']  # may be None — that's fine
+
+            def _run_detect():
+                print("Detecting advertisements...")
+                try:
+                    return self.image_processor.detect_ads(page_img)
+                except Exception as e:
+                    print(f"[WARNING] Ad detection failed: {e}")
+                    return []
+
+            def _run_articles():
+                print("Extracting articles...")
+                return self.image_processor.extract_articles(
+                    image_path, prepared_image=page_img
+                )
+
+            with ThreadPoolExecutor(max_workers=3, thread_name_prefix='page') as ex:
+                f_meta = ex.submit(_run_metadata)
+                f_ads = ex.submit(_run_detect)
+                f_arts = ex.submit(_run_articles)
+                metadata = f_meta.result()
+                detected_ads = f_ads.result()
+                articles = f_arts.result()
+
+            pub_date = metadata['date']
+            page_num = metadata['page']
 
             newspaper_id = self.db.insert_newspaper(
                 pub_date=pub_date,
@@ -1258,27 +1294,31 @@ class MediaScopePipeline:
             )
             print(f"[OK] Newspaper record created: {newspaper_id}")
 
-            # Detect and save advertisements
-            print("Detecting advertisements...")
+            # Per-ad analyze_ad_image calls are also independent — fan
+            # them out so a page with N ads costs ~max(per-ad) instead of
+            # sum(per-ad). Cap the pool so a 20-ad page doesn't slam
+            # Gemini all at once and trigger 429s.
             try:
-                if page_img is None:
-                    page_img = self.image_processor.enhance_image(Image.open(image_path))
-                detected_ads = self.image_processor.detect_ads(page_img)
                 ads_saved = 0
-                for ad in detected_ads:
-                    ad['publication_date'] = pub_date
-                    ad['page_number'] = page_num
-                    ad['deep_analysis'] = self.image_processor.analyze_ad_image(ad['image'])
-                    if self.db.insert_ad(newspaper_id, ad):
-                        ads_saved += 1
+                if detected_ads:
+                    with ThreadPoolExecutor(
+                        max_workers=min(4, len(detected_ads)),
+                        thread_name_prefix='ad',
+                    ) as ex:
+                        analyses = list(ex.map(
+                            self.image_processor.analyze_ad_image,
+                            (ad['image'] for ad in detected_ads),
+                        ))
+                    for ad, analysis in zip(detected_ads, analyses):
+                        ad['publication_date'] = pub_date
+                        ad['page_number'] = page_num
+                        ad['deep_analysis'] = analysis
+                        if self.db.insert_ad(newspaper_id, ad):
+                            ads_saved += 1
                 print(f"[OK] Saved {ads_saved}/{len(detected_ads)} ads")
             except Exception as e:
-                print(f"[WARNING] Ad detection skipped: {e}")
+                print(f"[WARNING] Ad save phase failed: {e}")
 
-            print("Extracting articles...")
-            articles = self.image_processor.extract_articles(
-                image_path, prepared_image=page_img
-            )
             print(f"[OK] Found {len(articles)} articles")
             
             articles_processed = 0
