@@ -135,11 +135,26 @@ class _NewspaperImageCache:
             return ('error', 'no image_url on newspaper')
         try:
             import requests
-            from PIL import Image
+            from PIL import Image, ImageOps
             r = requests.get(url, timeout=30)
             r.raise_for_status()
             img = Image.open(io.BytesIO(r.content))
             img.load()  # force decode
+            # CRITICAL: the bbox percentages stored on each ad were generated
+            # against the ROTATED-to-portrait image (services/pipeline.py:1185
+            # calls enhance_image BEFORE detect_ads). But the parent newspaper's
+            # image_url points to the un-rotated landscape original (the raw
+            # file uploaded at pipeline.py:118). Without mirroring that rotation
+            # here, portrait-space percentages get applied to a landscape canvas
+            # and produce crops of the wrong region — typically a horizontal
+            # strip showing the binding/spine. Mirror enhance_image's orientation
+            # pass exactly so coords align.
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            if img.width > img.height:
+                img = img.rotate(90, expand=True)
         except Exception as exc:  # noqa: BLE001
             return ('error', f'download/decode: {exc}')
 

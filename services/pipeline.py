@@ -28,8 +28,18 @@ import google.generativeai as genai
 
 from services.gemini_adapter import create_model as _create_gemini_model, describe_key as _describe_key
 
-import spacy
-from transformers import pipeline
+# spaCy + transformers are heavy and only needed by NLPProcessor (entities,
+# sentiment). Image-only consumers (e.g. scripts/redetect_broken_ads.py
+# which uses ImageProcessor in isolation) shouldn't have to install them.
+# Defer import failures until NLPProcessor is actually constructed.
+try:
+    import spacy  # type: ignore
+except ImportError:
+    spacy = None  # type: ignore
+try:
+    from transformers import pipeline  # type: ignore
+except ImportError:
+    pipeline = None  # type: ignore
 
 from database.firestore_db import get_db as get_firestore_db
 
@@ -375,7 +385,8 @@ class ImageProcessor:
         """Back-compat shim — returns just the date or None."""
         return self.parse_filename_metadata(image_path)['date']
 
-    def extract_metadata(self, image_path: str) -> Dict:
+    def extract_metadata(self, image_path: str,
+                         prepared_image: Optional[Image.Image] = None) -> Dict:
         """Extract publication date + page number from a newspaper scan.
 
         Order of preference (most reliable first):
@@ -403,8 +414,14 @@ class ImageProcessor:
             return {'date': fname['date'], 'page': fname['page'], 'success': True}
 
         try:
-            img = Image.open(image_path)
-            img = img.convert('RGB')  # strip MPO/HEIC/etc so Gemini accepts it
+            # Reuse the caller's pre-loaded + enhanced image when given;
+            # otherwise open from disk and convert (we don't enhance on the
+            # solo path because the legacy caller doesn't expect rotation).
+            if prepared_image is not None:
+                img = prepared_image
+            else:
+                img = Image.open(image_path)
+                img = img.convert('RGB')  # strip MPO/HEIC/etc so Gemini accepts it
 
             prompt = """Extract from this newspaper scan:
 1. Publication date (month, day, year)
@@ -418,7 +435,9 @@ PAGE: [page number]
 
 If a field cannot be read confidently, write UNKNOWN for that field."""
 
-            response = self._generate([prompt, img])
+            # Downscale before sending — saves ~80% of bytes on a 4032px
+            # phone scan with no measured quality drop on masthead OCR.
+            response = self._generate([prompt, self._prepare_for_gemini(img)])
             text = response.text if response.parts else ""
 
             month_match = re.search(r'MONTH:\s*([A-Za-z]+)', text, re.IGNORECASE)
@@ -493,11 +512,50 @@ If a field cannot be read confidently, write UNKNOWN for that field."""
         image = enhancer.enhance(1.1)
 
         return image
-    
-    def extract_articles(self, image_path: str) -> List[Dict]:
+
+    # Cap the long edge of any image we ship to Gemini. Phone scans are
+    # 4032×3024 (≈6-12 MB JPEG) which the Vertex Express endpoint accepts
+    # but punishes us for: payload bandwidth, encode time, and per-call
+    # latency all scale with bytes. metadata_vision proved 1600px is plenty
+    # for masthead OCR, and Gemini's vision tower internally downscales to
+    # roughly the same target anyway — so we lose nothing visible. Crops
+    # for `detect_ads` are still produced from the ORIGINAL image; only the
+    # copy SENT to the model is shrunk. Returns the same image when it's
+    # already under the cap.
+    _GEMINI_LONG_EDGE = 1600
+
+    def _prepare_for_gemini(self, image: Image.Image) -> Image.Image:
         try:
-            img = Image.open(image_path)
-            img = self.enhance_image(img)
+            w, h = image.size
+            long_edge = max(w, h)
+            if long_edge <= self._GEMINI_LONG_EDGE:
+                return image
+            scale = self._GEMINI_LONG_EDGE / long_edge
+            new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+            return image.resize(new_size, Image.LANCZOS)
+        except Exception:
+            # Never let downscale failure block a Gemini call — fall back
+            # to the original image.
+            return image
+    
+    def extract_articles(self, image_path: str,
+                         prepared_image: Optional[Image.Image] = None) -> List[Dict]:
+        try:
+            # Reuse the caller's pre-loaded + enhanced image when given.
+            # Solo path still does the open+enhance dance for backwards
+            # compatibility with test_pipeline_dry_run.py and any
+            # standalone callers — but the orchestrator at
+            # process_single_newspaper now passes `prepared_image` to
+            # avoid re-decoding the JPEG (one less ~6-12MB I/O+decode
+            # per page).
+            if prepared_image is not None:
+                img = prepared_image
+            else:
+                img = Image.open(image_path)
+                img = self.enhance_image(img)
+
+            # Cache the downscaled copy so attempt-1 and attempt-2 share it.
+            gem_img = self._prepare_for_gemini(img)
 
             print(f"  [INFO] Attempting OCR extraction (attempt 1/2)...")
             prompt = """You are an OCR + layout analyzer for a Dawn newspaper page (Pakistan, 1990-1992).
@@ -524,7 +582,7 @@ Rules:
 - Output nothing outside the ARTICLE_START/ARTICLE_END blocks. No explanations, no "Here is..." preamble.
 
 Begin now."""
-            response = self._generate([prompt, img])
+            response = self._generate([prompt, gem_img])
 
             text = ""
             if hasattr(response, 'parts') and response.parts:
@@ -554,7 +612,7 @@ CONTENT: <full body text, preserving paragraphs>
 ARTICLE_END
 
 Skip ads, captions, weather, and classifieds. Output nothing else — no commentary, no preamble."""
-                response = self._generate([retry_prompt, img])
+                response = self._generate([retry_prompt, gem_img])
                 if hasattr(response, 'parts') and response.parts:
                     try:
                         text = response.text
@@ -681,7 +739,7 @@ Skip ads, captions, weather, and classifieds. Output nothing else — no comment
 
 Return ONLY the JSON object, nothing else."""
 
-            response = self._generate([analysis_prompt, ad_image])
+            response = self._generate([analysis_prompt, self._prepare_for_gemini(ad_image)])
             raw = response.text.strip() if response.parts else ""
             if '```json' in raw:
                 raw = raw.split('```json')[1].split('```')[0].strip()
@@ -727,7 +785,11 @@ Respond ONLY in valid JSON:
 - If no commercial advertisements are found, return {"ads": []}
 - Keep coordinates within 0.0-1.0 range"""
 
-            response = self._generate([prompt, image])
+            # Send the downscaled copy to Gemini, but keep `image` (full
+            # resolution) for the actual crop on line below — Gemini
+            # returns 0.0-1.0 percentages so the coord system is
+            # invariant to which size we ship.
+            response = self._generate([prompt, self._prepare_for_gemini(image)])
             text = response.text if response.parts else ""
 
             json_match = re.search(r'\{[\s\S]*\}', text)
@@ -1156,9 +1218,27 @@ class MediaScopePipeline:
         print(f"{'='*70}")
 
         try:
+            # Open + enhance the page ONCE per newspaper. Previously each
+            # of the three Gemini calls (metadata / ads / articles) opened
+            # the file independently and re-applied enhance_image — that's
+            # 3× JPEG decode + 3× rotation + 3× contrast/sharpness on a
+            # 4032×3024 phone scan. Now the decoded RGB Image is shared
+            # across all three calls. The downscale-for-Gemini step
+            # remains per-call inside ImageProcessor (so detect_ads can
+            # still crop the original full-res for ad images).
+            try:
+                page_img = Image.open(image_path)
+                page_img = self.image_processor.enhance_image(page_img)
+            except Exception as e:
+                print(f"[WARNING] Could not open/enhance page image: {e} — "
+                      f"falling back to per-call disk reads")
+                page_img = None
+
             if publication_date is None:
                 print("Detecting date and page number...")
-                metadata = self.image_processor.extract_metadata(image_path)
+                metadata = self.image_processor.extract_metadata(
+                    image_path, prepared_image=page_img
+                )
                 pub_date = metadata['date']
                 page_num = metadata['page']
             else:
@@ -1169,7 +1249,7 @@ class MediaScopePipeline:
                 # page 1.
                 fname_meta = self.image_processor.parse_filename_metadata(image_path)
                 page_num = fname_meta['page']  # may be None — that's fine
-            
+
             newspaper_id = self.db.insert_newspaper(
                 pub_date=pub_date,
                 page_num=page_num,
@@ -1181,8 +1261,8 @@ class MediaScopePipeline:
             # Detect and save advertisements
             print("Detecting advertisements...")
             try:
-                page_img = Image.open(image_path)
-                page_img = self.image_processor.enhance_image(page_img)
+                if page_img is None:
+                    page_img = self.image_processor.enhance_image(Image.open(image_path))
                 detected_ads = self.image_processor.detect_ads(page_img)
                 ads_saved = 0
                 for ad in detected_ads:
@@ -1196,7 +1276,9 @@ class MediaScopePipeline:
                 print(f"[WARNING] Ad detection skipped: {e}")
 
             print("Extracting articles...")
-            articles = self.image_processor.extract_articles(image_path)
+            articles = self.image_processor.extract_articles(
+                image_path, prepared_image=page_img
+            )
             print(f"[OK] Found {len(articles)} articles")
             
             articles_processed = 0

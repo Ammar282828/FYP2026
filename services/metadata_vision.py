@@ -109,8 +109,34 @@ def _load_image(source: Union[str, bytes, "PIL.Image.Image"]):  # type: ignore[n
     return Image.open(source)
 
 
+def _orient_portrait(img):
+    """Apply EXIF orientation + rotate landscape→portrait.
+
+    Mirrors `services/pipeline.py:enhance_image` so this module sees the
+    same coordinate system the rest of the pipeline does. Without this the
+    "top 22%" crop on a sideways landscape phone-scan slices the LEFT edge
+    of the actual page (spine/binding margin) instead of the masthead, and
+    Gemini reports "no date visible" — confirmed in production by every
+    low-conf reasoning string naming "top strip / cropped section / no
+    masthead". Run before `_crop_top`.
+    """
+    from PIL import ImageOps
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    if img.width > img.height:
+        img = img.rotate(90, expand=True)
+    return img
+
+
 def _crop_top(img):
-    """Return the top `_TOP_CROP_FRACTION` of the image, downscaled if huge."""
+    """Return the top `_TOP_CROP_FRACTION` of the image, downscaled if huge.
+
+    Caller must have already oriented the image to portrait via
+    `_orient_portrait` — `_crop_top` operates in image-pixel space and is
+    NOT orientation-aware.
+    """
     w, h = img.size
     crop = img.crop((0, 0, w, max(1, int(h * _TOP_CROP_FRACTION))))
     cw, ch = crop.size
@@ -202,6 +228,9 @@ def extract_metadata_from_image(
         return out
 
     try:
+        # Rotate landscape→portrait FIRST so the top-22% crop captures the
+        # masthead instead of the spine. See _orient_portrait docstring.
+        img = _orient_portrait(img)
         crop = _crop_top(img)
     except Exception as exc:  # noqa: BLE001
         out['reasoning'] = f"crop failed: {exc}"
