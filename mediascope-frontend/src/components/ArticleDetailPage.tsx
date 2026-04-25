@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './ui/Toast';
 import ArticleAnalytics from './ArticleAnalytics';
 import ErrorBoundary from './ui/ErrorBoundary';
+import { recordView } from '../hooks/useViewHistory';
 
 interface ArticleDetail {
   id: number;
@@ -106,7 +107,20 @@ const ArticleDetailPage: React.FC = () => {
     setError(null);
     try {
       const response = await axios.get(`${API_BASE}/articles/${id}/full`);
-      setArticle(response.data.article);
+      const a = response.data.article;
+      setArticle(a);
+      // Stamp into local view history for the Profile > History tab.
+      // Wrapped in try/catch since it's a side-effect we never want to
+      // surface to the article render path.
+      try {
+        recordView({
+          id: String(a.id ?? id),
+          headline: a.headline || 'Untitled',
+          date: a.publication_date,
+          sentiment: a.sentiment_label,
+          topic: a.topic_label,
+        });
+      } catch { /* noop */ }
     } catch (error: any) {
       console.error('Error loading article:', error);
       const errorMsg = error.response?.data?.detail || error.message || 'Failed to load article';

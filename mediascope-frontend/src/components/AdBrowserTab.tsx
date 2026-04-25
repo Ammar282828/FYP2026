@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, PieChart, Pie, Legend,
+} from 'recharts';
 import { API_BASE } from '../config';
+import { chartColors, categoricalPalette, colorForSentiment, colorForKey } from '../theme/chartColors';
 import './AdBrowserTab.css';
+
+// Common Recharts tooltip styling — matches the rest of the dashboard
+// (EnhancedAnalytics uses this exact contentStyle on every chart).
+const TOOLTIP_STYLE = {
+  background: 'var(--bg-primary)',
+  border: '1px solid var(--border-color)',
+  borderRadius: '6px',
+  fontSize: '12px',
+};
 
 interface Advertisement {
   id: string;
@@ -85,16 +99,8 @@ interface AnalyticsData {
   monthly_volume: Record<string, number>;
 }
 
-const BAR_COLORS = [
-  '#667eea', '#4f46e5', '#f5576c', '#f093fb', '#4facfe',
-  '#43e97b', '#fa709a', '#fee140', '#30cfd0', '#a18cd1'
-];
-
-const SENTIMENT_COLORS: Record<string, string> = {
-  positive: 'var(--positive)',
-  neutral:  'var(--neutral-color)',
-  negative: 'var(--negative)'
-};
+// Palette imports come straight from theme/chartColors so any shift in
+// the dashboard's chart language propagates here automatically.
 
 const AdBrowserTab: React.FC = () => {
   const [activeView, setActiveView]       = useState<'browse' | 'analytics'>('browse');
@@ -181,78 +187,115 @@ const AdBrowserTab: React.FC = () => {
     }
   };
 
-  // ── Bar chart helpers ─────────────────────────────────────────────────────
+  // ── Chart helpers (Recharts, matching EnhancedAnalytics conventions) ──────
 
+  /**
+   * Horizontal Recharts bar chart for "name → count" data.
+   *
+   * `colors` is optional; when omitted we cycle through the shared
+   * categoricalPalette so widgets here pick up the same blues/purples/ambers
+   * the rest of the analytics tabs use. When the caller supplies a palette
+   * (e.g. the brand chart uses colorForKey() for stable per-brand colors)
+   * we honour it slot-by-slot.
+   */
   const renderHorizontalBars = (
     data: Record<string, number>,
     maxBars = 12,
-    colors: string[] = BAR_COLORS
+    colors?: string[]
   ) => {
-    const entries = Object.entries(data).slice(0, maxBars);
-    const max = Math.max(...entries.map(([, v]) => v), 1);
-    return (
-      <div className="bar-chart">
-        {entries.map(([label, value], idx) => (
-          <div key={label} className="bar-row">
-            <span className="bar-label" title={label}>{label.replace(/_/g, ' ')}</span>
-            <div className="bar-track">
-              <div
-                className="bar-fill"
-                style={{ width: `${(value / max) * 100}%`, background: colors[idx % colors.length] }}
-              />
-            </div>
-            <span className="bar-count">{value}</span>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderMonthlyChart = (data: Record<string, number>) => {
-    const entries = Object.entries(data);
+    const entries = Object.entries(data)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, maxBars)
+      .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value }));
     if (!entries.length) return <p className="no-data">No data yet.</p>;
-    const max = Math.max(...entries.map(([, v]) => v), 1);
+    // Height scales with row count so 6 rows don't stretch like 20 rows do.
+    const height = Math.max(180, entries.length * 26 + 20);
     return (
-      <div className="monthly-chart">
-        {entries.map(([month, count]) => (
-          <div key={month} className="month-col">
-            <div className="month-bar-wrap">
-              <span className="month-value">{count}</span>
-              <div
-                className="month-bar"
-                style={{ height: `${Math.max((count / max) * 100, 4)}%`, background: 'var(--primary-color)' }}
-                title={`${month}: ${count}`}
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart
+          data={entries}
+          layout="vertical"
+          margin={{ top: 5, right: 24, left: 8, bottom: 5 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+          <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            tick={{ fontSize: 11 }}
+            width={140}
+            interval={0}
+          />
+          <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'var(--bg-secondary)' }} />
+          <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+            {entries.map((_, idx) => (
+              <Cell
+                key={idx}
+                fill={colors ? colors[idx % colors.length] : categoricalPalette[idx % categoricalPalette.length]}
               />
-            </div>
-            <span className="month-label">{month.slice(5)}</span>
-          </div>
-        ))}
-      </div>
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     );
   };
 
-  const renderSentimentBars = (sentiments: Record<string, number>) => {
-    const entries = Object.entries(sentiments);
-    const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+  /** Vertical bar chart for monthly time series — same Recharts pattern as
+   * the "Topic Trends Over Time" stacked bars in EnhancedAnalytics, just a
+   * single series and no stacking. */
+  const renderMonthlyChart = (data: Record<string, number>) => {
+    const entries = Object.entries(data)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, count]) => ({ month: month.slice(2), count })); // YY-MM is enough on x-axis
+    if (!entries.length) return <p className="no-data">No data yet.</p>;
     return (
-      <div className="sentiment-bars">
-        {entries.map(([label, count]) => (
-          <div key={label} className="sentiment-row">
-            <span className="sentiment-label-txt">{label}</span>
-            <div className="sentiment-bar-track">
-              <div
-                className="sentiment-bar-fill"
-                style={{
-                  width: `${(count / total) * 100}%`,
-                  background: SENTIMENT_COLORS[label] || 'var(--text-secondary)'
-                }}
-              />
-            </div>
-            <span className="sentiment-pct">{Math.round((count / total) * 100)}%</span>
-            <span className="sentiment-cnt">({count})</span>
-          </div>
-        ))}
-      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={entries} margin={{ top: 5, right: 16, left: 0, bottom: 30 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis dataKey="month" tick={{ fontSize: 10 }} angle={-40} textAnchor="end" height={50} interval={0} />
+          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'var(--bg-secondary)' }} />
+          <Bar dataKey="count" fill={chartColors.primary} radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  };
+
+  /** Sentiment as a donut-style PieChart, matching the SentimentDistribution
+   * widget in EnhancedAnalytics so the two views look like siblings. */
+  const renderSentimentChart = (sentiments: Record<string, number>) => {
+    const entries = Object.entries(sentiments).map(([name, value]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      value,
+      key: name.toLowerCase(),
+    }));
+    const total = entries.reduce((s, e) => s + e.value, 0);
+    if (!total) return <p className="no-data">No data yet.</p>;
+    return (
+      <ResponsiveContainer width="100%" height={240}>
+        <PieChart>
+          <Pie
+            data={entries}
+            cx="50%"
+            cy="50%"
+            innerRadius={50}
+            outerRadius={85}
+            paddingAngle={2}
+            dataKey="value"
+            label={(e: any) => `${e.name}: ${((e.value / total) * 100).toFixed(0)}%`}
+            labelLine={false}
+          >
+            {entries.map((e, idx) => (
+              <Cell key={idx} fill={colorForSentiment(e.key)} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={TOOLTIP_STYLE}
+            formatter={(v: any, n: any) => [`${v} ads (${((v / total) * 100).toFixed(1)}%)`, n]}
+          />
+          <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
+        </PieChart>
+      </ResponsiveContainer>
     );
   };
 
@@ -298,6 +341,7 @@ const AdBrowserTab: React.FC = () => {
           {/* Category distribution */}
           <div className="analytics-card wide">
             <h3 className="analytics-card-title">Category Distribution</h3>
+            <p className="analytics-card-subtitle">Top product / service categories across all stored ads.</p>
             {Object.keys(analytics.categories).length
               ? renderHorizontalBars(analytics.categories, 15)
               : <p className="no-data">No data yet.</p>}
@@ -306,38 +350,48 @@ const AdBrowserTab: React.FC = () => {
           {/* Sentiment */}
           <div className="analytics-card">
             <h3 className="analytics-card-title">Sentiment Breakdown</h3>
+            <p className="analytics-card-subtitle">Tone Gemini assigned to each ad's copy.</p>
             {Object.keys(analytics.sentiments).length
-              ? renderSentimentBars(analytics.sentiments)
+              ? renderSentimentChart(analytics.sentiments)
               : <p className="no-data">No data yet.</p>}
           </div>
 
           {/* Design styles */}
           <div className="analytics-card">
             <h3 className="analytics-card-title">Design Styles</h3>
+            <p className="analytics-card-subtitle">Visual treatment Gemini tagged for each ad.</p>
             {Object.keys(analytics.design_styles).length
-              ? renderHorizontalBars(analytics.design_styles, 8, ['#4facfe', '#00f2fe', '#43e97b', '#fa709a', '#f59e0b', '#a78bfa', '#34d399', '#f87171'])
+              ? renderHorizontalBars(analytics.design_styles, 8)
               : <p className="no-data">No data yet.</p>}
           </div>
 
           {/* Emotional appeals */}
           <div className="analytics-card">
             <h3 className="analytics-card-title">Emotional Appeals</h3>
+            <p className="analytics-card-subtitle">Persuasion angle the ad leans on.</p>
             {Object.keys(analytics.emotional_appeals).length
-              ? renderHorizontalBars(analytics.emotional_appeals, 8, ['#f093fb', '#f5576c', '#fee140', '#30cfd0', '#667eea', '#fa709a', '#43e97b', '#4f46e5'])
+              ? renderHorizontalBars(analytics.emotional_appeals, 8)
               : <p className="no-data">No data yet.</p>}
           </div>
 
-          {/* Top brands */}
+          {/* Top brands — colored by stable per-key hash so a brand's color
+              stays put across renders even as new brands are added. */}
           <div className="analytics-card wide">
             <h3 className="analytics-card-title">Top Brands</h3>
+            <p className="analytics-card-subtitle">Most-mentioned brands in the ad corpus.</p>
             {Object.keys(analytics.brands).length
-              ? renderHorizontalBars(analytics.brands, 20)
+              ? renderHorizontalBars(
+                  analytics.brands,
+                  20,
+                  Object.keys(analytics.brands).slice(0, 20).map(k => colorForKey(k))
+                )
               : <p className="no-data">No data yet.</p>}
           </div>
 
           {/* Monthly volume */}
           <div className="analytics-card full-width">
             <h3 className="analytics-card-title">Monthly Ad Volume</h3>
+            <p className="analytics-card-subtitle">How many ads we've extracted for each month of the archive.</p>
             {renderMonthlyChart(analytics.monthly_volume)}
           </div>
         </div>

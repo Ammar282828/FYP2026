@@ -162,9 +162,13 @@ def _normalize_model_name(name: str, transport: str) -> str:
     if not name:
         return 'gemini-2.5-flash'
     lower = name.lower()
-    # Legacy/invalid names the pipeline still references
-    if lower in {'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-pro-vision'}:
+    # `gemini-pro-vision` is genuinely retired — keep the redirect.
+    if lower == 'gemini-pro-vision':
         return 'gemini-2.5-pro'
+    # `gemini-3-pro-preview` (and the 3.1 line) are real preview models on
+    # Vertex now — pass them through unchanged so callers actually get the
+    # newer model when they ask for it. Previously this function rewrote
+    # them to gemini-2.5-pro, which silently downgraded every call site.
     # On Vertex Express, gemini-2.0-flash is not always enabled — prefer 2.5-flash.
     if transport == 'vertex' and lower in {'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash'}:
         return 'gemini-2.5-flash'

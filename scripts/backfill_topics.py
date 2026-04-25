@@ -57,6 +57,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from services.topics_gemini import classify_topic_gemini  # noqa: E402
+from scripts._call_timeout import call_with_timeout  # noqa: E402
 
 
 # A label looks "legacy" if it's the BERTopic underscore-keyword style
@@ -116,7 +117,10 @@ def main() -> int:
                    help="print what would change, don't write")
     p.add_argument("--throttle", type=float, default=0.4,
                    help="seconds to sleep between Gemini calls (default 0.4)")
-    p.add_argument("--model", type=str, default="gemini-2.5-flash")
+    p.add_argument("--model", type=str, default="gemini-3.1-pro-preview",
+                   help="Gemini model. 3.1-pro-preview is enabled on the "
+                        "Vertex Express project (europe-west1) as of 2026-04; "
+                        "3-pro-preview 404s. Fallback: gemini-2.5-pro.")
     p.add_argument("--page-size", type=int, default=200,
                    help="Firestore page size while streaming")
     p.add_argument("--resume-force", action="store_true",
@@ -156,10 +160,15 @@ def main() -> int:
             old_label = article.get('topic_label') or 'Uncategorized'
 
             try:
-                result = classify_topic_gemini(combined, model_name=args.model)
-            except Exception as exc:  # noqa: BLE001
+                result = call_with_timeout(
+                    classify_topic_gemini, combined,
+                    model_name=args.model, timeout=60.0,
+                )
+            except Exception as exc:  # noqa: BLE001 (TimeoutError + Gemini errors)
                 errored += 1
                 print(f"  ! {article['_id']}: gemini error: {exc}")
+                if args.throttle:
+                    time.sleep(args.throttle)
                 continue
 
             if result.get('confidence', 0) <= 0:

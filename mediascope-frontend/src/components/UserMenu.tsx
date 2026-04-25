@@ -4,9 +4,13 @@ import { useAuth } from '../contexts/AuthContext';
 interface UserMenuProps {
   onShowBookmarks: () => void;
   onShowAuth: () => void;
+  // Optional — when present the dropdown surfaces a "Profile" entry above
+  // Bookmarks. Older callers that only have one destination can leave it
+  // off and the menu collapses gracefully.
+  onShowProfile?: () => void;
 }
 
-const UserMenu: React.FC<UserMenuProps> = ({ onShowBookmarks, onShowAuth }) => {
+const UserMenu: React.FC<UserMenuProps> = ({ onShowBookmarks, onShowAuth, onShowProfile }) => {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -84,6 +88,11 @@ const UserMenu: React.FC<UserMenuProps> = ({ onShowBookmarks, onShowAuth }) => {
 
           {/* Menu items */}
           <div style={{ padding: '4px 0' }}>
+            {onShowProfile && (
+              <button onClick={() => { onShowProfile(); setOpen(false); }}>
+                {'\u25CB'} Profile
+              </button>
+            )}
             <button onClick={() => { onShowBookmarks(); setOpen(false); }}>
               {'\u2605'} My Bookmarks
               {user.bookmark_count > 0 && (

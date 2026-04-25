@@ -65,7 +65,25 @@ _ROOT = os.path.dirname(_HERE)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from firebase_admin import firestore  # noqa: E402
+
 from services.metadata_vision import extract_metadata_from_image  # noqa: E402
+from scripts._call_timeout import call_with_timeout  # noqa: E402
+
+
+# Terminal-failure markers — once any of these is set on a newspaper, the
+# backfill never re-attempts it. ``image-corrupted`` means the bytes behind
+# ``image_url`` cannot be decoded by PIL (Firebase Storage object is bad);
+# ``vision-exhausted`` means we hit the per-doc attempt cap on low-confidence
+# results and have given up to stop burning Gemini quota on a hopeless doc.
+_TERMINAL_METHOD_MARKERS = frozenset({
+    'gemini-vision',      # success — already scored
+    'image-corrupted',    # PIL cannot decode the stored bytes
+    'vision-exhausted',   # hit _MAX_VISION_ATTEMPTS low-confidence runs
+})
+
+# Cap on low-confidence retries before a doc gets ``vision-exhausted``.
+_MAX_VISION_ATTEMPTS = 3
 
 
 # Phase 1's pass_null_sentinels only iterates the `articles` collection, so
@@ -113,8 +131,14 @@ def _iter_newspapers(db, page_size: int = 200) -> Iterator[dict]:
 
 def _should_skip(newspaper: dict, args) -> Optional[str]:
     """Return a skip-reason string, or None if this newspaper is a candidate."""
-    if not args.resume_force and newspaper.get('metadata_method') == 'gemini-vision':
-        return "already vision-scored"
+    method = newspaper.get('metadata_method')
+    if not args.resume_force and method in _TERMINAL_METHOD_MARKERS:
+        return f"terminal marker: {method}"
+    # Per-doc attempt cap: once a newspaper has produced N consecutive
+    # low-confidence vision results, stop retrying it on every restart.
+    attempts = newspaper.get('metadata_attempt_count') or 0
+    if not args.resume_force and attempts >= _MAX_VISION_ATTEMPTS:
+        return f"attempt cap reached ({attempts})"
     pub = newspaper.get('publication_date')
     # A newspaper is a candidate if its date is missing OR is the legacy
     # 1990-01-01 sentinel (Phase 1 only nulled articles, not newspapers).
@@ -173,7 +197,10 @@ def main() -> int:
                    help="seconds to sleep between vision calls (default 0.4)")
     p.add_argument("--min-confidence", type=float, default=0.5,
                    help="only write if model confidence is >= this (default 0.5)")
-    p.add_argument("--model", type=str, default="gemini-2.5-flash")
+    p.add_argument("--model", type=str, default="gemini-3.1-pro-preview",
+                   help="Gemini model. 3.1-pro-preview is enabled on the "
+                        "Vertex Express project (europe-west1) as of 2026-04; "
+                        "3-pro-preview 404s. Fallback: gemini-2.5-pro.")
     p.add_argument("--page-size", type=int, default=200,
                    help="Firestore page size while streaming")
     p.add_argument("--resume-force", action="store_true",
@@ -211,10 +238,14 @@ def main() -> int:
 
             scored += 1
             try:
-                result = extract_metadata_from_image(
+                # 90s budget — vision calls fetch + decode an image then
+                # round-trip Gemini, so they're naturally slower than text.
+                result = call_with_timeout(
+                    extract_metadata_from_image,
                     n['image_url'], model_name=args.model,
+                    timeout=90.0,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 (TimeoutError + vision errors)
                 errored += 1
                 print(f"  ! {n['_id'][:8]}: vision exception: {exc}")
                 if args.throttle:
@@ -227,9 +258,36 @@ def main() -> int:
 
             if conf < args.min_confidence or (date is None and page is None):
                 low_conf += 1
-                short_reason = (result.get('reasoning') or '')[:80]
-                print(f"  · {n['_id'][:8]}: low conf={conf:.2f} "
-                      f"(date={date} page={page}) — {short_reason}")
+                reasoning = result.get('reasoning') or ''
+                short_reason = reasoning[:80]
+                # Distinguish a permanent storage problem (PIL can't decode
+                # the bytes — the object is corrupt and will never decode)
+                # from a soft "model couldn't read the masthead" failure.
+                # The vision module surfaces decode errors in `reasoning`.
+                is_corrupt = reasoning.startswith('image load failed:')
+                prior_attempts = n.get('metadata_attempt_count') or 0
+                next_attempts = prior_attempts + 1
+                marker_patch: dict = {
+                    'metadata_attempt_count': firestore.Increment(1),
+                    'metadata_last_failure': reasoning[:200],
+                    'metadata_scored_at': datetime.now(timezone.utc).isoformat(),
+                }
+                if is_corrupt:
+                    marker_patch['metadata_method'] = 'image-corrupted'
+                    tag = "[CORRUPT]"
+                elif next_attempts >= _MAX_VISION_ATTEMPTS:
+                    marker_patch['metadata_method'] = 'vision-exhausted'
+                    tag = "[EXHAUST]"
+                else:
+                    tag = "·"
+                print(f"  {tag} {n['_id'][:8]}: low conf={conf:.2f} "
+                      f"(date={date} page={page}) attempts={next_attempts} "
+                      f"— {short_reason}")
+                if not args.dry_run:
+                    try:
+                        n['_ref'].update(marker_patch)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"    ! {n['_id'][:8]}: marker write failed: {exc}")
                 if args.throttle:
                     time.sleep(args.throttle)
                 continue

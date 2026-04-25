@@ -388,66 +388,80 @@ class FirestoreDB:
             return None
 
     def search_articles(self, query: str, limit: int = 50) -> List[Dict]:
-        # Short-circuit if Firestore is already known to be quota-blocked,
-        # so callers don't stack up 5-minute timeouts.
-        if self._is_firestore_blocked():
-            print(f"[SEARCH] Skipped — Firestore in cool-down ({query!r})")
-            return []
+        """Substring search across headline + content, ranked by mentions then recency.
 
-        def _scan():
-            results_with_score = []
-            query_lower = query.lower()
-            all_articles = self.db.collection('articles').stream(timeout=10.0)
-            for doc in all_articles:
-                data = doc.to_dict()
-                headline = data.get('headline', '').lower()
-                content = data.get('content', '').lower()
-                combined_text = headline + ' ' + content
-                if query_lower in combined_text:
-                    mention_count = combined_text.count(query_lower)
-                    created_at = data.get('created_at')
-                    timestamp = created_at.timestamp() if created_at and hasattr(created_at, 'timestamp') else 0
-                    results_with_score.append({
-                        'data': data,
-                        'mentions': mention_count,
-                        'timestamp': timestamp,
-                    })
-            results_with_score.sort(key=lambda x: (x['mentions'], x['timestamp']), reverse=True)
-            return [item['data'] for item in results_with_score[:limit]]
+        Reads from `_get_articles_snapshot()` so we don't stream the entire
+        4k-doc collection over the wire on every search request — the
+        snapshot is shared with all the analytics endpoints and held under
+        a TTL cache.
+        """
+        query_lower = (query or '').lower().strip()
+        if not query_lower:
+            return []
 
         try:
-            return self._run_with_deadline(_scan, deadline_seconds=12, label=f"search_articles({query!r})")
+            articles = self._get_articles_snapshot()
         except Exception as e:
-            print(f"[ERROR] Search failed: {e}")
-            self._maybe_mark_firestore_blocked(e)
+            print(f"[ERROR] search_articles snapshot failed: {e}")
             return []
+
+        results_with_score = []
+        for data in articles:
+            headline = (data.get('headline') or '').lower()
+            content = (data.get('content') or '').lower()
+            combined = headline + ' ' + content
+            if query_lower not in combined:
+                continue
+            mentions = combined.count(query_lower)
+            # Headline matches count more than body matches.
+            if query_lower in headline:
+                mentions += 3
+            ca = data.get('created_at')
+            ts = ca.timestamp() if ca and hasattr(ca, 'timestamp') else 0
+            results_with_score.append((mentions, ts, data))
+
+        results_with_score.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [item[2] for item in results_with_score[:limit]]
 
     def search_by_entity(self, entity_name: str, entity_type: Optional[str] = None, limit: int = 50) -> List[Dict]:
-        if self._is_firestore_blocked():
-            print(f"[ENTITY SEARCH] Skipped — Firestore in cool-down ({entity_name!r})")
-            return []
+        """Find articles whose `entities` list contains a match for `entity_name`.
 
-        def _scan():
-            results = []
-            articles = self.db.collection('articles').limit(300).stream(timeout=10.0)
-            for doc in articles:
-                data = doc.to_dict()
-                entities = data.get('entities', [])
-                for entity in entities:
-                    if entity.get('text', '').lower() == entity_name.lower():
-                        if entity_type is None or entity.get('type') == entity_type:
-                            results.append(data)
-                            break
-                if len(results) >= limit:
-                    break
-            return results
+        Previous version capped at the first 300 docs from Firestore — so
+        common entities like "Karachi" only surfaced a tiny fraction of
+        their actual mentions. Now scans the full cached snapshot and
+        also accepts substring matches (so "Karachi" finds "Karachi,"
+        "Karachi University", etc.).
+        """
+        target = (entity_name or '').lower().strip()
+        if not target:
+            return []
 
         try:
-            return self._run_with_deadline(_scan, deadline_seconds=12, label=f"search_by_entity({entity_name!r})")
+            articles = self._get_articles_snapshot()
         except Exception as e:
-            print(f"[ERROR] Entity search failed: {e}")
-            self._maybe_mark_firestore_blocked(e)
+            print(f"[ERROR] search_by_entity snapshot failed: {e}")
             return []
+
+        results = []
+        for data in articles:
+            entities = data.get('entities') or []
+            if not isinstance(entities, list):
+                continue
+            for entity in entities:
+                if not isinstance(entity, dict):
+                    continue
+                text = (entity.get('text') or '').lower().strip()
+                if not text:
+                    continue
+                # Exact match, or `target` is a whole-word substring of `text`
+                # (so "Karachi" hits "Karachi University" but not "Bukhari").
+                if text == target or target in text.split() or text in target.split():
+                    if entity_type is None or entity.get('type') == entity_type:
+                        results.append(data)
+                        break
+            if len(results) >= limit:
+                break
+        return results
 
     def get_analytics_articles_over_time(self) -> List[Dict]:
         cached = self._get_cached('articles_over_time')

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
@@ -61,7 +61,13 @@ const ArticleComparison: React.FC<Props> = ({ initialLeftId, initialRightId, onC
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Article[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(0);
   const [pickerSide, setPickerSide] = useState<'left' | 'right' | null>(null);
+  // Debounce + race-guard: only the most recent in-flight request gets to
+  // write into state, so a slow earlier call can't overwrite fresher results.
+  const searchSeqRef = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadArticle = useCallback(async (id: string): Promise<Article | null> => {
     try {
@@ -84,15 +90,57 @@ const ArticleComparison: React.FC<Props> = ({ initialLeftId, initialRightId, onC
     loadArticle(rightId).then(a => { setRight(a); setLoading(false); });
   }, [rightId, loadArticle]);
 
-  const runSearch = async () => {
-    if (!search.trim()) return;
-    try {
-      const resp = await axios.post(`${API_BASE}/search/keyword`, { keyword: search, limit: 10 });
-      setSearchResults(resp.data.articles || resp.data.results || []);
-    } catch (e) {
-      toast('Search failed', 'error');
+  // Filter out the article that's already pinned to the opposite slot —
+  // comparing an article to itself isn't useful. Headline-substring filter
+  // also lets us narrow client-side after the API responds.
+  const otherId = pickerSide === 'left' ? rightId : leftId;
+  const visibleResults = searchResults.filter(a => a.id !== otherId);
+
+  const runSearch = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
     }
-  };
+    const seq = ++searchSeqRef.current;
+    setSearching(true);
+    try {
+      const resp = await axios.post(`${API_BASE}/search/keyword`, { keyword: q, limit: 12 });
+      // Only commit if this is still the latest request.
+      if (seq !== searchSeqRef.current) return;
+      setSearchResults(resp.data.articles || resp.data.results || []);
+      setHighlightIdx(0);
+    } catch (e) {
+      if (seq === searchSeqRef.current) {
+        toast('Search failed', 'error');
+        setSearchResults([]);
+      }
+    } finally {
+      if (seq === searchSeqRef.current) setSearching(false);
+    }
+  }, [toast]);
+
+  // Debounced search-as-you-type. 250ms feels responsive without being
+  // chatty enough to thrash the keyword endpoint.
+  useEffect(() => {
+    if (!pickerSide) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => runSearch(search), 250);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search, pickerSide, runSearch]);
+
+  // Reset picker state on open/close so the modal always starts clean.
+  useEffect(() => {
+    if (pickerSide) {
+      setSearch('');
+      setSearchResults([]);
+      setHighlightIdx(0);
+      setSearching(false);
+    }
+  }, [pickerSide]);
 
   const pickArticle = (a: Article) => {
     if (pickerSide === 'left') setLeftId(a.id);
@@ -100,6 +148,22 @@ const ArticleComparison: React.FC<Props> = ({ initialLeftId, initialRightId, onC
     setPickerSide(null);
     setSearch('');
     setSearchResults([]);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIdx(i => Math.min(i + 1, Math.max(visibleResults.length - 1, 0)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const pick = visibleResults[highlightIdx];
+      if (pick) pickArticle(pick);
+    } else if (e.key === 'Escape') {
+      setPickerSide(null);
+    }
   };
 
   // Compute shared entities
@@ -281,71 +345,134 @@ const ArticleComparison: React.FC<Props> = ({ initialLeftId, initialRightId, onC
           onClick={() => setPickerSide(null)}
           style={{
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
+            paddingTop: '10vh',
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: 'var(--bg-primary)', padding: 20, borderRadius: 8,
-              width: 'min(600px, 90vw)', maxHeight: '80vh', overflow: 'auto',
+              background: 'var(--bg-primary)', borderRadius: 10,
+              width: 'min(640px, 92vw)', maxHeight: '78vh',
               border: '1px solid var(--border-color)',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden',
             }}
+            role="dialog"
+            aria-label={`Pick article for ${pickerSide === 'left' ? 'Article A' : 'Article B'}`}
           >
-            <h3 style={{ marginTop: 0 }}>
-              Pick article for {pickerSide === 'left' ? 'Article A' : 'Article B'}
-            </h3>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-                placeholder="Search for an article by keyword..."
-                autoFocus
-                style={{
-                  flex: 1, padding: '8px 12px', borderRadius: 4,
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-                }}
-              />
-              <button
-                onClick={runSearch}
-                style={{ padding: '8px 16px', background: 'var(--primary-color)', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-              >
-                Search
-              </button>
+            <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 15 }}>
+                  Pick article for {pickerSide === 'left' ? 'Article A' : 'Article B'}
+                </h3>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {searching
+                    ? 'Searching\u2026'
+                    : visibleResults.length > 0
+                      ? `${visibleResults.length} suggestion${visibleResults.length === 1 ? '' : 's'}`
+                      : ''}
+                </span>
+              </div>
+              {/* The combobox: real autocomplete, no "Search" button needed.
+                  ARIA roles match the combobox/listbox pattern so screen
+                  readers and keyboard-only users get a sensible experience. */}
+              <div role="combobox" aria-expanded={visibleResults.length > 0} aria-haspopup="listbox">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Type a keyword, headline, or topic\u2026"
+                  autoFocus
+                  aria-autocomplete="list"
+                  aria-controls="comparison-picker-list"
+                  aria-activedescendant={
+                    visibleResults[highlightIdx]
+                      ? `comparison-picker-opt-${visibleResults[highlightIdx].id}`
+                      : undefined
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px', borderRadius: 6,
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                    fontSize: 14, outline: 'none',
+                  }}
+                />
+              </div>
             </div>
-            {searchResults.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {searchResults.map((a) => (
+
+            <div
+              id="comparison-picker-list"
+              role="listbox"
+              style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}
+            >
+              {!search && (
+                <div style={{ padding: '16px 18px', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  Start typing to search the archive.
+                </div>
+              )}
+
+              {search && !searching && visibleResults.length === 0 && (
+                <div style={{ padding: '16px 18px', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  No matches for "{search}".
+                </div>
+              )}
+
+              {visibleResults.map((a, i) => {
+                const isActive = i === highlightIdx;
+                return (
                   <div
+                    id={`comparison-picker-opt-${a.id}`}
                     key={a.id}
+                    role="option"
+                    aria-selected={isActive}
+                    onMouseEnter={() => setHighlightIdx(i)}
+                    onMouseDown={(e) => e.preventDefault() /* keep focus in input */}
                     onClick={() => pickArticle(a)}
                     style={{
-                      padding: 10, border: '1px solid var(--border-color)',
-                      borderRadius: 6, cursor: 'pointer',
-                      background: 'var(--bg-secondary)',
+                      padding: '10px 16px',
+                      cursor: 'pointer',
+                      borderLeft: isActive ? '3px solid var(--primary-color)' : '3px solid transparent',
+                      background: isActive ? 'var(--bg-secondary)' : 'transparent',
+                      display: 'flex', flexDirection: 'column', gap: 4,
                     }}
                   >
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{a.headline}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {formatDate(a.publication_date)}
-                      {a.topic_label && ` · ${a.topic_label}`}
+                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
+                      {a.headline}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <span>{formatDate(a.publication_date)}</span>
+                      {a.topic_label && <span>{'\u2022'} {a.topic_label}</span>}
+                      {a.sentiment_label && (
+                        <span style={{ ...badge(sentimentColor(a.sentiment_label)), padding: '1px 6px', fontSize: 10 }}>
+                          {a.sentiment_label}
+                        </span>
+                      )}
+                      {otherId && a.id === otherId && (
+                        <span style={{ color: 'var(--text-tertiary)' }}>(already picked)</span>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-            {searchResults.length === 0 && search && (
-              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-secondary)' }}>
-                No results — try another query
-              </div>
-            )}
-            <div style={{ textAlign: 'right', marginTop: 12 }}>
+                );
+              })}
+            </div>
+
+            <div style={{
+              padding: '8px 16px', borderTop: '1px solid var(--border-color)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              fontSize: 11, color: 'var(--text-tertiary)',
+            }}>
+              <span>
+                <kbd style={{ fontFamily: 'monospace' }}>{'\u2191'}</kbd>
+                <kbd style={{ fontFamily: 'monospace', marginLeft: 4 }}>{'\u2193'}</kbd> navigate {'\u2003'}
+                <kbd style={{ fontFamily: 'monospace' }}>{'\u21B5'}</kbd> select {'\u2003'}
+                <kbd style={{ fontFamily: 'monospace' }}>esc</kbd> close
+              </span>
               <button
                 onClick={() => setPickerSide(null)}
-                style={{ padding: '6px 12px', background: 'transparent', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
+                style={{ padding: '4px 10px', background: 'transparent', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: 'var(--text-primary)' }}
               >
                 Cancel
               </button>

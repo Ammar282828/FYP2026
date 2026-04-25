@@ -205,7 +205,7 @@ Be thorough and specific. Return ONLY the JSON object, nothing else."""
 
         # Use the adapter so AQ.* (Vertex) keys also work; model name
         # is normalized to a real Vertex/Gemini model.
-        model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
+        model = _create_gemini_model(gemini_key, 'gemini-3.1-pro-preview')
 
         response = model.generate_content([prompt, img])
 
@@ -230,7 +230,7 @@ Be thorough and specific. Return ONLY the JSON object, nothing else."""
         analysis_data = {
             "analysis": analysis_json,
             "timestamp": datetime.now().isoformat(),
-            "model": "gemini-3-pro-preview",
+            "model": "gemini-3.1-pro-preview",
             "file_id": file_id,
             "file_path": file_path
         }
@@ -342,7 +342,7 @@ async def analyze_newspaper_ads(newspaper_id: str):
                 img = img.convert('RGB')
 
         # Step 1: Use Gemini to identify ad locations (Vertex-aware adapter)
-        model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
+        model = _create_gemini_model(gemini_key, 'gemini-3.1-pro-preview')
 
         detection_prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
 
@@ -511,7 +511,7 @@ Return ONLY the JSON object, nothing else."""
                     "image_path": ad_image_path,
                     "publication_date": pub_date.isoformat() if hasattr(pub_date, 'isoformat') else str(pub_date) if pub_date else None,
                     "timestamp": datetime.now().isoformat(),
-                    "model": "gemini-3-pro-preview"
+                    "model": "gemini-3.1-pro-preview"
                 }
 
                 # Save to JSON file
@@ -647,7 +647,7 @@ async def analyze_image_ads(request: dict):
                 img = img.convert('RGB')
 
         # Step 1: Use Gemini to identify ad locations (Vertex-aware adapter)
-        model = _create_gemini_model(gemini_key, 'gemini-2.5-pro')
+        model = _create_gemini_model(gemini_key, 'gemini-3.1-pro-preview')
 
         detection_prompt = """Analyze this newspaper page and identify ONLY commercial display advertisements.
 
@@ -828,7 +828,7 @@ Return ONLY the JSON object, nothing else."""
                     "image_path": ad_image_path,
                     "publication_date": pub_date_str,
                     "timestamp": datetime.now().isoformat(),
-                    "model": "gemini-3-pro-preview"
+                    "model": "gemini-3.1-pro-preview"
                 }
 
                 # Save to JSON file

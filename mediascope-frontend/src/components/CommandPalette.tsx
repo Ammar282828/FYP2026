@@ -4,7 +4,10 @@ import axios from 'axios';
 import { API_BASE } from '../config';
 
 interface CommandPaletteProps {
-  onNavigate: (tab: string) => void;
+  // Optional callback for tab switching from inside the dashboard.
+  // When mounted at App level (so the palette works on detail pages),
+  // we fall back to navigating to `/?tab=...` instead.
+  onNavigate?: (tab: string) => void;
 }
 
 interface SearchResult {
@@ -20,7 +23,7 @@ const NAV_ITEMS: SearchResult[] = [
   { id: 'nav-search',    type: 'nav', title: 'Search',     subtitle: 'Search articles',  icon: '\u2315' },
   { id: 'nav-stories',   type: 'nav', title: 'Stories',    subtitle: 'Browse stories',   icon: '\u2261' },
   { id: 'nav-analytics', type: 'nav', title: 'Analytics',  subtitle: 'View analytics',   icon: '\u2237' },
-  { id: 'nav-bookmarks', type: 'nav', title: 'Bookmarks',  subtitle: 'Saved articles',   icon: '\u2605' },
+  { id: 'nav-profile',   type: 'nav', title: 'Profile',    subtitle: 'Your bookmarks & history', icon: '\u25CB' },
   { id: 'nav-ocr',       type: 'nav', title: 'OCR Upload', subtitle: 'Upload newspaper', icon: '\u21E7' },
   { id: 'nav-ad-browser',type: 'nav', title: 'Ad Browser', subtitle: 'Browse ads',       icon: '\u25A1' },
   { id: 'action-random', type: 'action', title: 'Random Article', subtitle: 'Open a random article from the archive', icon: '\uD83C\uDFB2' },
@@ -104,7 +107,13 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ onNavigate }) => {
     setOpen(false);
     if (result.type === 'nav') {
       const tab = result.id.replace('nav-', '');
-      onNavigate(tab);
+      if (onNavigate) {
+        // Inside the dashboard — switch tabs without a route change.
+        onNavigate(tab);
+      } else {
+        // App-level mount — drive the dashboard via its URL state.
+        navigate(`/?tab=${tab}`);
+      }
     } else if (result.type === 'article') {
       navigate(`/article/${result.id}`);
     } else if (result.type === 'action' && result.id === 'action-random') {

@@ -237,78 +237,124 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
   return (
     <div className="search-panel-enhanced">
       <div className="search-header">
-        <h2>Search Dawn Archives (1990-1992)</h2>
-        <div className="search-type-tabs">
-          <button
-            className={searchType === 'keyword' ? 'active' : ''}
-            onClick={() => setSearchType('keyword')}
-          >
-            Keyword Search
-          </button>
-          <button
-            className={searchType === 'entity' ? 'active' : ''}
-            onClick={() => setSearchType('entity')}
-          >
-            Entity Search
-          </button>
+        <div className="search-header-row">
+          <span className="search-eyebrow">Dawn Archives · 1990–1992</span>
+          <div className="search-type-segmented" role="tablist" aria-label="Search type">
+            <button
+              role="tab"
+              aria-selected={searchType === 'keyword'}
+              className={searchType === 'keyword' ? 'active' : ''}
+              onClick={() => setSearchType('keyword')}
+            >
+              Keyword
+            </button>
+            <button
+              role="tab"
+              aria-selected={searchType === 'entity'}
+              className={searchType === 'entity' ? 'active' : ''}
+              onClick={() => setSearchType('entity')}
+            >
+              Entity
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="search-input-group">
-        <input
-          type="text"
-          placeholder={
-            searchType === 'keyword'
-              ? 'Search articles by keyword...'
-              : 'Search by person, organization, or location...'
-          }
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-          className="search-input"
-        />
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          className="sort-select"
-          title="Sort results by"
-        >
-          <option value="date">Newest First</option>
-          <option value="date_asc">Oldest First</option>
-          <option value="relevance">Most Relevant</option>
-          <option value="frequency">Most Mentions</option>
-          <option value="sentiment">Most Positive</option>
-          <option value="sentiment_asc">Most Negative</option>
-        </select>
+        <div className="search-input-wrap">
+          <svg className="search-input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            placeholder={
+              searchType === 'keyword'
+                ? 'Search articles by keyword…'
+                : 'Search by person, organization, or location…'
+            }
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            className="search-input"
+            aria-label="Search query"
+          />
+          {query && (
+            <button
+              type="button"
+              className="search-input-clear"
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+              title="Clear"
+            >
+              {'\u2715'}
+            </button>
+          )}
+        </div>
         <button
           onClick={handleSearch}
           disabled={loading}
           className="search-button"
         >
-          {loading ? 'Searching...' : 'Search'}
+          {loading ? 'Searching…' : 'Search'}
         </button>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="filter-toggle-button"
-        >
-          Filters {activeFilterCount > 0 && `(${activeFilterCount})`}
-        </button>
+      </div>
+
+      <div className="search-toolbar">
+        <div className="search-toolbar-left">
+          <label className="toolbar-control toolbar-sort">
+            <span className="toolbar-control-label">Sort</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              title="Sort results by"
+            >
+              <option value="date">Newest first</option>
+              <option value="date_asc">Oldest first</option>
+              <option value="relevance">Most relevant</option>
+              <option value="frequency">Most mentions</option>
+              <option value="sentiment">Most positive</option>
+              <option value="sentiment_asc">Most negative</option>
+            </select>
+          </label>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`toolbar-button ${showFilters ? 'is-open' : ''}`}
+            aria-expanded={showFilters}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="7" y1="12" x2="17" y2="12" />
+              <line x1="10" y1="18" x2="14" y2="18" />
+            </svg>
+            Filters
+            {activeFilterCount > 0 && <span className="toolbar-badge">{activeFilterCount}</span>}
+          </button>
+        </div>
         {user && (
-          <>
+          <div className="search-toolbar-right">
             <button
               onClick={handleSaveSearch}
-              className="filter-toggle-button"
+              className="toolbar-button toolbar-button-ghost"
               title="Save this search"
             >
-              {'\u2B50'} Save search
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
+              Save
             </button>
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowSaved(v => !v)}
-                className="filter-toggle-button"
+                className={`toolbar-button toolbar-button-ghost ${showSaved ? 'is-open' : ''}`}
                 title="View saved searches"
+                aria-expanded={showSaved}
               >
-                Saved {savedSearches.length > 0 && `(${savedSearches.length})`}
+                Saved
+                {savedSearches.length > 0 && <span className="toolbar-badge">{savedSearches.length}</span>}
               </button>
               {showSaved && (
                 <div
@@ -402,7 +448,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
                 </div>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
 
@@ -483,9 +529,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
 
       {suggestions.length > 0 && !showFilters && (
         <div className="suggestions-panel">
-          <h4>Popular Keywords:</h4>
+          <h4>Try a popular keyword</h4>
           <div className="suggestion-tags">
-            {suggestions.slice(0, 20).map((s, idx) => (
+            {suggestions.slice(0, 16).map((s, idx) => (
               <button
                 key={idx}
                 className="suggestion-tag"
@@ -493,8 +539,10 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
                   setQuery(s.keyword);
                   setTimeout(handleSearch, 100);
                 }}
+                title={`${s.frequency} mentions`}
               >
-                {s.keyword} <span className="freq-badge">({s.frequency})</span>
+                {s.keyword}
+                <span className="freq-badge">{s.frequency}</span>
               </button>
             ))}
           </div>

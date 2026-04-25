@@ -34,9 +34,11 @@ const BookmarkButton: React.FC<BookmarkButtonProps> = ({ articleId, size = 'smal
     }
   };
 
-  const toggleBookmark = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const toggleBookmark = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
 
     if (!user) {
       if (onAuthRequired) onAuthRequired();
@@ -65,6 +67,16 @@ const BookmarkButton: React.FC<BookmarkButtonProps> = ({ articleId, size = 'smal
       setLoading(false);
     }
   };
+
+  // Listen for the global `b` shortcut. Only one BookmarkButton is on
+  // screen at a time (article detail page), so a single window listener
+  // is unambiguous.
+  useEffect(() => {
+    const handler = () => { toggleBookmark(); };
+    window.addEventListener('mediascope:toggle-bookmark', handler);
+    return () => window.removeEventListener('mediascope:toggle-bookmark', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookmarked, bookmarkId, user]);
 
   const isSmall = size === 'small';
 

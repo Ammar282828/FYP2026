@@ -32,9 +32,7 @@ import SearchTimeline from './components/SearchTimeline';
 import DashboardHome from './components/DashboardHome';
 import UserMenu from './components/UserMenu';
 import AuthPage from './components/AuthPage';
-import BookmarksPanel from './components/BookmarksPanel';
-import CommandPalette from './components/CommandPalette';
-import ShortcutsPanel from './components/ShortcutsPanel';
+import ProfilePanel from './components/ProfilePanel';
 import { useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
 import { API_BASE } from './config';
@@ -197,7 +195,7 @@ const MediaScopeDashboard: React.FC = () => {
   // are linkable: e.g. /?tab=analytics&sub=corpus opens straight to that view.
   const [tabParam, setTabParam] = useQueryState('tab', 'home');
   const [subParam, setSubParam] = useQueryState('sub', 'overview');
-  const activeTab = tabParam as 'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser' | 'bookmarks' | 'chat' | 'compare' | 'periods';
+  const activeTab = tabParam as 'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser' | 'bookmarks' | 'profile' | 'chat' | 'compare' | 'periods';
   const setActiveTab = (t: typeof activeTab) => setTabParam(t);
   const analyticsSubTab = subParam as 'overview' | 'topics' | 'entities' | 'keywords' | 'corpus';
   const setAnalyticsSubTab = (t: typeof analyticsSubTab) => setSubParam(t);
@@ -206,8 +204,12 @@ const MediaScopeDashboard: React.FC = () => {
   const [showAuth, setShowAuth] = useState(false);
 
   const loadArticles = async () => {
+    // Without an explicit limit the API caps at 100 raw docs, of which ~28
+    // get dropped as classifieds — so the default landing view was only
+    // showing 72 articles out of ~4k. Ask for a real default that surfaces
+    // a meaningful slice of the archive.
     try {
-      const response = await axios.get(`${API_BASE}/articles`);
+      const response = await axios.get(`${API_BASE}/articles`, { params: { limit: 1000 } });
       setSearchResults({
         total: response.data.articles.length,
         articles: response.data.articles
@@ -272,9 +274,16 @@ const MediaScopeDashboard: React.FC = () => {
               ?
             </button>
             <UserMenu
+              onShowProfile={() => {
+                if (user) {
+                  setActiveTab('profile');
+                } else {
+                  setShowAuth(true);
+                }
+              }}
               onShowBookmarks={() => {
                 if (user) {
-                  setActiveTab('bookmarks');
+                  setActiveTab('profile');
                 } else {
                   setShowAuth(true);
                 }
@@ -317,7 +326,7 @@ const MediaScopeDashboard: React.FC = () => {
             ...(user
               ? [{
                   group: 'You',
-                  items: [{ id: 'bookmarks', label: 'Bookmarks' }],
+                  items: [{ id: 'profile', label: 'Profile', title: 'Bookmarks, history & account' }],
                 }]
               : []),
           ] as { group: string; items: { id: typeof activeTab; label: string; title?: string }[] }[])
@@ -343,8 +352,9 @@ const MediaScopeDashboard: React.FC = () => {
       </header>
 
       {showAuth && <AuthPage onClose={() => setShowAuth(false)} />}
-      <CommandPalette onNavigate={(tab: string) => setActiveTab(tab as any)} />
-      <ShortcutsPanel />
+      {/* CommandPalette + ShortcutsPanel + global keyboard handler are
+          mounted at App level so they work on every route. Tab nav goes
+          via the URL (`?tab=...`), which this dashboard already reads. */}
 
       <main className="dashboard-main">
         {activeTab === 'home' && (
@@ -527,7 +537,15 @@ const MediaScopeDashboard: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'bookmarks' && user && <BookmarksPanel />}
+        {/* Bookmarks tab is kept as a deep-link target (e.g. older
+            bookmarked URLs) but visually it lands inside the Profile
+            panel's Bookmarks sub-tab so there's a single home for "You". */}
+        {activeTab === 'bookmarks' && user && (
+          <ProfilePanel initialSubTab="bookmarks" onShowAuth={() => setShowAuth(true)} />
+        )}
+        {activeTab === 'profile' && (
+          <ProfilePanel onShowAuth={() => setShowAuth(true)} />
+        )}
 
         {activeTab === 'ocr' && <OCRTab />}
 

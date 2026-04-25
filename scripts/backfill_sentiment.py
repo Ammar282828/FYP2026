@@ -51,6 +51,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from services.sentiment_gemini import analyze_sentiment_gemini  # noqa: E402
+from scripts._call_timeout import call_with_timeout  # noqa: E402
 
 
 def _iter_articles(db, page_size: int = 200) -> Iterator[dict]:
@@ -100,7 +101,11 @@ def main() -> int:
                    help="print what would change, don't write")
     p.add_argument("--throttle", type=float, default=0.4,
                    help="seconds to sleep between Gemini calls (default 0.4)")
-    p.add_argument("--model", type=str, default="gemini-2.5-flash")
+    p.add_argument("--model", type=str, default="gemini-3.1-pro-preview",
+                   help="Gemini model. As of 2026-04 the Vertex Express key "
+                        "in europe-west1 has 3.1-pro-preview enabled; "
+                        "3-pro-preview / 3.1-flash variants 404. Fallbacks "
+                        "that also work: gemini-2.5-pro, gemini-2.5-flash.")
     p.add_argument("--page-size", type=int, default=200,
                    help="Firestore page size while streaming")
     p.add_argument("--resume-force", action="store_true",
@@ -140,10 +145,15 @@ def main() -> int:
             text = article.get('content') or article.get('text') or ''
             old_label = article.get('sentiment_label', 'neutral')
             try:
-                result = analyze_sentiment_gemini(text, model_name=args.model)
-            except Exception as exc:  # noqa: BLE001
+                result = call_with_timeout(
+                    analyze_sentiment_gemini, text,
+                    model_name=args.model, timeout=60.0,
+                )
+            except Exception as exc:  # noqa: BLE001 (TimeoutError + Gemini errors)
                 errored += 1
                 print(f"  ! {article['_id']}: gemini error: {exc}")
+                if args.throttle:
+                    time.sleep(args.throttle)
                 continue
 
             if result.get('confidence', 0) <= 0:

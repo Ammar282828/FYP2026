@@ -12,21 +12,26 @@
  * Pages then become shareable: copy the URL, paste it, get the same view.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
-function read(key: string, fallback: string): string {
+function read(key: string, fallback: string, search?: string): string {
   if (typeof window === 'undefined') return fallback;
-  return new URLSearchParams(window.location.search).get(key) ?? fallback;
+  const src = search ?? window.location.search;
+  return new URLSearchParams(src).get(key) ?? fallback;
 }
 
 export function useQueryState(key: string, fallback: string): [string, (v: string) => void] {
+  // useLocation lets us re-render whenever react-router changes the URL —
+  // including when something like the CommandPalette navigates with
+  // `navigate('/?tab=search')` from outside this component tree. Without
+  // it, only browser back/forward (popstate) would resync.
+  const location = useLocation();
   const [val, setVal] = useState<string>(() => read(key, fallback));
 
-  // Sync when the user navigates with back/forward.
+  // Sync on URL changes (router navigation + browser back/forward).
   useEffect(() => {
-    const onPop = () => setVal(read(key, fallback));
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, [key, fallback]);
+    setVal(read(key, fallback, location.search));
+  }, [key, fallback, location.search]);
 
   const set = useCallback((next: string) => {
     setVal(next);

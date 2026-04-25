@@ -658,61 +658,71 @@
   color: #1d4ed8;
 }
 
-/* ── Analytics panel ───────────────────────────────────────────────────────── */
+/* ── Analytics panel ─────────────────────────────────────────────────────────
+   Visual language matched to the rest of the dashboard analytics tabs:
+   - card chrome: white bg, 1px border, 8px radius, no drop shadow
+   - card title: regular sentence-case <h3>, no uppercase / letter-spacing
+   - KPI: small uppercase label on top, large value below (KeyMetrics layout)
+   - palette: shared categoricalPalette + sentiment colors via chartColors.ts
+   so widgets here don't visually drift from EnhancedAnalytics / ProfessionalAnalytics. */
 .analytics-panel {
   padding: 24px;
   overflow-y: auto;
 }
 
-/* KPI row */
+/* KPI row — mirrors the KeyMetrics summary band in EnhancedAnalytics
+   (auto-fit grid, label-on-top, primary-text value). */
 .kpi-row {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 1rem;
 }
 
 .kpi-card {
-  flex: 1;
-  min-width: 100px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.kpi-number {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  align-items: flex-start;
 }
 
 .kpi-label {
-  font-size: 12px;
+  order: -1;
+  font-size: 11px;
   color: var(--text-secondary);
   font-weight: 500;
-  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  text-align: left;
+}
+
+.kpi-number {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
 }
 
 /* Analytics grid */
 .analytics-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 1rem;
 }
 
 .analytics-card {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
 }
 
 .analytics-card.wide {
@@ -724,167 +734,23 @@
 }
 
 .analytics-card-title {
-  margin: 0 0 16px 0;
-  font-size: 14px;
+  margin: 0 0 4px 0;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-/* Horizontal bar chart */
-.bar-chart {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.bar-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.bar-label {
-  width: 160px;
-  min-width: 120px;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-transform: capitalize;
-  flex-shrink: 0;
-}
-
-.bar-track {
-  flex: 1;
-  height: 20px;
-  background: var(--bg-tertiary);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: 10px;
-  transition: width 0.4s ease;
-  min-width: 4px;
-}
-
-.bar-count {
-  width: 32px;
-  text-align: right;
-  font-size: 12px;
-  font-weight: 600;
+.analytics-card-subtitle {
+  margin: 0 0 14px 0;
+  font-size: 12.5px;
   color: var(--text-secondary);
-  flex-shrink: 0;
+  line-height: 1.45;
 }
 
-/* Sentiment bars */
-.sentiment-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.sentiment-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.sentiment-label-txt {
-  width: 70px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-transform: capitalize;
-  flex-shrink: 0;
-}
-
-.sentiment-bar-track {
-  flex: 1;
-  height: 24px;
-  background: var(--bg-tertiary);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.sentiment-bar-fill {
-  height: 100%;
-  border-radius: 12px;
-  transition: width 0.4s ease;
-  min-width: 4px;
-}
-
-.sentiment-pct {
-  width: 36px;
-  text-align: right;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-  flex-shrink: 0;
-}
-
-.sentiment-cnt {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-/* Monthly vertical bar chart */
-.monthly-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 140px;
-  padding-bottom: 28px;
-  position: relative;
-  overflow-x: auto;
-}
-
-.month-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1;
-  min-width: 36px;
-  height: 100%;
-  position: relative;
-}
-
-.month-bar-wrap {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 2px;
-}
-
-.month-value {
-  font-size: 10px;
-  color: var(--text-secondary);
-  font-weight: 600;
-  line-height: 1;
-}
-
-.month-bar {
-  width: 80%;
-  border-radius: 4px 4px 0 0;
-  min-height: 4px;
-  transition: height 0.4s ease;
-}
-
-.month-label {
-  position: absolute;
-  bottom: 0;
-  font-size: 10px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-}
+/* Note: the old hand-rolled `.bar-chart`, `.sentiment-bars`, `.monthly-chart`
+   styles were removed when these widgets moved to Recharts. Recharts handles
+   its own SVG layout — the only chart-adjacent CSS we still need is the
+   card chrome above and the .no-data placeholder below. */
 
 .no-data {
   font-size: 13px;

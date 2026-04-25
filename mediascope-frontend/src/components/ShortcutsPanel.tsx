@@ -15,18 +15,20 @@ const SHORTCUTS: { section: string; items: Shortcut[] }[] = [
     ],
   },
   {
-    section: 'Navigation',
+    section: 'Navigation (press g, then\u2026)',
     items: [
-      { keys: ['g', 'h'], description: 'Go home' },
-      { keys: ['g', 's'], description: 'Go to search' },
-      { keys: ['g', 'b'], description: 'Go to bookmarks' },
+      { keys: ['g h'], description: 'Go to Home' },
+      { keys: ['g s'], description: 'Go to Search' },
+      { keys: ['g a'], description: 'Go to Analytics' },
+      { keys: ['g p'], description: 'Go to Profile' },
+      { keys: ['g b'], description: 'Go to Bookmarks (Profile)' },
     ],
   },
   {
     section: 'Article actions',
     items: [
       { keys: ['b'], description: 'Bookmark current article' },
-      { keys: ['r'], description: 'Random article' },
+      { keys: ['r'], description: 'Open a random article' },
     ],
   },
 ];

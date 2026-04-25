@@ -24,8 +24,18 @@ def filter_and_normalize_entities(entities) -> List[Dict]:
     filtered = []
     seen_normalized = {}
 
+    # Markdown / Gemini-extraction artefacts that ended up stored on entity
+    # records during article ingestion (`**`, `###`, stray newlines, leading
+    # bullets, etc). We strip these before deciding whether the entity is
+    # usable, and reject anything that's still mostly punctuation afterwards.
+    _MARKDOWN_NOISE_RE = re.compile(r'[*#>`_~\[\]]+')
+
     for entity in entities:
-        text = entity.get('text', '').strip()
+        raw = entity.get('text', '') or ''
+        # Strip markdown chars and collapse whitespace/newlines.
+        cleaned = _MARKDOWN_NOISE_RE.sub('', raw)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip(' .,:;-—\t\n')
+        text = cleaned
         entity_type = entity.get('type', '')
 
         if not text or len(text) < 2:
@@ -40,9 +50,21 @@ def filter_and_normalize_entities(entities) -> List[Dict]:
         if not any(c.isalnum() for c in text):
             continue
 
+        # Reject obvious leftover prompt fragments — these aren't real
+        # entities, they're slabs of Gemini's narration that the NER step
+        # later mistook for ORG/PERSON tags.
+        lower = text.lower()
+        if any(frag in lower for frag in (
+            'following operations', 'the image', 'the article',
+            'transcribed', 'extracted from', 'main advertisement',
+        )):
+            continue
+
         if entity_type in ['DATE', 'TIME', 'CARDINAL', 'ORDINAL', 'MONEY', 'PERCENT', 'QUANTITY']:
             continue
 
+        # Use the cleaned form going forward so callers don't get junk back.
+        entity = {**entity, 'text': text}
         normalized = text.lower().rstrip('s')
 
         if normalized in seen_normalized:

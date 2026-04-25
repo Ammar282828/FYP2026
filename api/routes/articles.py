@@ -2,6 +2,7 @@
 Article-related API routes
 """
 
+import re
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 import os
@@ -24,6 +25,56 @@ def _is_classified(article: dict) -> bool:
     headline = (article.get('headline') or '').lower()
     return any(kw in headline for kw in _CLASSIFIED_KEYWORDS)
 
+
+# Headlines that are obviously not real news headlines: Gemini meta-text,
+# leftover markdown from the extraction prompt, page-header lines OCR'd
+# from the masthead, etc. These ended up in Firestore at extraction time;
+# until a backfill scrubs them we filter them out at read-time so search
+# results don't lead with garbage like "### **Main Advertisement (Top)**".
+_GARBAGE_HEADLINE_PATTERNS = [
+    re.compile(r'^\s*(here is|based on|the following|note:|\(note)', re.IGNORECASE),
+    re.compile(r'^\s*(\*\*|##|\*\(|---|>>>)', re.IGNORECASE),       # markdown leftovers
+    # Page-header leakage: "10 DAWN FRIDAY", "II DAWN, WEDNESDAY",
+    # "DAWN MONDAY", or just "DAWN, JANUARY 14, 1990".
+    re.compile(r'^\s*([\divxlcm]+\s+)?dawn[\s,]+(sun|mon|tues|wednes|thurs|fri|satur|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)', re.IGNORECASE),
+    re.compile(r'^\s*[ivxlcm]+\s+dawn\b', re.IGNORECASE),            # Roman-numeral page nums
+    re.compile(r'founded by quaid[\s\-]?i[\s\-]?azam', re.IGNORECASE), # masthead tagline
+    re.compile(r'^\s*(main advertisement|advertisement \(top|column \d|article \d)', re.IGNORECASE),
+    re.compile(r'^\s*\W*$'),                                          # all punctuation/whitespace
+    re.compile(r'transcrib(ed|ing)', re.IGNORECASE),                  # "as transcribed in the columns"
+    re.compile(r'extracted from the image', re.IGNORECASE),
+]
+
+
+def _is_garbage_headline(headline: str) -> bool:
+    """Return True for headlines that are clearly not real article titles."""
+    if not headline:
+        return True
+    h = headline.strip()
+    if len(h) < 4:
+        return True
+    return any(p.search(h) for p in _GARBAGE_HEADLINE_PATTERNS)
+
+
+def _date_sort_key(article: dict, *, ascending: bool):
+    """Stable, None-safe sort key for `publication_date`.
+
+    Firestore docs may have a missing/None publication_date (older imports,
+    or articles whose vision-backfill is still pending). A naive `lambda x:
+    x.get('publication_date', '')` blows up with
+    `'<' not supported between 'NoneType' and 'DatetimeWithNanoseconds'`
+    because some entries are real datetimes and some are None or strings.
+    Normalise everything to an ISO string and push None to the end (or
+    start, when ascending).
+    """
+    pd = article.get('publication_date')
+    if pd is None:
+        # Sentinel sorts after real dates in DESC, before in ASC.
+        return ('' if ascending else '~~~~~')
+    if hasattr(pd, 'isoformat'):
+        return pd.isoformat()
+    return str(pd)
+
 try:
     import google.generativeai as genai
 except ImportError:
@@ -39,24 +90,39 @@ router = APIRouter(prefix="/api", tags=["articles"])
 
 @router.get("/articles")
 def list_articles(limit: int = 100, offset: int = 0):
-    # returns a list of articles from the database
-    # you can set how many to get and where to start from
+    """List recent articles, ordered by publication_date DESC.
+
+    `limit` counts non-classified articles — i.e. asking for limit=100
+    returns 100 *visible* articles, not 100 raw docs of which a chunk
+    are tenders/vacancies you'd never see. We over-fetch by a generous
+    margin so a long stretch of classifieds at the head of the corpus
+    doesn't starve the page.
+    """
     try:
         db = get_db()
-        articles_ref = db.db.collection('articles').order_by('publication_date', direction='DESCENDING').limit(limit + offset)
-        articles_docs = list(articles_ref.stream())
+        # Over-fetch: assume up to ~30% of the recent corpus may be
+        # classifieds, plus padding for garbage-headline drops.
+        oversample = max((limit + offset) * 2, (limit + offset) + 200)
+        articles_ref = (
+            db.db.collection('articles')
+            .order_by('publication_date', direction='DESCENDING')
+            .limit(oversample)
+        )
+        raw_docs = list(articles_ref.stream())
 
-        articles_docs = articles_docs[offset:offset + limit]
-
-        articles = []
-        for doc in articles_docs:
+        keepers = []
+        for doc in raw_docs:
             data = doc.to_dict()
             if _is_classified(data):
                 continue
-            data['content_preview'] = data.get('content', '')[:200]
-            articles.append(data)
+            if _is_garbage_headline(data.get('headline') or ''):
+                continue
+            data['content_preview'] = (data.get('content') or '')[:200]
+            keepers.append(data)
+            if len(keepers) >= limit + offset:
+                break
 
-        return {"articles": articles}
+        return {"articles": keepers[offset:offset + limit]}
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
 
@@ -174,8 +240,14 @@ def search_keyword(request: dict):
 
     try:
         db = get_db()
-        articles = db.search_articles(keyword, limit=limit * 2)
-        articles = [a for a in articles if not _is_classified(a)]
+        # Pull a wider candidate pool than `limit` since we're about to
+        # filter out classifieds + garbage headlines, and we want enough
+        # left to actually fill the page.
+        articles = db.search_articles(keyword, limit=max(limit * 4, 200))
+        articles = [
+            a for a in articles
+            if not _is_classified(a) and not _is_garbage_headline(a.get('headline') or '')
+        ]
 
         total = len(articles)
         articles = articles[offset:offset + limit]
@@ -187,13 +259,13 @@ def search_keyword(request: dict):
             articles_list.append(article)
 
         if sort_by == 'date':
-            articles_list.sort(key=lambda x: x.get('publication_date', ''), reverse=True)
+            articles_list.sort(key=lambda x: _date_sort_key(x, ascending=False), reverse=True)
         elif sort_by == 'date_asc':
-            articles_list.sort(key=lambda x: x.get('publication_date', ''))
+            articles_list.sort(key=lambda x: _date_sort_key(x, ascending=True))
         elif sort_by == 'sentiment':
-            articles_list.sort(key=lambda x: x.get('sentiment_score', 0), reverse=True)
+            articles_list.sort(key=lambda x: x.get('sentiment_score') or 0, reverse=True)
         elif sort_by == 'sentiment_asc':
-            articles_list.sort(key=lambda x: x.get('sentiment_score', 0))
+            articles_list.sort(key=lambda x: x.get('sentiment_score') or 0)
 
         return {
             "articles": articles_list,
@@ -217,8 +289,11 @@ def search_entity(request: dict):
 
     try:
         db = get_db()
-        articles = db.search_by_entity(entity_name, limit=limit * 2)
-        articles = [a for a in articles if not _is_classified(a)]
+        articles = db.search_by_entity(entity_name, limit=max(limit * 4, 200))
+        articles = [
+            a for a in articles
+            if not _is_classified(a) and not _is_garbage_headline(a.get('headline') or '')
+        ]
 
         total = len(articles)
         articles = articles[offset:offset + limit]
@@ -228,6 +303,9 @@ def search_entity(request: dict):
             article['content_preview'] = article.get('content', '')[:200]
             article['entities'] = filter_and_normalize_entities(article.get('entities', []))
             articles_list.append(article)
+
+        # Default to most-recent first, None-safe.
+        articles_list.sort(key=lambda x: _date_sort_key(x, ascending=False), reverse=True)
 
         return {
             "articles": articles_list,
