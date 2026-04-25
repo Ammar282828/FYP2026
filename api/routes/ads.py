@@ -880,6 +880,34 @@ Return ONLY the JSON object, nothing else."""
         raise HTTPException(500, f"Analysis failed: {str(e)}")
 
 
+def _attach_newspaper_image_urls(db, ads: list) -> None:
+    """Mutate `ads` in place to add `newspaper_image_url` per ad.
+
+    Many stored ad crops are bad — Gemini's bounding-box detection occasionally
+    saves a region that's mostly whitespace with a sliver of text, leaving the
+    cached crop visually empty. The frontend can re-derive a clean crop from
+    the parent newspaper image + the stored coordinate %s, but it needs the
+    parent's image URL to do that. This helper batches the lookups by unique
+    newspaper_id so we make at most ~N/200 reads instead of one per ad.
+    """
+    ids = sorted({(ad.get('newspaper_id') or '').strip() for ad in ads})
+    ids = [i for i in ids if i]
+    if not ids:
+        return
+    cache: dict[str, str] = {}
+    # Firestore .get() can take individual doc refs; do a small batch loop.
+    for nid in ids:
+        try:
+            snap = db.db.collection('newspapers').document(nid).get()
+            if snap.exists:
+                cache[nid] = (snap.to_dict() or {}).get('image_url') or ''
+        except Exception:
+            cache[nid] = ''
+    for ad in ads:
+        nid = (ad.get('newspaper_id') or '').strip()
+        ad['newspaper_image_url'] = cache.get(nid, '')
+
+
 @router.get("/browse")
 def browse_advertisements(
     limit: int = 50,
@@ -939,6 +967,11 @@ def browse_advertisements(
 
             ads.append(ad_data)
 
+        # Attach parent newspaper image URLs so the client can render
+        # accurate crops from the source image (the stored ad image_url
+        # is often a degraded pre-cut crop).
+        _attach_newspaper_image_urls(db, ads)
+
         return {
             "ads": ads,
             "total": len(ads),
@@ -993,6 +1026,9 @@ def search_advertisements(request: dict):
         # Apply pagination
         total = len(matching_ads)
         matching_ads = matching_ads[offset:offset + limit]
+
+        # Same enrichment as /browse — let the client re-crop from source.
+        _attach_newspaper_image_urls(db, matching_ads)
 
         return {
             "ads": matching_ads,

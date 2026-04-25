@@ -16,12 +16,63 @@ interface Advertisement {
   model: string;
   created_at: string;
   image_url?: string;
+  // Parent newspaper image — sent by /ads/browse so we can render an
+  // accurate crop from the source even if the cached `image_url` crop is
+  // bad (mostly-blank legacy crops are common).
+  newspaper_image_url?: string;
+  // Coordinates may arrive in either of two shapes depending on when the
+  // ad was extracted: percentage box {left, top, width, height} (newer)
+  // or absolute corners {x1, y1, x2, y2} (older). Either is fine.
   coordinates: {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    x1?: number;
+    y1?: number;
+    x2?: number;
+    y2?: number;
   };
+}
+
+/**
+ * Compute CSS background-position + background-size to clip a parent image
+ * to a rectangular sub-region given as percentages (left, top, width, height).
+ *
+ * The math: when the bg image is scaled up so the crop fills the container,
+ * `background-size: (100/W*100)% (100/H*100)%` makes the crop's box equal to
+ * one container. Then `background-position` interpolates between (0%, 0%) and
+ * (100%, 100%) — the percentage that aligns the crop's top-left with the
+ * container's top-left works out to `L/(100-W)*100` (and same for top).
+ *
+ * Returns null when the inputs are unusable (W or H is 100, or any field
+ * missing) so the caller can fall back to the legacy <img>.
+ */
+function clipStyle(left?: number, top?: number, width?: number, height?: number): React.CSSProperties | null {
+  if (left == null || top == null || width == null || height == null) return null;
+  if (width <= 0 || height <= 0 || width >= 100 || height >= 100) return null;
+  const sizeX = (100 / width) * 100;
+  const sizeY = (100 / height) * 100;
+  const posX = (left / (100 - width)) * 100;
+  const posY = (top / (100 - height)) * 100;
+  return {
+    backgroundSize: `${sizeX}% ${sizeY}%`,
+    backgroundPosition: `${posX}% ${posY}%`,
+    backgroundRepeat: 'no-repeat',
+  };
+}
+
+/**
+ * Resolve an ad's coordinates into the {left, top, width, height} percentage
+ * shape `clipStyle` wants. Handles both schemas (percentage box and absolute
+ * x1/y1/x2/y2) — but the latter is only useful when we know the parent image
+ * dimensions, which we don't in the list view, so we ignore it there.
+ */
+function pctBox(c: Advertisement['coordinates']) {
+  if (c?.left != null && c.width != null) {
+    return { left: c.left, top: c.top, width: c.width, height: c.height };
+  }
+  return { left: undefined, top: undefined, width: undefined, height: undefined };
 }
 
 interface AnalyticsData {
@@ -615,11 +666,33 @@ const AdBrowserTab: React.FC = () => {
                     const brandLabel = ad.brand || (typeof ad.analysis === 'object' ? ad.analysis?.brand?.name : '') || '';
                     return (
                       <div key={ad.id} className="ad-card" onClick={() => setSelectedAd(ad)}>
-                        {ad.image_url && (
-                          <div className="ad-card-image">
-                            <img src={ad.image_url} alt={ad.identifier || 'Advertisement'} loading="lazy" />
-                          </div>
-                        )}
+                        {(() => {
+                          // Prefer rendering a CSS-clipped slice of the
+                          // PARENT newspaper image (always sharp, always
+                          // covers the right region). Fall back to the
+                          // pre-cut `image_url` only when we lack either
+                          // the parent URL or usable coordinates.
+                          const box = pctBox(ad.coordinates);
+                          const clip = clipStyle(box.left, box.top, box.width, box.height);
+                          if (ad.newspaper_image_url && clip) {
+                            return (
+                              <div
+                                className="ad-card-image"
+                                role="img"
+                                aria-label={ad.identifier || 'Advertisement'}
+                                style={{ backgroundImage: `url(${ad.newspaper_image_url})`, ...clip }}
+                              />
+                            );
+                          }
+                          if (ad.image_url) {
+                            return (
+                              <div className="ad-card-image">
+                                <img src={ad.image_url} alt={ad.identifier || 'Advertisement'} loading="lazy" />
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         <div className="ad-card-header">
                           <h3>{ad.identifier}</h3>
                           <span className="ad-location">
@@ -663,11 +736,30 @@ const AdBrowserTab: React.FC = () => {
               </div>
             </div>
             <div className="modal-body">
-              {selectedAd.image_url && (
-                <div className="modal-ad-image">
-                  <img src={selectedAd.image_url} alt={selectedAd.identifier || 'Advertisement'} />
-                </div>
-              )}
+              {(() => {
+                // Modal mirrors the card's logic — clipped slice of the
+                // parent image when available, legacy pre-cut crop otherwise.
+                const box = pctBox(selectedAd.coordinates);
+                const clip = clipStyle(box.left, box.top, box.width, box.height);
+                if (selectedAd.newspaper_image_url && clip) {
+                  return (
+                    <div
+                      className="modal-ad-image"
+                      role="img"
+                      aria-label={selectedAd.identifier || 'Advertisement'}
+                      style={{ backgroundImage: `url(${selectedAd.newspaper_image_url})`, ...clip }}
+                    />
+                  );
+                }
+                if (selectedAd.image_url) {
+                  return (
+                    <div className="modal-ad-image">
+                      <img src={selectedAd.image_url} alt={selectedAd.identifier || 'Advertisement'} />
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               <div className="ad-info-section">
                 <div className="info-row">
                   <span className="info-label">Location:</span>

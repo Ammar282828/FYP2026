@@ -589,12 +589,18 @@
 }
 
 /* ── Ad card image ──────────────────────────────────────────────────────────── */
+/* Two render modes:
+ *   - <img>       (legacy fallback): centered with object-fit: contain.
+ *   - background  (live re-crop):    container itself carries the cropped slice
+ *                                    of the parent newspaper image, sized via
+ *                                    inline background-position / size.
+ * Fixed 180px height keeps the grid consistent across both modes. */
 .ad-card-image {
   width: 100%;
-  background: var(--bg-tertiary);
+  height: 180px;
+  background-color: var(--bg-tertiary);
   border-radius: 8px 8px 0 0;
   overflow: hidden;
-  max-height: 180px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -610,14 +616,14 @@
 /* ── Modal ad image ─────────────────────────────────────────────────────────── */
 .modal-ad-image {
   width: 100%;
-  background: var(--bg-tertiary);
+  height: 400px;
+  background-color: var(--bg-tertiary);
   border-radius: 8px;
   overflow: hidden;
   margin-bottom: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  max-height: 400px;
 }
 
 .modal-ad-image img {
