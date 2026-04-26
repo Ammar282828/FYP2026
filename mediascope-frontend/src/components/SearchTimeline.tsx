@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { TOOLTIP_STYLE, TOOLTIP_CURSOR, AXIS_STYLE } from '../theme/chartTheme';
 
 interface Article {
   publication_date: string;
@@ -45,26 +46,22 @@ const SearchTimeline: React.FC<SearchTimelineProps> = ({ articles }) => {
       </div>
       <ResponsiveContainer width="100%" height={120}>
         <BarChart data={timelineData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 10, fill: 'var(--text-tertiary)' }}
+            tick={AXIS_STYLE}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: 'var(--text-tertiary)' }}
+            tick={AXIS_STYLE}
             axisLine={false}
             tickLine={false}
             allowDecimals={false}
           />
           <Tooltip
-            contentStyle={{
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '8px',
-              fontSize: '0.8rem'
-            }}
+            contentStyle={TOOLTIP_STYLE}
+            cursor={TOOLTIP_CURSOR}
             formatter={(value: any) => [`${value} articles`, 'Count']}
           />
           <Bar dataKey="count" fill="var(--primary-color)" radius={[3, 3, 0, 0]} opacity={0.85} />

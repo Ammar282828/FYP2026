@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import {
+  Newspaper as NewspaperIcon,
+  Trash2,
+  ArrowLeft,
+  Calendar,
+  Sparkles,
+  X,
+  FileText,
+} from 'lucide-react';
 import { API_BASE } from '../config';
 import { useToast } from './ui/Toast';
 import EmptyState from './ui/EmptyState';
@@ -140,13 +149,13 @@ const NewspaperBrowser: React.FC = () => {
     if (e) {
       e.stopPropagation(); // Prevent card click when clicking delete button
     }
-    
+
     if (!window.confirm('Are you sure you want to delete this newspaper? This will also delete all associated articles. This action cannot be undone.')) {
       return;
     }
 
     setDeletingId(newspaperId);
-    
+
     try {
       await axios.delete(`${API_BASE}/newspapers/${newspaperId}?delete_articles=true`);
       toast('Newspaper and all articles deleted successfully', 'success');
@@ -172,13 +181,13 @@ const NewspaperBrowser: React.FC = () => {
       {!selectedPage ? (
         <div className="newspaper-list-view">
           <div className="browser-header">
-            <h2>Browse Newspaper Pages</h2>
-            <p className="subtitle">Search newspapers by date range</p>
+            <h2>Browse newspaper pages</h2>
+            <p className="subtitle">Pick a date range to surface scanned issues from the archive.</p>
           </div>
 
           <div className="date-filters">
             <label>
-              Start Date:
+              Start date
               <input
                 type="date"
                 value={startDate}
@@ -186,48 +195,43 @@ const NewspaperBrowser: React.FC = () => {
               />
             </label>
             <label>
-              End Date:
+              End date
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
               />
             </label>
-            <button onClick={loadNewspapers} disabled={loading}>
-              {loading ? 'Searching...' : 'Search'}
+            <button
+              onClick={loadNewspapers}
+              disabled={loading}
+              className="btn btn--primary"
+            >
+              {loading ? 'Searching…' : 'Search'}
             </button>
           </div>
 
           {loading ? (
-            <div className="loading">Loading newspapers...</div>
+            <div className="newspaper-grid">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="skeleton skeleton-block" style={{ height: '7rem' }} />
+              ))}
+            </div>
           ) : newspapers.length > 0 ? (
             <div className="newspaper-grid">
               {newspapers.map((newspaper) => (
                 <div
                   key={newspaper.id}
-                  className="newspaper-card"
+                  className="newspaper-card newspaper-card--with-action"
                   onClick={() => handleNewspaperClick(newspaper)}
-                  style={{ position: 'relative' }}
                 >
                   <button
                     onClick={(e) => deleteNewspaper(newspaper.id, e)}
                     disabled={deletingId === newspaper.id}
-                    style={{
-                      position: 'absolute',
-                      top: '8px',
-                      right: '8px',
-                      background: deletingId === newspaper.id ? 'var(--text-tertiary)' : 'var(--danger-color)',
-                      color: 'white',
-                      border: 'none',
-                      padding: '4px 10px',
-                      borderRadius: '4px',
-                      cursor: deletingId === newspaper.id ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      fontWeight: '500',
-                      zIndex: 10
-                    }}
+                    className="btn btn--ghost btn--sm newspaper-card__delete"
+                    aria-label="Delete newspaper"
                   >
-                    {deletingId === newspaper.id ? 'Deleting...' : '✕'}
+                    {deletingId === newspaper.id ? '…' : <X size={14} />}
                   </button>
                   <div className="newspaper-date">
                     {new Date(newspaper.publication_date).toLocaleDateString('en-US', {
@@ -246,9 +250,9 @@ const NewspaperBrowser: React.FC = () => {
             </div>
           ) : (
             <EmptyState
-              icon={'\uD83D\uDDDE'}
-              title="No newspapers in this range"
-              description="Try widening the date range or pick different dates to browse newspapers."
+              icon={<NewspaperIcon size={32} />}
+              title="No issues in this date range"
+              description="Widen the dates or pick a different window to surface scanned newspapers from the archive."
               action={{
                 label: 'Reset date range',
                 onClick: () => {
@@ -262,30 +266,22 @@ const NewspaperBrowser: React.FC = () => {
         </div>
       ) : (
         <div className="newspaper-page-view">
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '1rem' }}>
-            <button className="back-button" onClick={handleBackToList}>
-              Back to List
+          <div className="toolbar">
+            <button className="btn btn--ghost btn--sm" onClick={handleBackToList}>
+              <ArrowLeft size={14} /> Back to list
             </button>
             <button
               onClick={() => deleteNewspaper(selectedPage.newspaper.id)}
               disabled={deletingId === selectedPage.newspaper.id}
-              style={{
-                padding: '8px 16px',
-                background: deletingId === selectedPage.newspaper.id ? 'var(--text-tertiary)' : 'var(--danger-color)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: deletingId === selectedPage.newspaper.id ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                fontWeight: '500'
-              }}
+              className="btn btn--sm newspaper-delete-btn"
             >
-              {deletingId === selectedPage.newspaper.id ? 'Deleting...' : 'Delete Newspaper'}
+              <Trash2 size={14} />
+              {deletingId === selectedPage.newspaper.id ? 'Deleting…' : 'Delete newspaper'}
             </button>
           </div>
 
           <div className="page-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+            <div className="cluster" style={{ marginBottom: 'var(--space-2)' }}>
               {!editingDate ? (
                 <>
                   <h2 style={{ margin: 0 }}>
@@ -297,57 +293,28 @@ const NewspaperBrowser: React.FC = () => {
                   </h2>
                   <button
                     onClick={startEditingDate}
-                    style={{
-                      padding: '4px 12px',
-                      fontSize: '13px',
-                      background: 'var(--primary-color)',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn btn--sm newspaper-edit-date-btn"
                   >
-                    Edit Date
+                    <Calendar size={14} /> Edit date
                   </button>
                 </>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div className="cluster">
                   <input
                     type="date"
                     value={newDate}
                     onChange={(e) => setNewDate(e.target.value)}
-                    style={{
-                      padding: '8px',
-                      fontSize: '14px',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '4px'
-                    }}
+                    className="newspaper-date-input"
                   />
                   <button
                     onClick={() => updateNewspaperDate(selectedPage.newspaper.id, newDate)}
-                    style={{
-                      padding: '8px 16px',
-                      fontSize: '13px',
-                      background: 'var(--positive)',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn btn--primary btn--sm"
                   >
                     Save
                   </button>
                   <button
                     onClick={() => setEditingDate(false)}
-                    style={{
-                      padding: '8px 16px',
-                      fontSize: '13px',
-                      background: 'var(--text-secondary)',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn btn--ghost btn--sm"
                   >
                     Cancel
                   </button>
@@ -363,24 +330,42 @@ const NewspaperBrowser: React.FC = () => {
 
           <div className="summary-section">
             <div className="summary-header">
-              <h3>AI Summary</h3>
+              <h3 style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Sparkles size={16} /> AI summary
+              </h3>
               <button
                 onClick={() => generateSummary(selectedPage.newspaper.id)}
                 disabled={loadingSummary}
-                className="generate-summary-btn"
+                className="btn btn--primary btn--sm"
               >
-                {loadingSummary ? 'Generating...' : summary ? 'Regenerate Summary' : 'Generate Summary'}
+                {loadingSummary ? 'Generating…' : summary ? 'Regenerate summary' : 'Generate summary'}
               </button>
             </div>
-            {summary && (
+            {loadingSummary ? (
+              <div className="stack stack--tight" aria-busy="true">
+                <div className="skeleton skeleton-line" style={{ width: '92%' }} />
+                <div className="skeleton skeleton-line" style={{ width: '85%' }} />
+                <div className="skeleton skeleton-line" style={{ width: '60%' }} />
+              </div>
+            ) : summary ? (
               <div className="summary-content">
                 <p>{summary}</p>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <Sparkles size={24} className="empty-state__icon" />
+                <div className="empty-state__title">No summary yet</div>
+                <div className="empty-state__body">
+                  Generate one to get a quick read on what ran on this page.
+                </div>
               </div>
             )}
           </div>
 
           <div className="articles-section">
-            <h3>Articles on this Page</h3>
+            <h3 style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <FileText size={16} /> Articles on this page
+            </h3>
             <div className="articles-list">
               {selectedPage.articles.map((article) => (
                 <div key={article.id} className="article-card">

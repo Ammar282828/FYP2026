@@ -1,18 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, BookOpenText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface AuthPageProps {
   onClose?: () => void;
 }
 
+/**
+ * Auth dialog. Uses the native <dialog> element instead of a hand-rolled
+ * overlay+card so we get focus trapping, escape-to-close, and the proper
+ * `::backdrop` pseudo-element for free. Falls back gracefully when
+ * `onClose` isn't passed (the dialog opens on mount and locks the screen
+ * — useful for the protected-route flow).
+ */
 const AuthPage: React.FC<AuthPageProps> = ({ onClose }) => {
   const { login, register } = useAuth();
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+    if (typeof dlg.showModal === 'function' && !dlg.open) {
+      dlg.showModal();
+    }
+    return () => {
+      if (dlg.open) dlg.close();
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,100 +59,98 @@ const AuthPage: React.FC<AuthPageProps> = ({ onClose }) => {
     }
   };
 
+  const isLogin = mode === 'login';
+
   return (
-    <div className="auth-overlay" onClick={onClose}>
-      <div className="auth-modal" onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
+    <dialog ref={dialogRef} className="auth-dialog" onClose={onClose}>
+      <form method="dialog" onSubmit={handleSubmit} className="auth-form">
         {onClose && (
-          <button className="auth-close-btn" onClick={onClose}>x</button>
+          <button
+            type="button"
+            className="auth-dialog__close btn btn--ghost btn--sm"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
         )}
 
-        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.5rem', color: 'var(--primary-color)', marginBottom: '0.25rem' }}>
-            MediaScope
-          </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
-          </p>
-        </div>
+        <header className="auth-dialog__header">
+          <BookOpenText size={28} strokeWidth={1.5} className="auth-dialog__mark" />
+          <div>
+            <div className="section-eyebrow">MediaScope</div>
+            <h2 className="auth-dialog__title">
+              {isLogin ? 'Sign in to continue' : 'Create your account'}
+            </h2>
+          </div>
+        </header>
 
-        <form onSubmit={handleSubmit}>
-          {mode === 'register' && (
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                Name
-              </label>
+        <div className="auth-form__fields">
+          {!isLogin && (
+            <label className="auth-field">
+              <span className="auth-field__label">Name</span>
               <input
                 type="text"
-                className="auth-input"
+                className="auth-field__input"
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="Your name"
+                autoComplete="name"
               />
-            </div>
+            </label>
           )}
 
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '4px' }}>
-              Email
-            </label>
+          <label className="auth-field">
+            <span className="auth-field__label">Email</span>
             <input
               type="email"
-              className="auth-input"
+              className="auth-field__input"
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
+              autoComplete="email"
             />
-          </div>
+          </label>
 
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '4px' }}>
-              Password
-            </label>
+          <label className="auth-field">
+            <span className="auth-field__label">Password</span>
             <input
               type="password"
-              className="auth-input"
+              className="auth-field__input"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder={mode === 'register' ? 'At least 6 characters' : 'Your password'}
+              placeholder={isLogin ? 'Your password' : 'At least 6 characters'}
               required
               minLength={6}
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
             />
-          </div>
-
-          {error && (
-            <div style={{
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid var(--danger-color)',
-              color: 'var(--danger-color)',
-              padding: '10px 12px',
-              borderRadius: '8px',
-              fontSize: '0.8rem',
-              marginBottom: '1rem'
-            }}>
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="auth-submit-btn"
-            disabled={loading}
-            style={loading ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
-          >
-            {loading ? 'Please wait...' : (mode === 'login' ? 'Sign In' : 'Create Account')}
-          </button>
-        </form>
-
-        <div className="auth-toggle">
-          <button
-            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
-          >
-            {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-          </button>
+          </label>
         </div>
-      </div>
-    </div>
+
+        {error && (
+          <div className="auth-error" role="alert">
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          className="btn btn--primary btn--lg auth-submit"
+          disabled={loading}
+        >
+          {loading ? 'Please wait…' : (isLogin ? 'Sign in' : 'Create account')}
+        </button>
+
+        <button
+          type="button"
+          className="auth-toggle"
+          onClick={() => { setMode(isLogin ? 'register' : 'login'); setError(''); }}
+        >
+          {isLogin ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
+        </button>
+      </form>
+    </dialog>
   );
 };
 

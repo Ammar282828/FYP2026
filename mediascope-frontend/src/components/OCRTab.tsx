@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { Upload, FolderOpen, Files, FileImage, CheckCircle, AlertCircle } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useToast } from './ui/Toast';
 
@@ -242,9 +243,13 @@ const OCRTab: React.FC = () => {
 
   return (
     <div className="ocr-view">
-      <div className="ocr-header">
-        <h2>OCR Processing</h2>
-      </div>
+      <header className="stack stack--tight" style={{ marginBottom: 'var(--space-3)' }}>
+        <span className="section-eyebrow">Ingestion</span>
+        <h2 style={{ margin: 0 }}>Run OCR on a newspaper page</h2>
+        <p className="stat-sub" style={{ margin: 0 }}>
+          Upload a single scan, a folder of pages, or point at a path on the server.
+        </p>
+      </header>
 
       <div className="mode-toggle">
         <button
@@ -256,7 +261,7 @@ const OCRTab: React.FC = () => {
             setBulkResults(null);
           }}
         >
-          Single Upload
+          <FileImage size={14} aria-hidden="true" /> Single upload
         </button>
         <button
           className={bulkMode && !localFolderMode ? 'active' : ''}
@@ -267,7 +272,7 @@ const OCRTab: React.FC = () => {
             setPreviewUrl(null);
           }}
         >
-          Bulk Upload
+          <Files size={14} aria-hidden="true" /> Bulk upload
         </button>
         <button
           className={localFolderMode ? 'active' : ''}
@@ -280,7 +285,7 @@ const OCRTab: React.FC = () => {
             setBulkResults(null);
           }}
         >
-          Local Folder
+          <FolderOpen size={14} aria-hidden="true" /> Local folder
         </button>
       </div>
 
@@ -319,16 +324,17 @@ const OCRTab: React.FC = () => {
                 {...(bulkMode ? { webkitdirectory: "", directory: "" } : {})}
               />
               <label htmlFor="ocr-file-input" className="upload-label">
+                <Upload size={28} strokeWidth={1.5} aria-hidden="true" />
                 <div className="upload-text">
                   {bulkMode
                     ? selectedFiles.length > 0
-                      ? `${selectedFiles.length} files selected from folder`
-                      : 'Click to select a folder of newspaper images'
+                      ? `${selectedFiles.length} files queued`
+                      : 'Pick a folder of newspaper scans'
                     : selectedFile
                     ? selectedFile.name
-                    : 'Click to select a newspaper image'}
+                    : 'Pick a newspaper scan'}
                 </div>
-                <div className="upload-hint">JPG, PNG, PDF</div>
+                <div className="upload-hint">JPG, PNG, or PDF</div>
               </label>
             </div>
           )}
@@ -439,14 +445,18 @@ const OCRTab: React.FC = () => {
 
       {ocrStatus && (
         <div className="ocr-status">
-          <h3>Processing Status</h3>
-          <div className="status-card">
-            <div className="status-header">
+          <div className="section-header">
+            <h3 className="section-title">Processing status</h3>
+          </div>
+          <div className="ocr-status-card">
+            <div className="cluster" style={{ justifyContent: 'space-between' }}>
               <span className={`status-badge ${ocrStatus.status}`}>
                 {ocrStatus.status.toUpperCase()}
               </span>
               {ocrStatus.progress !== undefined && (
-                <span className="progress-text">{ocrStatus.progress}%</span>
+                <span className="stat-sub" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {ocrStatus.progress}%
+                </span>
               )}
             </div>
 
@@ -462,8 +472,9 @@ const OCRTab: React.FC = () => {
             <div className="status-message">{ocrStatus.message}</div>
 
             {ocrStatus.status === 'completed' && (
-              <div className="status-success">
-                <p>Processing complete. Articles added to the database.</p>
+              <div className="ocr-status-success">
+                <CheckCircle size={16} aria-hidden="true" />
+                Articles indexed and ready to search.
               </div>
             )}
           </div>
@@ -472,29 +483,33 @@ const OCRTab: React.FC = () => {
 
       {bulkResults && (
         <div className="bulk-results">
-          <h3>{localFolderMode ? 'Local Folder Processing Results' : 'Bulk Upload Results'}</h3>
-          <div className="bulk-summary">
-            <div className="summary-stat success">
+          <div className="section-header">
+            <h3 className="section-title">
+              {localFolderMode ? 'Folder run results' : 'Bulk upload results'}
+            </h3>
+          </div>
+          <div className="stat-grid" style={{ marginBottom: 'var(--space-3)' }}>
+            <div className="stat-card stat-card--accent">
               <div className="stat-label">Successful</div>
-              <div className="stat-value">{bulkResults.successful}</div>
+              <div className="stat-value" style={{ color: 'var(--positive)' }}>{bulkResults.successful}</div>
             </div>
-            <div className="summary-stat failed">
+            <div className="stat-card">
               <div className="stat-label">Failed</div>
-              <div className="stat-value">{bulkResults.failed}</div>
+              <div className="stat-value" style={{ color: 'var(--negative)' }}>{bulkResults.failed}</div>
             </div>
-            <div className="summary-stat total">
+            <div className="stat-card">
               <div className="stat-label">Total</div>
               <div className="stat-value">{bulkResults.total_files}</div>
             </div>
           </div>
 
           <div className="results-table">
-            <table>
+            <table className="data-table data-table--compact">
               <thead>
                 <tr>
                   <th>Filename</th>
                   <th>Status</th>
-                  <th>Detected Date</th>
+                  <th>Detected date</th>
                   {!localFolderMode && <th>Size</th>}
                   {localFolderMode && <th>Path</th>}
                 </tr>
@@ -510,7 +525,7 @@ const OCRTab: React.FC = () => {
                           : result.status === 'uploaded' ? 'Uploaded' : 'Error'}
                       </span>
                     </td>
-                    <td>{result.extracted_date || 'Not detected'}</td>
+                    <td>{result.extracted_date || <span className="stat-sub">—</span>}</td>
                     {!localFolderMode && <td>{result.size ? `${(result.size / 1024).toFixed(1)} KB` : '-'}</td>}
                     {localFolderMode && <td className="path-cell">{result.path}</td>}
                   </tr>
@@ -523,13 +538,18 @@ const OCRTab: React.FC = () => {
 
       {filesNeedingDates.length > 0 && (
         <div className="files-needing-dates">
-          <h3>Files Processed Without Date Detection</h3>
+          <div className="section-header">
+            <h3 className="section-title">Pages without a detected date</h3>
+            <span className="section-eyebrow" style={{ marginBottom: 0 }}>
+              <AlertCircle size={12} aria-hidden="true" /> Manual review
+            </span>
+          </div>
           <div className="files-list">
             {filesNeedingDates.map((file, idx) => (
               <div key={idx} className="file-item">
                 <span className="file-index">#{file.index}</span>
                 <span className="file-name">{file.filename}</span>
-                <span className="file-status">No date detected</span>
+                <span className="chip">No date detected</span>
               </div>
             ))}
           </div>

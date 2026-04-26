@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { Search, Filter, Bookmark, X } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './ui/Toast';
@@ -236,42 +237,37 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
 
   return (
     <div className="search-panel-enhanced">
-      <div className="search-header">
-        <div className="search-header-row">
-          <span className="search-eyebrow">Dawn Archives · 1990–1992</span>
-          <div className="search-type-segmented" role="tablist" aria-label="Search type">
-            <button
-              role="tab"
-              aria-selected={searchType === 'keyword'}
-              className={searchType === 'keyword' ? 'active' : ''}
-              onClick={() => setSearchType('keyword')}
-            >
-              Keyword
-            </button>
-            <button
-              role="tab"
-              aria-selected={searchType === 'entity'}
-              className={searchType === 'entity' ? 'active' : ''}
-              onClick={() => setSearchType('entity')}
-            >
-              Entity
-            </button>
-          </div>
+      {/* Single unified bar: keyword/entity toggle inline with the input,
+          search button glued to the right. Eliminates the prior separate
+          "header row" stack — was 3 rows, now 1. */}
+      <div className="search-bar">
+        <div className="search-mode-segmented" role="tablist" aria-label="Search type">
+          <button
+            role="tab"
+            aria-selected={searchType === 'keyword'}
+            className={searchType === 'keyword' ? 'active' : ''}
+            onClick={() => setSearchType('keyword')}
+            title="Search article text"
+          >
+            Keyword
+          </button>
+          <button
+            role="tab"
+            aria-selected={searchType === 'entity'}
+            className={searchType === 'entity' ? 'active' : ''}
+            onClick={() => setSearchType('entity')}
+            title="Search by person / org / place"
+          >
+            Entity
+          </button>
         </div>
-      </div>
-
-      <div className="search-input-group">
         <div className="search-input-wrap">
-          <svg className="search-input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <Search className="search-input-icon" size={16} aria-hidden="true" />
           <input
             type="text"
             placeholder={
               searchType === 'keyword'
-                ? 'Search articles by keyword…'
+                ? 'Search articles…'
                 : 'Search by person, organization, or location…'
             }
             value={query}
@@ -288,7 +284,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
               aria-label="Clear search"
               title="Clear"
             >
-              {'\u2715'}
+              <X size={14} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -297,157 +293,78 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
           disabled={loading}
           className="search-button"
         >
-          {loading ? 'Searching…' : 'Search'}
+          {loading ? '…' : 'Search'}
         </button>
       </div>
 
+      {/* Toolbar collapsed: Sort moved INTO the filters drawer (it's a
+          rarely-changed control that doesn't need to live always-visible).
+          Save + Saved unified into one Bookmark dropdown. Net: 4 controls
+          → 2. */}
       <div className="search-toolbar">
-        <div className="search-toolbar-left">
-          <label className="toolbar-control toolbar-sort">
-            <span className="toolbar-control-label">Sort</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              title="Sort results by"
-            >
-              <option value="date">Newest first</option>
-              <option value="date_asc">Oldest first</option>
-              <option value="relevance">Most relevant</option>
-              <option value="frequency">Most mentions</option>
-              <option value="sentiment">Most positive</option>
-              <option value="sentiment_asc">Most negative</option>
-            </select>
-          </label>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`toolbar-button ${showFilters ? 'is-open' : ''}`}
-            aria-expanded={showFilters}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="4" y1="6" x2="20" y2="6" />
-              <line x1="7" y1="12" x2="17" y2="12" />
-              <line x1="10" y1="18" x2="14" y2="18" />
-            </svg>
-            Filters
-            {activeFilterCount > 0 && <span className="toolbar-badge">{activeFilterCount}</span>}
-          </button>
-        </div>
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={`toolbar-button ${showFilters ? 'is-open' : ''}`}
+          aria-expanded={showFilters}
+        >
+          <Filter size={14} aria-hidden="true" />
+          Filters
+          {activeFilterCount > 0 && <span className="toolbar-badge">{activeFilterCount}</span>}
+        </button>
         {user && (
-          <div className="search-toolbar-right">
+          <div className="saved-search-anchor">
             <button
-              onClick={handleSaveSearch}
-              className="toolbar-button toolbar-button-ghost"
-              title="Save this search"
+              onClick={() => setShowSaved(v => !v)}
+              className={`toolbar-button toolbar-button-ghost ${showSaved ? 'is-open' : ''}`}
+              title="Saved searches"
+              aria-expanded={showSaved}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-              </svg>
-              Save
+              <Bookmark size={14} aria-hidden="true" />
+              Saved
+              {savedSearches.length > 0 && <span className="toolbar-badge">{savedSearches.length}</span>}
             </button>
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => setShowSaved(v => !v)}
-                className={`toolbar-button toolbar-button-ghost ${showSaved ? 'is-open' : ''}`}
-                title="View saved searches"
-                aria-expanded={showSaved}
-              >
-                Saved
-                {savedSearches.length > 0 && <span className="toolbar-badge">{savedSearches.length}</span>}
-              </button>
-              {showSaved && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 4px)',
-                    right: 0,
-                    minWidth: 280,
-                    maxWidth: 360,
-                    maxHeight: 400,
-                    overflowY: 'auto',
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 8,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                    zIndex: 50,
-                    padding: 8,
-                  }}
-                >
-                  <div style={{
-                    fontSize: 11,
-                    textTransform: 'uppercase',
-                    color: 'var(--text-secondary)',
-                    padding: '4px 8px',
-                    letterSpacing: 0.5,
-                  }}>
-                    Saved searches
-                  </div>
-                  {savedSearches.length === 0 ? (
-                    <div style={{ padding: '12px 8px', fontSize: 13, color: 'var(--text-tertiary)' }}>
-                      No saved searches yet.
-                    </div>
-                  ) : (
-                    savedSearches.map(s => (
-                      <div
-                        key={s.id}
-                        onClick={() => applySavedSearch(s)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '8px',
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                          background: 'transparent',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: 'var(--text-primary)',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}>
-                            {s.name}
-                          </div>
-                          {s.query && (
-                            <div style={{
-                              fontSize: 11,
-                              color: 'var(--text-secondary)',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}>
-                              "{s.query}"
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          onClick={(e) => deleteSavedSearch(s.id, e)}
-                          title="Delete saved search"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-tertiary)',
-                            cursor: 'pointer',
-                            fontSize: 14,
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                          }}
-                        >
-                          {'\u2715'}
-                        </button>
-                      </div>
-                    ))
-                  )}
+            {showSaved && (
+              <div className="saved-search-menu">
+                <div className="saved-search-menu__heading">
+                  <span>Saved searches</span>
+                  <button
+                    type="button"
+                    onClick={handleSaveSearch}
+                    className="btn btn--ghost btn--sm"
+                    title="Save current query + filters"
+                  >
+                    Save current
+                  </button>
                 </div>
-              )}
-            </div>
+                {savedSearches.length === 0 ? (
+                  <div className="saved-search-menu__empty">
+                    Nothing saved yet — pin a query and revisit it later.
+                  </div>
+                ) : (
+                  savedSearches.map(s => (
+                    <div
+                      key={s.id}
+                      onClick={() => applySavedSearch(s)}
+                      className="saved-search-row"
+                    >
+                      <div className="saved-search-row__main">
+                        <div className="saved-search-row__name">{s.name}</div>
+                        {s.query && (
+                          <div className="saved-search-row__query">"{s.query}"</div>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => deleteSavedSearch(s.id, e)}
+                        title="Delete saved search"
+                        className="saved-search-row__delete"
+                      >
+                        <X size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -456,7 +373,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
         <div className="filters-panel">
           <div className="filters-grid">
             <div className="filter-group">
-              <label>Start Date</label>
+              <label>From</label>
               <input
                 type="date"
                 value={filters.startDate}
@@ -467,7 +384,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
             </div>
 
             <div className="filter-group">
-              <label>End Date</label>
+              <label>To</label>
               <input
                 type="date"
                 value={filters.endDate}
@@ -483,7 +400,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
                 value={filters.sentiment}
                 onChange={(e) => updateFilter('sentiment', e.target.value)}
               >
-                <option value="">All Sentiments</option>
+                <option value="">Any</option>
                 <option value="positive">Positive</option>
                 <option value="neutral">Neutral</option>
                 <option value="negative">Negative</option>
@@ -494,19 +411,19 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
               <label>Topic</label>
               <input
                 type="text"
-                placeholder="e.g., Politics, Sports"
+                placeholder="e.g. Politics, Sports"
                 value={filters.topic}
                 onChange={(e) => updateFilter('topic', e.target.value)}
               />
             </div>
 
             <div className="filter-group">
-              <label>Entity Type</label>
+              <label>Entity</label>
               <select
                 value={filters.entityType}
                 onChange={(e) => updateFilter('entityType', e.target.value)}
               >
-                <option value="">All Types</option>
+                <option value="">Any</option>
                 <option value="PERSON">People</option>
                 <option value="ORG">Organizations</option>
                 <option value="GPE">Locations</option>
@@ -514,24 +431,44 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
                 <option value="EVENT">Events</option>
               </select>
             </div>
+
+            {/* Sort lives inside the drawer so it doesn't take a permanent
+                slot in the always-visible toolbar. */}
+            <div className="filter-group">
+              <label>Sort by</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="date">Newest first</option>
+                <option value="date_asc">Oldest first</option>
+                <option value="relevance">Most relevant</option>
+                <option value="frequency">Most mentions</option>
+                <option value="sentiment">Most positive</option>
+                <option value="sentiment_asc">Most negative</option>
+              </select>
+            </div>
           </div>
 
           <div className="filter-actions">
-            <button onClick={clearFilters} className="clear-filters-btn">
-              Clear Filters
+            <button onClick={clearFilters} className="btn btn--ghost btn--sm">
+              Clear
             </button>
-            <button onClick={handleSearch} className="apply-filters-btn">
-              Apply Filters
+            <button onClick={handleSearch} className="btn btn--primary btn--sm">
+              Apply
             </button>
           </div>
         </div>
       )}
 
-      {suggestions.length > 0 && !showFilters && (
+      {/* Suggestions only show when the user hasn't searched OR drawer is
+          closed AND no query — keeps the page from being a wall of pills
+          on first load. Reduced from 16 → 8 to lower visual weight. */}
+      {suggestions.length > 0 && !showFilters && !query && (
         <div className="suggestions-panel">
-          <h4>Try a popular keyword</h4>
+          <h4>Suggested keywords</h4>
           <div className="suggestion-tags">
-            {suggestions.slice(0, 16).map((s, idx) => (
+            {suggestions.slice(0, 8).map((s, idx) => (
               <button
                 key={idx}
                 className="suggestion-tag"

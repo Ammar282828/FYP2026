@@ -548,7 +548,47 @@
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
-/* Primary search row: input + Search */
+/* Single unified search bar: mode toggle + input + Search button on
+   one row. Replaces the prior 2-row layout (header + input). */
+.search-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+/* Mode toggle, slimmed down to fit on the single search bar. */
+.search-mode-segmented {
+  display: inline-flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.search-mode-segmented button {
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.search-mode-segmented button:hover:not(.active) { color: var(--text-primary); }
+.search-mode-segmented button.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* Legacy class kept for back-compat — removed wrapper just above. */
 .search-input-group {
   display: flex;
   gap: 10px;
@@ -640,14 +680,32 @@
   cursor: not-allowed;
 }
 
-/* Secondary toolbar — sort, filters, save, saved */
+/* Secondary toolbar — slim, just the Filters toggle and Saved menu now.
+   Sort moved into the filters drawer; Save/Saved unified into a single
+   dropdown to drop the always-visible button count from 4 → 2. */
 .search-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  padding-top: 4px;
+  padding-top: 0;
+  margin-bottom: 10px;
+}
+
+/* Saved-search menu heading: title + inline "Save current" CTA. */
+.saved-search-menu__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .search-toolbar-left,
@@ -1347,110 +1405,159 @@
   margin-top: 24px;
 }
 
+/* Editorial card: tighter than the prior 32px-padding 22px-headline
+   slab. Hover keeps it grounded — no lift+shadow (that combination
+   reads as "AI template card"); just a quiet border darken. */
 .article-card {
   background: var(--bg-primary);
-  border-radius: 12px;
-  padding: 32px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  transition: all 0.3s;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
   cursor: pointer;
-  border: 1px solid var(--bg-tertiary);
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .article-card:hover {
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-  transform: translateY(-2px);
-  border-color: var(--border-color);
+  border-color: var(--text-tertiary);
+  background: var(--bg-secondary);
 }
 
 .article-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 20px;
-  gap: 24px;
+  margin-bottom: var(--space-2);
+  gap: var(--space-4);
 }
 
 .article-headline {
-  font-size: 22px;
+  font-size: var(--font-size-lg);
   color: var(--text-primary);
   margin: 0;
   flex: 1;
-  line-height: 1.5;
+  line-height: 1.35;
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.article-card__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .article-date {
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
   white-space: nowrap;
   font-weight: 600;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  /* No background pill — date is meta, not a chip. */
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+/* Icon-only delete button: shows on hover for the row only, so the
+   action surface doesn't clutter every card at rest. */
+.article-card__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+  opacity: 0;
+}
+.article-card:hover .article-card__delete { opacity: 1; }
+.article-card__delete:hover {
+  background: color-mix(in srgb, var(--danger-color) 10%, transparent);
+  color: var(--danger-color);
+  border-color: color-mix(in srgb, var(--danger-color) 30%, transparent);
+}
+.article-card__delete:disabled {
+  cursor: wait;
+  opacity: 0.4;
 }
 
 .article-content-preview {
   color: var(--text-secondary);
-  line-height: 1.7;
-  margin-bottom: 24px;
-  font-size: 15px;
+  line-height: 1.55;
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
+/* Meta row: tighter, all chips on one baseline. Was 8-14px padding ×
+   13-15px font; now matches the .chip primitive size for consistency. */
 .article-meta {
   display: flex;
-  gap: 16px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   align-items: center;
 }
 
 .sentiment-badge {
-  padding: 8px 14px;
-  border-radius: 20px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
   color: white;
-  font-size: 13px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  letter-spacing: 0.01em;
 }
 
 .sentiment-score {
-  font-size: 11px;
-  opacity: 0.9;
+  font-size: 0.6875rem;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
 }
 
 .topic-badge {
-  padding: 8px 14px;
-  border-radius: 20px;
-  background: #eef2ff;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
   color: var(--primary-color);
-  font-size: 13px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .entities-list {
   display: flex;
-  gap: 10px;
+  gap: var(--space-1);
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .entity-tag {
-  padding: 6px 12px;
+  padding: 2px var(--space-2);
   background: var(--bg-tertiary);
-  border-radius: 12px;
-  font-size: 12px;
-  color: var(--text-primary);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border-color);
-  transition: all 0.2s;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s;
 }
 
 .entity-tag:hover {
-  background: var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   border-color: var(--border-color);
 }
 

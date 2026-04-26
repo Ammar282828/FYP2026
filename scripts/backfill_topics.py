@@ -56,7 +56,11 @@ _ROOT = os.path.dirname(_HERE)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from services.topics_gemini import classify_topic_gemini  # noqa: E402
+from services.topics_gemini import (  # noqa: E402
+    classify_topic_gemini,
+    classify_topics_batch_gemini,
+    BATCH_TOPIC_SIZE,
+)
 from scripts._call_timeout import call_with_timeout  # noqa: E402
 
 
@@ -127,6 +131,9 @@ def main() -> int:
                    help="re-classify even articles already marked gemini-curated")
     p.add_argument("--report-every", type=int, default=20,
                    help="print a running tally every N classified articles")
+    p.add_argument("--batch-size", type=int, default=BATCH_TOPIC_SIZE,
+                   help=f"how many articles per Gemini call (default {BATCH_TOPIC_SIZE}, "
+                        "0 = legacy per-article path)")
     args = p.parse_args()
 
     if not os.getenv("GEMINI_API_KEY"):
@@ -146,6 +153,89 @@ def main() -> int:
     transitions: dict[tuple[str, str], int] = {}
     start = time.time()
 
+    use_batch = args.batch_size > 1
+
+    # Per-batch buffer: each entry is (article_dict, combined_text, old_label).
+    # Flushed when it reaches batch_size OR the input stream ends. The flush
+    # function is a closure over all the running counters above.
+    pending: list[tuple[dict, str, str]] = []
+
+    def _flush() -> bool:
+        """Send the pending batch to Gemini, write the results to Firestore.
+        Returns False when --limit causes us to stop early."""
+        nonlocal classified, errored
+        if not pending:
+            return True
+
+        texts = [entry[1] for entry in pending]
+        try:
+            results = call_with_timeout(
+                classify_topics_batch_gemini, texts,
+                model_name=args.model, batch_size=args.batch_size, timeout=120.0,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Whole-batch hard failure (timeout, network). Flag every
+            # article in the batch as errored and continue.
+            for art, _, _ in pending:
+                errored += 1
+                print(f"  ! {art['_id']}: gemini batch error: {exc}")
+            pending.clear()
+            if args.throttle:
+                time.sleep(args.throttle)
+            return True
+
+        for (art, _combined, old_label), result in zip(pending, results):
+            if result.get('confidence', 0) <= 0:
+                errored += 1
+                print(f"  ! {art['_id']}: no signal "
+                      f"({(result.get('reasoning') or '')[:80]})")
+                continue
+
+            new_label = result['topic_label']
+            label_counts[new_label] = label_counts.get(new_label, 0) + 1
+            transitions[(old_label, new_label)] = transitions.get((old_label, new_label), 0) + 1
+
+            payload = {
+                'topic_id': result['topic_id'],
+                'topic_label': new_label,
+                'topic_key': result['topic_key'],
+                'topic_confidence': result['confidence'],
+                'topic_reasoning': result.get('reasoning', ''),
+                'topic_method': 'gemini-curated',
+                'topic_scored_at': datetime.now(timezone.utc).isoformat(),
+            }
+
+            tag = "[DRY]" if args.dry_run else "[OK ]"
+            arrow = '→' if old_label != new_label else '='
+            old_short = (old_label[:32] + '…') if len(old_label) > 32 else old_label
+            print(f"  {tag} {art['_id']}: {old_short:<33} {arrow} {new_label} "
+                  f"(conf={result['confidence']:.2f})")
+
+            if not args.dry_run:
+                try:
+                    art['_ref'].update(payload)
+                except Exception as exc:  # noqa: BLE001
+                    errored += 1
+                    print(f"  ! {art['_id']}: write failed: {exc}")
+                    continue
+
+            classified += 1
+            if args.report_every and classified % args.report_every == 0:
+                elapsed = time.time() - start
+                rate = classified / elapsed if elapsed > 0 else 0
+                print(f"  -- progress: classified={classified} skipped={skipped} "
+                      f"errored={errored} ({rate:.1f}/s) --")
+
+            if args.limit and classified >= args.limit:
+                pending.clear()
+                print(f"[backfill-topics] reached --limit {args.limit}, stopping")
+                return False
+
+        pending.clear()
+        if args.throttle:
+            time.sleep(args.throttle)
+        return True
+
     try:
         for article in _iter_articles(db, page_size=args.page_size):
             seen += 1
@@ -159,6 +249,14 @@ def main() -> int:
             combined = f"{headline}\n\n{text}".strip()
             old_label = article.get('topic_label') or 'Uncategorized'
 
+            if use_batch:
+                pending.append((article, combined, old_label))
+                if len(pending) >= args.batch_size:
+                    if not _flush():
+                        break
+                continue
+
+            # ── Legacy per-article path (--batch-size 0 or 1) ──
             try:
                 result = call_with_timeout(
                     classify_topic_gemini, combined,
@@ -220,6 +318,10 @@ def main() -> int:
 
             if args.throttle:
                 time.sleep(args.throttle)
+
+        # End of stream — drain whatever's left in the batch buffer.
+        if use_batch:
+            _flush()
 
     except KeyboardInterrupt:
         print("\n[backfill-topics] interrupted — partial progress kept "

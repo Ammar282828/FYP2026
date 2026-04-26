@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import {
+  BookmarkCheck,
+  Bookmark as BookmarkIcon,
+  Tag as TagIcon,
+  FolderOpen,
+  Trash2,
+  Pencil,
+} from 'lucide-react';
 import { API_BASE } from '../config';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './ui/Toast';
@@ -33,26 +41,6 @@ type FilterState =
   | { kind: 'all' }
   | { kind: 'collection'; name: string }
   | { kind: 'tag'; name: string };
-
-const chipBase: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  padding: '4px 10px',
-  borderRadius: 'var(--radius-md)',
-  border: '1px solid var(--border-color)',
-  background: 'var(--bg-secondary)',
-  color: 'var(--text-primary)',
-  fontSize: '0.78rem',
-  cursor: 'pointer',
-  userSelect: 'none',
-};
-
-const chipActive: React.CSSProperties = {
-  background: 'var(--primary-color)',
-  color: '#fff',
-  borderColor: 'var(--primary-color)',
-};
 
 const BookmarksPanel: React.FC = () => {
   const navigate = useNavigate();
@@ -154,16 +142,21 @@ const BookmarksPanel: React.FC = () => {
     return bookmarks.filter(b => (b.tags || []).includes(filter.name));
   }, [bookmarks, filter]);
 
-  const sentimentColor: Record<string, string> = {
-    positive: 'var(--positive)',
-    negative: 'var(--negative)',
-    neutral: 'var(--text-tertiary)',
+  const sentimentChip = (label: string) => {
+    if (label === 'positive') return 'chip chip--positive';
+    if (label === 'negative') return 'chip chip--negative';
+    return 'chip';
   };
 
   if (loading) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <p style={{ color: 'var(--text-tertiary)' }}>Loading bookmarks...</p>
+      <div className="bookmarks-panel">
+        <div className="stack" aria-busy="true">
+          <div className="skeleton skeleton-line" style={{ width: '30%' }} />
+          <div className="skeleton skeleton-block" />
+          <div className="skeleton skeleton-block" />
+          <div className="skeleton skeleton-block" />
+        </div>
       </div>
     );
   }
@@ -174,63 +167,48 @@ const BookmarksPanel: React.FC = () => {
 
   return (
     <div className="bookmarks-panel">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+      <div className="section-header">
         <div>
-          <h2>My Bookmarks</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
+          <h2 style={{ margin: 0 }}>My bookmarks</h2>
+          <p className="stat-sub" style={{ marginTop: '4px' }}>
             {filteredBookmarks.length} of {bookmarks.length} saved article{bookmarks.length !== 1 ? 's' : ''}
           </p>
         </div>
       </div>
 
       {(collections.length > 0 || tags.length > 0) && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            marginBottom: '1.25rem',
-            padding: '10px',
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-          }}
-        >
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginRight: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Collections
-            </span>
+        <div className="card card--inset bookmarks-filterbar">
+          <div className="cluster">
+            <span className="section-eyebrow" style={{ margin: 0 }}>Collections</span>
             <button
               type="button"
               onClick={() => setFilter({ kind: 'all' })}
-              style={{ ...chipBase, ...(filter.kind === 'all' ? chipActive : {}) }}
+              className={`chip bookmarks-chip ${filter.kind === 'all' ? 'is-active' : ''}`}
             >
-              All <span style={{ opacity: 0.7 }}>({bookmarks.length})</span>
+              All <span className="bookmarks-chip__count">{bookmarks.length}</span>
             </button>
             {collections.map(c => (
               <button
                 key={c.name}
                 type="button"
                 onClick={() => setFilter({ kind: 'collection', name: c.name })}
-                style={{ ...chipBase, ...(isCollectionActive(c.name) ? chipActive : {}) }}
+                className={`chip bookmarks-chip ${isCollectionActive(c.name) ? 'is-active' : ''}`}
               >
-                {c.name} <span style={{ opacity: 0.7 }}>({c.count})</span>
+                <FolderOpen size={12} /> {c.name} <span className="bookmarks-chip__count">{c.count}</span>
               </button>
             ))}
           </div>
           {tags.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginRight: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Tags
-              </span>
+            <div className="cluster">
+              <span className="section-eyebrow" style={{ margin: 0 }}>Tags</span>
               {tags.map(t => (
                 <button
                   key={t.name}
                   type="button"
                   onClick={() => setFilter({ kind: 'tag', name: t.name })}
-                  style={{ ...chipBase, ...(isTagActive(t.name) ? chipActive : {}) }}
+                  className={`chip bookmarks-chip ${isTagActive(t.name) ? 'is-active' : ''}`}
                 >
-                  #{t.name} <span style={{ opacity: 0.7 }}>({t.count})</span>
+                  <TagIcon size={12} /> {t.name} <span className="bookmarks-chip__count">{t.count}</span>
                 </button>
               ))}
             </div>
@@ -247,20 +225,20 @@ const BookmarksPanel: React.FC = () => {
       {filteredBookmarks.length === 0 ? (
         bookmarks.length === 0 ? (
           <EmptyState
-            icon={'\u2B50'}
+            icon={<BookmarkIcon size={32} />}
             title="No bookmarks yet"
-            description="Click the bookmark button on any article to save it here for later."
+            description="Save articles to revisit them later — bookmarks let you build collections and tag what matters."
           />
         ) : (
           <EmptyState
-            icon={'\uD83D\uDD0D'}
-            title="No bookmarks match this filter"
-            description="Try selecting a different collection or tag to find what you saved."
+            icon={<BookmarkCheck size={32} />}
+            title="Nothing matches this filter"
+            description="Try a different collection or tag, or clear the filter to see everything you've saved."
             action={{ label: 'Show all bookmarks', onClick: () => setFilter({ kind: 'all' }) }}
           />
         )
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div className="stack stack--tight">
           {filteredBookmarks.map(bookmark => {
             const isEditing = editingId === bookmark.id;
             return (
@@ -273,150 +251,80 @@ const BookmarksPanel: React.FC = () => {
                 <div className="bookmark-info">
                   <div className="bookmark-headline">{bookmark.article_headline}</div>
 
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
-                    {bookmark.article_date && <span className="bookmark-meta">{bookmark.article_date}</span>}
-                    <span
-                      className="sentiment-badge"
-                      style={{
-                        background: sentimentColor[bookmark.article_sentiment] || 'var(--text-tertiary)',
-                        fontSize: '0.7rem',
-                        padding: '2px 8px',
-                      }}
-                    >
+                  <div className="cluster" style={{ marginTop: '4px' }}>
+                    {bookmark.article_date && (
+                      <span className="bookmark-meta">{bookmark.article_date}</span>
+                    )}
+                    <span className={sentimentChip(bookmark.article_sentiment)}>
                       {bookmark.article_sentiment}
                     </span>
                     {bookmark.article_topic && (
-                      <span className="topic-badge" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                      <span className="chip">
                         {bookmark.article_topic.replace(/_/g, ' ').slice(0, 30)}
                       </span>
                     )}
                     {bookmark.collection && (
-                      <span
-                        style={{
-                          fontSize: '0.7rem',
-                          padding: '2px 8px',
-                          borderRadius: 'var(--radius-md)',
-                          background: 'var(--primary-color)',
-                          color: '#fff',
-                        }}
-                      >
-                        {'\u{1F4C1}'} {bookmark.collection}
+                      <span className="chip chip--accent">
+                        <FolderOpen size={12} /> {bookmark.collection}
                       </span>
                     )}
                   </div>
 
                   {bookmark.tags && bookmark.tags.length > 0 && (
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                    <div className="cluster" style={{ marginTop: 'var(--space-2)' }}>
                       {bookmark.tags.map(tag => (
-                        <span
-                          key={tag}
-                          style={{
-                            fontSize: '0.7rem',
-                            padding: '1px 8px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--bg-secondary)',
-                            color: 'var(--text-primary)',
-                          }}
-                        >
-                          #{tag}
+                        <span key={tag} className="chip">
+                          <TagIcon size={11} /> {tag}
                         </span>
                       ))}
                     </div>
                   )}
 
                   {!isEditing && bookmark.note && (
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px', fontStyle: 'italic' }}>
-                      {bookmark.note}
-                    </p>
+                    <p className="bookmark-note">{bookmark.note}</p>
                   )}
 
                   {isEditing && (
                     <div
                       onClick={e => e.stopPropagation()}
-                      style={{
-                        marginTop: 10,
-                        padding: 10,
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-md)',
-                        background: 'var(--bg-secondary)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                      }}
+                      className="card card--inset bookmark-edit"
                     >
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Collection
+                      <label className="bookmark-edit__field">
+                        <span className="bookmark-edit__label">Collection</span>
                         <input
                           type="text"
                           list="bookmark-collections"
                           value={editCollection}
                           onChange={e => setEditCollection(e.target.value)}
-                          placeholder="e.g. Research, Reading List"
-                          style={{
-                            width: '100%',
-                            marginTop: 2,
-                            padding: '6px 8px',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 'var(--radius-md)',
-                            background: 'var(--bg-primary, #fff)',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.85rem',
-                          }}
+                          placeholder="e.g. Research, Reading list"
+                          className="bookmark-edit__input"
                         />
                       </label>
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Tags (comma-separated)
+                      <label className="bookmark-edit__field">
+                        <span className="bookmark-edit__label">Tags (comma-separated)</span>
                         <input
                           type="text"
                           value={editTags}
                           onChange={e => setEditTags(e.target.value)}
                           placeholder="e.g. economy, politics"
-                          style={{
-                            width: '100%',
-                            marginTop: 2,
-                            padding: '6px 8px',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 'var(--radius-md)',
-                            background: 'var(--bg-primary, #fff)',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.85rem',
-                          }}
+                          className="bookmark-edit__input"
                         />
                       </label>
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Note
+                      <label className="bookmark-edit__field">
+                        <span className="bookmark-edit__label">Note</span>
                         <textarea
                           value={editNote}
                           onChange={e => setEditNote(e.target.value)}
                           rows={3}
-                          style={{
-                            width: '100%',
-                            marginTop: 2,
-                            padding: '6px 8px',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 'var(--radius-md)',
-                            background: 'var(--bg-primary, #fff)',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.85rem',
-                            resize: 'vertical',
-                          }}
+                          className="bookmark-edit__input bookmark-edit__textarea"
                         />
                       </label>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <div className="cluster" style={{ justifyContent: 'flex-end' }}>
                         <button
                           type="button"
                           onClick={cancelEdit}
                           disabled={saving}
-                          style={{
-                            padding: '6px 12px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--border-color)',
-                            background: 'transparent',
-                            color: 'var(--text-primary)',
-                            cursor: 'pointer',
-                            fontSize: '0.8rem',
-                          }}
+                          className="btn btn--ghost btn--sm"
                         >
                           Cancel
                         </button>
@@ -424,45 +332,35 @@ const BookmarksPanel: React.FC = () => {
                           type="button"
                           onClick={e => saveEdit(bookmark.id, e)}
                           disabled={saving}
-                          style={{
-                            padding: '6px 12px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--primary-color)',
-                            background: 'var(--primary-color)',
-                            color: '#fff',
-                            cursor: saving ? 'not-allowed' : 'pointer',
-                            opacity: saving ? 0.6 : 1,
-                            fontSize: '0.8rem',
-                          }}
+                          className="btn btn--primary btn--sm"
                         >
-                          {saving ? 'Saving...' : 'Save'}
+                          {saving ? 'Saving…' : 'Save'}
                         </button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-                  {!isEditing && (
+                {!isEditing && (
+                  <div className="bookmark-actions">
                     <button
-                      className="bookmark-remove-btn"
+                      className="btn btn--ghost btn--sm"
                       onClick={e => startEdit(bookmark, e)}
-                      style={{ background: 'transparent', color: 'var(--primary-color)', borderColor: 'var(--primary-color)' }}
+                      aria-label="Edit bookmark"
                     >
-                      Edit
+                      <Pencil size={14} /> Edit
                     </button>
-                  )}
-                  {!isEditing && (
                     <button
-                      className="bookmark-remove-btn"
+                      className="btn btn--ghost btn--sm bookmark-actions__remove"
                       onClick={e => removeBookmark(bookmark.id, e)}
                       disabled={removing === bookmark.id}
-                      style={removing === bookmark.id ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                      aria-label="Remove bookmark"
                     >
-                      {removing === bookmark.id ? '...' : 'Remove'}
+                      <Trash2 size={14} />
+                      {removing === bookmark.id ? '…' : 'Remove'}
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}

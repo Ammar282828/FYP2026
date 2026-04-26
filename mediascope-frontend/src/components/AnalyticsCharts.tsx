@@ -11,11 +11,13 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart, ReferenceLine, Legend, Bar
 } from 'recharts';
+import { BarChart3 } from 'lucide-react';
 import { API_BASE } from '../config';
 import { SkeletonChart } from './ui/Skeleton';
 import EmptyState from './ui/EmptyState';
 import { HISTORICAL_EVENTS, EVENT_COLORS } from '../data/historicalEvents';
 import { chartColors } from '../theme/chartColors';
+import { TOOLTIP_STYLE, TOOLTIP_CURSOR, AXIS_STYLE } from '../theme/chartTheme';
 
 interface ArticlesOverTimeProps {
   /**
@@ -57,38 +59,45 @@ export const ArticlesOverTime: React.FC<ArticlesOverTimeProps> = ({ onMonthClick
   }, [data]);
 
   if (loading) return <SkeletonChart />;
-  if (data.length === 0) return <EmptyState title="No publication data available" />;
+  if (data.length === 0) return (
+    <EmptyState
+      icon={<BarChart3 size={28} aria-hidden />}
+      title="No publication data yet"
+      description="The corpus hasn't reported any monthly counts. Once articles are indexed, the timeline will populate here."
+    />
+  );
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <h3 style={{ margin: 0 }}>Articles Published Over Time</h3>
-        <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+      <div className="section-header">
+        <div className="section-title">Articles Published Over Time</div>
+        <div className="cluster" style={{ fontSize: 12 }}>
+          <label className="cluster" style={{ gap: 4, cursor: 'pointer', color: 'var(--text-secondary)' }}>
             <input type="checkbox" checked={showAvg} onChange={e => setShowAvg(e.target.checked)} />
             Monthly avg
           </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+          <label className="cluster" style={{ gap: 4, cursor: 'pointer', color: 'var(--text-secondary)' }}>
             <input type="checkbox" checked={showEvents} onChange={e => setShowEvents(e.target.checked)} />
             Historical events
           </label>
         </div>
       </div>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>
+      <p className="section-eyebrow" style={{ marginBottom: 'var(--space-3)', textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' }}>
         Monthly publication volume{showAvg ? ` · avg ${avg.toLocaleString()}/month` : ''}{showEvents && eventsForChart.length ? ` · ${eventsForChart.length} historical events overlaid` : ''}
       </p>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={data} margin={{ top: 30, right: 20, left: 0, bottom: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-          <XAxis dataKey="month" stroke="var(--text-secondary)" fontSize={12} />
-          <YAxis stroke="var(--text-secondary)" fontSize={12} />
+          <XAxis dataKey="month" tick={AXIS_STYLE} />
+          <YAxis tick={AXIS_STYLE} />
           <Tooltip
-            contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}
+            contentStyle={TOOLTIP_STYLE}
+            cursor={TOOLTIP_CURSOR}
             content={({ active, payload, label }: any) => {
               if (!active || !payload?.length) return null;
               const evs = showEvents ? eventsForChart.filter(e => e.month === label) : [];
               return (
-                <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: 8, fontSize: 12 }}>
+                <div style={TOOLTIP_STYLE}>
                   <div style={{ fontWeight: 600 }}>{label}</div>
                   <div>{(payload[0]?.value ?? 0).toLocaleString()} articles</div>
                   {evs.map((e, i) => (

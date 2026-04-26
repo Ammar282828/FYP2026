@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import axios from 'axios';
+import { Sparkles, X } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useDateBounds } from '../hooks/useDataVersion';
 import MarkdownLite from './ui/MarkdownLite';
@@ -86,7 +87,8 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
             disabled={loading}
             className="generate-summary-btn"
           >
-            {loading ? 'Generating AI Summary...' : 'Generate AI Summary'}
+            <Sparkles size={14} aria-hidden />
+            {loading ? 'Drafting summary…' : 'Summarize this slice'}
           </button>
         )}
       </div>
@@ -102,8 +104,9 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
                   className="filter-pill-dismiss"
                   onClick={() => onFilterRemove(f.key)}
                   title="Remove filter"
+                  aria-label={`Remove filter: ${f.label}`}
                 >
-                  ×
+                  <X size={12} aria-hidden />
                 </button>
               )}
             </span>
@@ -134,7 +137,7 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
 
       {summary && (
         <div className="ai-summary-box">
-          <h4>AI-Generated Summary</h4>
+          <h4><Sparkles size={14} aria-hidden /> Summary</h4>
           <MarkdownLite source={summary} className="summary-content" />
         </div>
       )}

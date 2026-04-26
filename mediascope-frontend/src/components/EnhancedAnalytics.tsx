@@ -15,22 +15,43 @@ import { entityInfo } from '../data/entityTypes';
 
 // Summary Cards Component
 export const AnalyticsSummary: React.FC = () => {
-  const { data: stats, loading } = useAnalyticsCache('summary', async () => {
-    const [articlesRes, sentimentRes, entitiesRes] = await Promise.all([
+  // Cache key bumped to v2 because the result shape changed (added
+  // `datedArticles` + `undatedArticles`, switched `totalArticles` source
+  // from articles-over-time-sum to data-version). Old v1 entries in
+  // localStorage held `totalArticles: 4060` — bumping evicts them.
+  const { data: stats, loading } = useAnalyticsCache('summary_v2', async () => {
+    // /data-version returns the AUTHORITATIVE Firestore article count.
+    // /analytics/articles-over-time only sums articles that have a
+    // publication_date — sentinel-nulled articles don't appear in the
+    // timeline. Showing the timeline sum as "Total Articles" was
+    // misleading (4,060 vs the true 5,004).
+    const [versionRes, articlesRes, sentimentRes, entitiesRes] = await Promise.all([
+      axios.get(`${API_BASE}/analytics/data-version`),
       axios.get(`${API_BASE}/analytics/articles-over-time`),
       axios.get(`${API_BASE}/analytics/sentiment-over-time`),
       axios.get(`${API_BASE}/analytics/top-entities-fixed?limit=1`)
     ]);
     const articles = articlesRes.data.timeline || [];
     const sentiment = sentimentRes.data.timeline || [];
-    const totalArticles = articles.reduce((sum: number, item: any) => sum + item.count, 0);
+
+    const totalArticles = versionRes.data.article_count ?? 0;
+    const datedArticles = articles.reduce((sum: number, item: any) => sum + item.count, 0);
+    const undatedArticles = Math.max(0, totalArticles - datedArticles);
+
     let totalPos = 0, totalNeut = 0, totalNeg = 0;
     sentiment.forEach((item: any) => { totalPos += item.positive || 0; totalNeut += item.neutral || 0; totalNeg += item.negative || 0; });
     const total = totalPos + totalNeut + totalNeg;
     const avgSentiment = total > 0 ? ((totalPos - totalNeg) / total).toFixed(2) : '0.00';
     const months = articles.map((a: any) => a.month).sort();
     const dateRange = months.length > 0 ? `${months[0]} to ${months[months.length - 1]}` : 'N/A';
-    return { totalArticles, avgSentiment, dateRange, topEntitiesCount: entitiesRes.data.entities?.length || 0 };
+    return {
+      totalArticles,
+      datedArticles,
+      undatedArticles,
+      avgSentiment,
+      dateRange,
+      topEntitiesCount: entitiesRes.data.entities?.length || 0,
+    };
   });
 
   if (loading) return (
@@ -50,6 +71,11 @@ export const AnalyticsSummary: React.FC = () => {
       <div className="stat-card stat-card--accent">
         <span className="stat-label">Total Articles</span>
         <span className="stat-value">{stats.totalArticles.toLocaleString()}</span>
+        {stats.undatedArticles > 0 && (
+          <span className="stat-sub">
+            {stats.datedArticles.toLocaleString()} dated · {stats.undatedArticles.toLocaleString()} awaiting date recovery
+          </span>
+        )}
       </div>
       <div className="stat-card">
         <span className="stat-label">Coverage Period</span>
@@ -190,27 +216,51 @@ export const SentimentDistribution: React.FC<SentimentDistributionProps> = ({ on
 };
 
 // Topic Distribution Chart
+const TOPIC_MAJOR_THRESHOLD = 30;  // articles required to be a "major" bucket
+const TOPIC_MIN_VISIBLE = 5;       // articles required to render at all (drops empty/orphan topics)
+
 export const TopicDistribution: React.FC = () => {
   const navigate = useNavigate();
-  const { data: raw, loading } = useAnalyticsCache('topic_distribution', async () => {
+  // Cache key bumped to v2 because the threshold changed from >=30 to
+  // >=5 — old v1 entries had only 27 topics; bumping forces a refetch
+  // that includes the long-tail.
+  const { data: raw, loading } = useAnalyticsCache('topic_distribution_v2', async () => {
     const response = await axios.get(`${API_BASE}/topics/`);
     const topics = response.data.topics || [];
-    return topics.filter((t: any) => t.count >= 30).sort((a: any, b: any) => b.count - a.count);
+    // Keep anything with at least TOPIC_MIN_VISIBLE articles. The previous
+    // hard >=30 cutoff hid the long-tail buckets (e.g. Puzzles &
+    // Crosswords, IMF & External Debt) which are real categories with
+    // smaller counts — and made the dashboard look like the corpus only
+    // had 27 topics when 47 are actually populated.
+    return topics
+      .filter((t: any) => (t.count ?? 0) >= TOPIC_MIN_VISIBLE)
+      .sort((a: any, b: any) => b.count - a.count);
   });
   const data: any[] = raw || [];
 
   if (loading) return <SkeletonChart />;
   if (data.length === 0) return (
-    <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
-      <strong>No topics found.</strong> Train the topic model first, or topics may need more articles (minimum 30 per topic).
+    <div className="empty-state">
+      <p className="empty-state__title">No topics yet</p>
+      <p className="empty-state__body">
+        The topic backfill hasn't classified anything above the {TOPIC_MIN_VISIBLE}-article threshold yet.
+        Let it run, or lower the threshold.
+      </p>
     </div>
   );
 
   return (
     <div>
-      <h3 style={{ marginBottom: '0.5rem' }}>Discovered Topics ({data.length})</h3>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
-        Topics discovered from the article archive — click a topic to explore its articles
+      <div className="section-header">
+        <div>
+          <div className="section-eyebrow">Topic taxonomy</div>
+          <h3 className="section-title" style={{ margin: 0 }}>
+            {data.length} populated topics
+          </h3>
+        </div>
+      </div>
+      <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: `0 0 var(--space-3) 0` }}>
+        Click a topic to see its articles.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {data.map((topic, idx) => {

@@ -1,5 +1,6 @@
 import React, { useRef, useCallback } from 'react';
 import { toPng } from 'html-to-image';
+import { Download } from 'lucide-react';
 import { useToast } from './ui/Toast';
 
 interface ChartExportButtonProps {
@@ -7,6 +8,7 @@ interface ChartExportButtonProps {
   filenamePrefix?: string;
   label?: string;
   style?: React.CSSProperties;
+  className?: string;
 }
 
 export const ChartExportButton: React.FC<ChartExportButtonProps> = ({
@@ -14,6 +16,7 @@ export const ChartExportButton: React.FC<ChartExportButtonProps> = ({
   filenamePrefix = 'mediascope-chart',
   label,
   style,
+  className,
 }) => {
   const { toast } = useToast();
   const busy = useRef(false);
@@ -56,22 +59,11 @@ export const ChartExportButton: React.FC<ChartExportButtonProps> = ({
       type="button"
       onClick={onExport}
       title="Download chart as PNG"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '4px 10px',
-        fontSize: 12,
-        fontWeight: 500,
-        border: '1px solid var(--border-color)',
-        borderRadius: 6,
-        background: 'var(--bg-secondary)',
-        color: 'var(--text-primary)',
-        cursor: 'pointer',
-        ...style,
-      }}
+      className={`btn btn--sm ${className || ''}`.trim()}
+      style={style}
     >
-      {'\u2B07'} {label || 'Export'}
+      <Download size={14} aria-hidden />
+      {label || 'Export'}
     </button>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { MessageSquare, ArrowRight, FileText } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useToast } from './ui/Toast';
 import './ChatTab.css';
@@ -133,17 +134,20 @@ const ChatTab: React.FC = () => {
   return (
     <div className="chat-tab">
       <div className="chat-header">
-        <h2>Ask the Archive</h2>
+        <div className="section-eyebrow">Ask the Archive</div>
+        <h2>What do you want to know about Dawn, 1990–1992?</h2>
         <p className="tagline">
-          Ask questions about the Dawn Newspaper archive (1990-1992).
-          Answers are grounded in source articles.
+          Every answer is grounded in source articles, with inline citations you can open.
         </p>
       </div>
 
       <div className="chat-messages">
         {messages.length === 0 && !loading && (
           <div className="chat-empty-state">
-            <div className="empty-hint-title">Try asking:</div>
+            <div className="empty-state__icon">
+              <MessageSquare size={28} strokeWidth={1.5} />
+            </div>
+            <div className="empty-hint-title">Try one of these</div>
             <div className="sample-questions">
               {SAMPLE_QUESTIONS.map(q => (
                 <button
@@ -152,7 +156,8 @@ const ChatTab: React.FC = () => {
                   className="sample-question"
                   onClick={() => sendQuestion(q)}
                 >
-                  {q}
+                  <ArrowRight size={14} aria-hidden="true" />
+                  <span>{q}</span>
                 </button>
               ))}
             </div>
@@ -180,6 +185,7 @@ const ChatTab: React.FC = () => {
                       className="source-card"
                       onClick={() => goToArticle(s.id)}
                     >
+                      <FileText size={14} aria-hidden="true" />
                       <span className="source-index">[{s.citation_index}]</span>
                       <span className="source-headline">{s.headline}</span>
                       <span className="source-date">
@@ -199,7 +205,7 @@ const ChatTab: React.FC = () => {
               <span className="thinking-dot"></span>
               <span className="thinking-dot"></span>
               <span className="thinking-dot"></span>
-              <span className="thinking-text">Thinking...</span>
+              <span className="thinking-text">Reading the archive…</span>
             </div>
           </div>
         )}

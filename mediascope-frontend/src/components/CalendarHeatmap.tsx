@@ -13,6 +13,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { AlertCircle, Calendar } from 'lucide-react';
 import { API_BASE } from '../config';
 import { SkeletonChart } from './ui/Skeleton';
 import EmptyState from './ui/EmptyState';
@@ -75,18 +76,18 @@ const CalendarHeatmap: React.FC<Props> = ({ onDayClick }) => {
   }, [data]);
 
   if (loading) return <SkeletonChart />;
-  if (error) return <EmptyState icon="!" title="Couldn't load coverage" description={error} />;
-  if (!yearGroups.length) return <EmptyState title="No coverage data" />;
+  if (error) return <EmptyState icon={<AlertCircle size={28} aria-hidden />} title="Couldn't load coverage" description={error} />;
+  if (!yearGroups.length) return <EmptyState icon={<Calendar size={28} aria-hidden />} title="No coverage to chart" description="No publication dates have been indexed for this corpus yet — once they are, the year grid will fill in here." />;
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-        <h3 style={{ margin: 0 }}>Coverage Calendar</h3>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+      <div className="section-header">
+        <div className="section-title">Coverage Calendar</div>
+        <div className="section-eyebrow" style={{ marginBottom: 0 }}>
           {data!.total.toLocaleString()} articles · click any day to drill in
         </div>
       </div>
-      <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '0 0 12px' }}>
+      <p className="chart-caption">
         One cell per day; darker = more articles. Light gray = no articles published.
       </p>
 
@@ -127,10 +128,8 @@ const CalendarHeatmap: React.FC<Props> = ({ onDayClick }) => {
           const gridWidth = weeks.length * stride;
 
           return (
-            <div key={year} style={{ overflowX: 'auto' }}>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: 'var(--text-primary)' }}>
-                {year}
-              </div>
+            <div key={year} className="heatmap-year">
+              <div className="heatmap-year__label">{year}</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <div
                   aria-hidden
@@ -194,7 +193,7 @@ const CalendarHeatmap: React.FC<Props> = ({ onDayClick }) => {
       </div>
 
       {/* Legend */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 11, color: 'var(--text-tertiary)' }}>
+      <div className="heatmap-legend">
         <span>Less</span>
         {[0, 0.25, 0.5, 0.75, 1].map(t => {
           const max = yearGroups[0]?.max || 1;

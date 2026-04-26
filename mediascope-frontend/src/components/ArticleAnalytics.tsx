@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { ArrowUpRight } from 'lucide-react';
 import { API_BASE } from '../config';
 import { entityInfo } from '../data/entityTypes';
 import { colorForSentiment } from '../theme/chartColors';
@@ -102,18 +103,12 @@ const ArticleAnalytics: React.FC<Props> = ({ article }) => {
     : null;
 
   return (
-    <aside
-      style={{
-        border: '1px solid var(--border-color)',
-        borderRadius: 8,
-        padding: '0.75rem 1rem',
-        background: 'var(--bg-primary)',
-        fontSize: 13,
-      }}
-    >
-      <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>About this article</h3>
+    <aside className="card article-analytics">
+      <div className="section-header" style={{ marginBottom: 'var(--space-2)' }}>
+        <div className="section-title" style={{ fontSize: 'var(--font-size-base)' }}>About this article</div>
+      </div>
 
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
+      <ul className="article-analytics__facts">
         {article.word_count != null && (
           <li>
             <strong>{article.word_count.toLocaleString()} words</strong>
@@ -127,7 +122,7 @@ const ArticleAnalytics: React.FC<Props> = ({ article }) => {
         )}
         {article.topic_label && (
           <li>
-            Topic: <code style={{ background: 'var(--bg-tertiary)', padding: '1px 6px', borderRadius: 3 }}>{article.topic_label}</code>
+            Topic: <code className="article-analytics__topic">{article.topic_label}</code>
           </li>
         )}
         {article.sentiment_label && (
@@ -145,13 +140,10 @@ const ArticleAnalytics: React.FC<Props> = ({ article }) => {
             Dawn ran{' '}
             <button
               onClick={() => navigate(`/?from=${day}&to=${day}`)}
-              style={{
-                background: 'transparent', border: 0, padding: 0,
-                color: 'var(--primary-color)', cursor: 'pointer', fontWeight: 600,
-                textDecoration: 'underline',
-              }}
+              className="article-analytics__link"
             >
               {sameDayCount} other article{sameDayCount === 1 ? '' : 's'}
+              <ArrowUpRight size={12} aria-hidden />
             </button>{' '}
             on {day}
           </li>
@@ -160,30 +152,22 @@ const ArticleAnalytics: React.FC<Props> = ({ article }) => {
 
       {entitySummary.length > 0 && (
         <>
-          <hr style={{ margin: '10px 0', border: 0, borderTop: '1px solid var(--border-color)' }} />
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Mentioned</div>
-          <div style={{ display: 'grid', gap: 6 }}>
+          <hr className="divider" />
+          <div className="section-eyebrow">Mentioned</div>
+          <div className="stack stack--tight">
             {entitySummary.map(g => {
               const info = entityInfo(g.type);
               return (
               <div key={g.type}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: info.color, textTransform: 'uppercase' }}>
+                <div className="article-analytics__group-label" style={{ color: info.color }}>
                   {info.label} · {g.texts.length}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+                <div className="cluster" style={{ gap: 4, marginTop: 3 }}>
                   {g.texts.slice(0, 12).map(t => (
                     <button
                       key={t}
                       onClick={() => navigate(`/entity/${encodeURIComponent(t)}`)}
-                      style={{
-                        background: 'var(--bg-secondary)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 12,
-                        padding: '2px 8px',
-                        fontSize: 11,
-                        cursor: 'pointer',
-                        color: 'var(--text-primary)',
-                      }}
+                      className="chip article-analytics__entity"
                     >
                       {t}
                     </button>

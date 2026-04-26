@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Newspaper, Rows3, AlignJustify } from 'lucide-react';
+import { Newspaper, Rows3, AlignJustify, Trash2 } from 'lucide-react';
 import { API_BASE } from '../config';
 import BookmarkButton from './BookmarkButton';
 import { useToast } from './ui/Toast';
@@ -177,13 +177,12 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted, h
           key={article.id}
           className="article-card"
           onClick={() => navigate(`/article/${article.id}`)}
-          style={{ cursor: 'pointer' }}
         >
           <div className="article-header">
             <h3 className="article-headline">
               <HighlightText text={article.headline} query={highlightQuery} />
             </h3>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div className="article-card__actions">
               <span className="article-date">
                 {formatDate(article.publication_date)}
               </span>
@@ -191,28 +190,20 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted, h
               <button
                 onClick={(e) => handleDelete(article.id, e)}
                 disabled={deletingId === article.id}
-                style={{
-                  background: deletingId === article.id ? 'var(--text-tertiary)' : 'var(--danger-color)',
-                  color: 'white',
-                  border: 'none',
-                  padding: '4px 12px',
-                  borderRadius: '4px',
-                  cursor: deletingId === article.id ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  transition: 'background 0.2s'
-                }}
+                className="article-card__delete"
+                aria-label={deletingId === article.id ? 'Deleting…' : 'Delete article'}
+                title="Delete article"
               >
-                {deletingId === article.id ? 'Deleting...' : 'Delete'}
+                <Trash2 size={14} aria-hidden="true" />
               </button>
             </div>
           </div>
 
+          {/* Whole card is already clickable — drop the redundant
+              "Read full article" affordance. The truncated preview ends
+              with an ellipsis which signals continuation on its own. */}
           <div className="article-content-preview">
-            <HighlightText text={article.content_preview || ''} query={highlightQuery} />...
-            <span style={{ color: 'var(--primary-color)', marginLeft: '8px', fontWeight: '600' }}>
-              Read full article
-            </span>
+            <HighlightText text={article.content_preview || ''} query={highlightQuery} />…
           </div>
 
           <div className="article-meta">
@@ -243,7 +234,7 @@ const ArticleList: React.FC<ArticleListProps> = ({ articles, onArticleDeleted, h
                       navigate(`/entity/${encodeURIComponent(entity.text)}`);
                     }}
                   >
-                    [{entity.type}] {entity.text}
+                    {entity.text}
                   </span>
                 ))}
               </div>

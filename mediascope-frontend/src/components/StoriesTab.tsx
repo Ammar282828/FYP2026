@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { Newspaper, Search, RefreshCw, Pin } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useToast } from './ui/Toast';
 import EmptyState from './ui/EmptyState';
@@ -104,78 +105,77 @@ const RebuildStoriesButton: React.FC<{ onDone: () => void }> = ({ onDone }) => {
 
   const running = status?.running;
 
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+    if (open && !dlg.open) dlg.showModal();
+    if (!open && dlg.open) dlg.close();
+  }, [open]);
+
   return (
-    <div style={{ marginTop: 8 }}>
+    <div className="stack stack--tight" style={{ marginTop: 'var(--space-2)' }}>
       <button
+        type="button"
         onClick={() => setOpen(true)}
         disabled={running}
-        style={{
-          padding: '6px 12px', fontSize: 12,
-          background: running ? 'var(--text-tertiary)' : 'var(--primary-color)',
-          color: 'white', border: 'none', borderRadius: 4,
-          cursor: running ? 'not-allowed' : 'pointer', width: '100%',
-        }}
+        className="btn btn--primary btn--sm"
+        style={{ width: '100%', justifyContent: 'center' }}
       >
-        {running ? '⏳ Rebuilding stories…' : '🔄 Rebuild Stories'}
+        <RefreshCw size={14} className={running ? 'is-spinning' : ''} />
+        {running ? 'Rebuilding stories…' : 'Rebuild stories'}
       </button>
-      {open && (
-        <div
-          onClick={() => setOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-              borderRadius: 8, padding: 20, width: 360,
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>Rebuild Stories</h3>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              Re-groups all articles into stories. Takes 1–5 minutes.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label style={{ fontSize: 13 }}>
-                Date window (days):
-                <input
-                  type="number"
-                  value={dateWindow}
-                  onChange={e => setDateWindow(parseInt(e.target.value) || 30)}
-                  style={{ width: '100%', padding: 6, marginTop: 4, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                />
-              </label>
-              <label style={{ fontSize: 13 }}>
-                Jaccard threshold (0-1):
-                <input
-                  type="number"
-                  step="0.05" min="0" max="1"
-                  value={jaccard}
-                  onChange={e => setJaccard(parseFloat(e.target.value) || 0.15)}
-                  style={{ width: '100%', padding: 6, marginTop: 4, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                />
-              </label>
-              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={clear} onChange={e => setClear(e.target.checked)} />
-                Clear existing stories first
-              </label>
+      <dialog
+        ref={dialogRef}
+        className="auth-dialog"
+        onClose={() => setOpen(false)}
+      >
+        <form method="dialog" className="auth-form" onSubmit={(e) => { e.preventDefault(); start(); }}>
+          <header className="auth-dialog__header">
+            <RefreshCw size={22} strokeWidth={1.75} className="auth-dialog__mark" />
+            <div>
+              <h3 className="auth-dialog__title">Rebuild stories</h3>
+              <p className="stat-sub" style={{ margin: 0 }}>
+                Re-clusters every article. Usually 1–5 minutes.
+              </p>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setOpen(false)}
-                style={{ padding: '6px 12px', background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={start}
-                style={{ padding: '6px 12px', background: 'var(--primary-color)', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-              >
-                Start
-              </button>
-            </div>
+          </header>
+          <div className="auth-form__fields">
+            <label className="auth-field">
+              <span className="auth-field__label">Date window (days)</span>
+              <input
+                type="number"
+                value={dateWindow}
+                onChange={e => setDateWindow(parseInt(e.target.value) || 30)}
+                className="auth-field__input"
+              />
+            </label>
+            <label className="auth-field">
+              <span className="auth-field__label">Jaccard threshold (0–1)</span>
+              <input
+                type="number"
+                step="0.05" min="0" max="1"
+                value={jaccard}
+                onChange={e => setJaccard(parseFloat(e.target.value) || 0.15)}
+                className="auth-field__input"
+              />
+            </label>
+            <label className="cluster" style={{ fontSize: 'var(--font-size-sm)' }}>
+              <input type="checkbox" checked={clear} onChange={e => setClear(e.target.checked)} />
+              Clear existing stories first
+            </label>
           </div>
-        </div>
-      )}
+          <div className="cluster" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setOpen(false)} className="btn">
+              Cancel
+            </button>
+            <button type="submit" className="btn btn--primary">
+              Start
+            </button>
+          </div>
+        </form>
+      </dialog>
     </div>
   );
 };
@@ -316,19 +316,23 @@ const StoriesTab: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="stories-loading">Loading stories...</div>
+          <div className="stack" style={{ padding: 'var(--space-3)' }}>
+            <div className="skeleton skeleton-block" />
+            <div className="skeleton skeleton-block" />
+            <div className="skeleton skeleton-block" />
+          </div>
         ) : filteredStories.length === 0 ? (
           stories.length === 0 ? (
             <EmptyState
-              icon={'\uD83D\uDCF0'}
-              title="No stories yet"
-              description="Run scripts/build_stories.py to cluster articles into ongoing stories."
+              icon={<Newspaper size={28} strokeWidth={1.5} />}
+              title="No stories clustered yet"
+              description="Once articles are grouped, ongoing storylines will appear here. Run a rebuild to kick off the first pass."
             />
           ) : (
             <EmptyState
-              icon={'\uD83D\uDD0D'}
-              title="No stories match your search"
-              description="Try a different keyword, topic, or entity name."
+              icon={<Search size={28} strokeWidth={1.5} />}
+              title="Nothing matches that search"
+              description="Try a different keyword, topic, or person."
               action={{ label: 'Clear search', onClick: () => setSearchQuery('') }}
             />
           )
@@ -355,7 +359,9 @@ const StoriesTab: React.FC = () => {
                 <div className="story-card-stats">
                   <span className="story-stat">{story.article_count} article{story.article_count !== 1 ? 's' : ''}</span>
                   {story.narrative && (
-                    <span className="story-has-narrative">● Arc</span>
+                    <span className="story-has-narrative">
+                      <Pin size={10} /> Arc
+                    </span>
                   )}
                 </div>
                 <div className="story-entities">
@@ -375,7 +381,7 @@ const StoriesTab: React.FC = () => {
       <div className="stories-detail">
         {!selectedStory ? (
           <EmptyState
-            icon={'\uD83D\uDCF0'}
+            icon={<Newspaper size={32} strokeWidth={1.5} />}
             title="Pick a story"
             description="Select a story from the list to see its arc, key entities, and the articles behind it."
           />
@@ -433,9 +439,13 @@ const StoriesTab: React.FC = () => {
               </div>
 
               {narrativeLoading && (
-                <div className="narrative-loading">
-                  <div className="narrative-spinner"></div>
-                  <p>Gemini is writing the story arc… this may take 15–30 seconds.</p>
+                <div className="stack" style={{ gap: 'var(--space-2)' }}>
+                  <div className="skeleton skeleton-line" style={{ width: '90%' }} />
+                  <div className="skeleton skeleton-line" style={{ width: '95%' }} />
+                  <div className="skeleton skeleton-line" style={{ width: '70%' }} />
+                  <p className="stat-sub" style={{ margin: 0 }}>
+                    Drafting the story arc — usually 15 to 30 seconds.
+                  </p>
                 </div>
               )}
 
@@ -454,7 +464,7 @@ const StoriesTab: React.FC = () => {
 
               {!selectedStory.narrative && !narrativeLoading && (
                 <div className="narrative-placeholder">
-                  No narrative generated yet.
+                  No story arc yet — generate one to weave the articles into a single thread.
                 </div>
               )}
             </div>
@@ -463,7 +473,10 @@ const StoriesTab: React.FC = () => {
             <div className="story-timeline-section">
               <h3>Articles ({selectedStory.article_count})</h3>
               {articlesLoading ? (
-                <div className="stories-loading">Loading articles...</div>
+                <div className="stack">
+                  <div className="skeleton skeleton-block" />
+                  <div className="skeleton skeleton-block" />
+                </div>
               ) : (
                 <div className="story-timeline">
                   {storyArticles.map((article, idx) => (

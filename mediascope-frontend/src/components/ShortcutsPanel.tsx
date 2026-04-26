@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Keyboard, X } from 'lucide-react';
 
 interface Shortcut {
   keys: string[];
@@ -15,7 +16,7 @@ const SHORTCUTS: { section: string; items: Shortcut[] }[] = [
     ],
   },
   {
-    section: 'Navigation (press g, then\u2026)',
+    section: 'Navigation (press g, then…)',
     items: [
       { keys: ['g h'], description: 'Go to Home' },
       { keys: ['g s'], description: 'Go to Search' },
@@ -43,14 +44,11 @@ const isEditableTarget = (el: EventTarget | null): boolean => {
 
 const ShortcutsPanel: React.FC = () => {
   const [open, setOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        return;
-      }
-      // `?` is Shift+/ on most layouts
+      // `?` is Shift+/ on most layouts.
       if (e.key === '?' && !isEditableTarget(e.target)) {
         e.preventDefault();
         setOpen(prev => !prev);
@@ -60,123 +58,58 @@ const ShortcutsPanel: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  if (!open) return null;
+  // Sync state with the native <dialog>.
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+    if (open && !dlg.open) dlg.showModal();
+    if (!open && dlg.open) dlg.close();
+  }, [open]);
 
   return (
-    <div
-      onClick={() => setOpen(false)}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10000,
-        background: 'rgba(0, 0, 0, 0.5)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        paddingTop: '12vh',
+    <dialog
+      ref={dialogRef}
+      className="app-dialog"
+      onClose={() => setOpen(false)}
+      onClick={(e) => {
+        // Click on backdrop closes the dialog.
+        if (e.target === dialogRef.current) setOpen(false);
       }}
     >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 560,
-          maxWidth: '90vw',
-          maxHeight: '75vh',
-          overflowY: 'auto',
-          background: 'var(--bg-primary)',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 16,
-          boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
-          padding: '1.25rem 1.5rem',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '1rem',
-          }}
+      <header className="app-dialog__header">
+        <h2 className="app-dialog__title">
+          <Keyboard size={16} />
+          Keyboard shortcuts
+        </h2>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => setOpen(false)}
+          aria-label="Close"
         >
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Keyboard Shortcuts</h2>
-          <button
-            onClick={() => setOpen(false)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              padding: '4px 8px',
-            }}
-            aria-label="Close"
-          >
-            {'\u2715'}
-          </button>
-        </div>
+          <X size={16} />
+        </button>
+      </header>
 
+      <div className="app-dialog__body stack">
         {SHORTCUTS.map(group => (
-          <div key={group.section} style={{ marginBottom: '1rem' }}>
-            <div
-              style={{
-                fontSize: 11,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                color: 'var(--text-secondary)',
-                marginBottom: 8,
-              }}
-            >
-              {group.section}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div key={group.section} className="stack stack--tight">
+            <div className="section-eyebrow">{group.section}</div>
+            <div className="stack stack--tight">
               {group.items.map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-color)',
-                  }}
-                >
-                  <span style={{ fontSize: 13 }}>{item.description}</span>
-                  <span style={{ display: 'flex', gap: 6 }}>
+                <div key={i} className="shortcut-row">
+                  <span className="shortcut-row__desc">{item.description}</span>
+                  <span className="cluster">
                     {item.keys.map((k, j) => (
                       <React.Fragment key={j}>
                         {j > 0 && (
-                          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>or</span>
+                          <span className="shortcut-row__sep">or</span>
                         )}
                         {k.split('+').map((part, idx, arr) => (
                           <React.Fragment key={idx}>
-                            <kbd
-                              style={{
-                                padding: '2px 8px',
-                                borderRadius: 4,
-                                background: 'var(--bg-primary)',
-                                border: '1px solid var(--border-color)',
-                                fontSize: 12,
-                                fontFamily:
-                                  'ui-monospace, SFMono-Regular, Menlo, monospace',
-                                color: 'var(--text-primary)',
-                              }}
-                            >
-                              {part}
-                            </kbd>
+                            <kbd className="kbd">{part}</kbd>
                             {idx < arr.length - 1 && (
-                              <span
-                                style={{
-                                  color: 'var(--text-tertiary)',
-                                  fontSize: 12,
-                                  alignSelf: 'center',
-                                }}
-                              >
-                                +
-                              </span>
+                              <span className="shortcut-row__sep">+</span>
                             )}
                           </React.Fragment>
                         ))}
@@ -188,19 +121,12 @@ const ShortcutsPanel: React.FC = () => {
             </div>
           </div>
         ))}
-
-        <div
-          style={{
-            marginTop: '0.5rem',
-            fontSize: 11,
-            color: 'var(--text-tertiary)',
-            textAlign: 'center',
-          }}
-        >
-          Press <kbd style={{ fontFamily: 'monospace' }}>?</kbd> again to close
-        </div>
       </div>
-    </div>
+
+      <footer className="app-dialog__footer">
+        Press <kbd className="kbd">?</kbd> again to close.
+      </footer>
+    </dialog>
   );
 };
 

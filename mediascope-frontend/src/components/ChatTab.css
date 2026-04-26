@@ -69,6 +69,9 @@
 }
 
 .sample-question {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -76,15 +79,24 @@
   border-radius: var(--radius-md, 10px);
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
   text-align: left;
   max-width: 100%;
+  font-family: inherit;
+}
+
+.sample-question svg {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 
 .sample-question:hover {
   border-color: var(--primary-color);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: var(--bg-secondary);
+}
+
+.sample-question:hover svg {
+  color: var(--primary-color);
 }
 
 /* Message bubbles */

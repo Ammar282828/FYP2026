@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { ArrowLeft, Sparkles, FileText } from 'lucide-react';
 import { API_BASE } from '../config';
 
 const sentimentColor: Record<string, string> = {
@@ -55,16 +56,26 @@ const TopicDetailPage: React.FC = () => {
 
   if (loadingTopic) {
     return (
-      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-        Loading topic...
+      <div className="topic-detail">
+        <div className="topic-detail__inner stack">
+          <div className="skeleton skeleton-line" style={{ width: '40%' }} />
+          <div className="skeleton skeleton-block" />
+          <div className="skeleton skeleton-block" />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--danger-color)' }}>
-        {error}
+      <div className="topic-detail">
+        <div className="topic-detail__inner">
+          <div className="empty-state">
+            <FileText size={28} className="empty-state__icon" />
+            <div className="empty-state__title">Topic unavailable</div>
+            <div className="empty-state__body">{error}</div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -73,125 +84,86 @@ const TopicDetailPage: React.FC = () => {
   const keywords: string[] = topic?.keywords || [];
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-secondary)' }}>
-      {/* Header bar */}
-      <div style={{
-        background: 'var(--bg-primary)',
-        borderBottom: '1px solid var(--border-color)',
-        padding: '1rem 2rem',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-      }}>
-        <button className="back-button" onClick={() => navigate(-1)}>
-          {'\u2190'} Back
+    <div className="topic-detail">
+      {/* Breadcrumb header bar */}
+      <div className="topic-detail__breadcrumb">
+        <button className="btn btn--ghost btn--sm" onClick={() => navigate(-1)}>
+          <ArrowLeft size={14} /> Back
         </button>
-        <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>Analytics / Discovered Topics /</span>
-        <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--text-primary)' }}>
-          {topic?.name || `Topic ${id}`}
+        <span className="topic-detail__crumbs">
+          Analytics &nbsp;/&nbsp; Discovered topics &nbsp;/&nbsp;
+          <strong>{topic?.name || `Topic ${id}`}</strong>
         </span>
       </div>
 
-      <div style={{ maxWidth: '960px', margin: '0 auto', padding: '2rem' }}>
-
+      <div className="topic-detail__inner">
         {/* Topic title */}
-        <div style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-            <span style={{
-              background: topicColor,
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              flexShrink: 0,
-            }} />
-            <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-              {topic?.name || `Topic ${id}`}
-            </h1>
-            <span style={{
-              background: 'var(--bg-tertiary)',
-              color: topicColor,
-              padding: '4px 12px',
-              borderRadius: '12px',
-              fontSize: '13px',
-              fontWeight: '600',
-            }}>
-              {articles.length} articles
-            </span>
-          </div>
-
-          {/* Keywords */}
-          {keywords.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
-              {keywords.map((kw, i) => (
-                <span key={i} style={{
-                  background: 'var(--bg-tertiary)',
-                  color: 'var(--text-primary)',
-                  padding: '3px 10px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                }}>
-                  {kw}
-                </span>
-              ))}
-            </div>
-          )}
+        <div className="topic-detail__title-row">
+          <span
+            className="topic-detail__dot"
+            style={{ background: topicColor }}
+            aria-hidden="true"
+          />
+          <h1 className="topic-detail__title">
+            {topic?.name || `Topic ${id}`}
+          </h1>
+          <span className="chip chip--accent">
+            {articles.length} {articles.length === 1 ? 'article' : 'articles'}
+          </span>
         </div>
+
+        {/* Keywords */}
+        {keywords.length > 0 && (
+          <div className="cluster" style={{ marginBottom: 'var(--space-5)' }}>
+            {keywords.map((kw, i) => (
+              <span key={i} className="chip">{kw}</span>
+            ))}
+          </div>
+        )}
 
         {/* AI Summary */}
         <div className="entity-chart-card">
-          <h2 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>AI Summary</span>
+          <h2 className="section-title cluster" style={{ marginTop: 0 }}>
+            <Sparkles size={16} /> AI summary
             {loadingSummary && (
-              <span style={{ fontSize: '12px', fontWeight: '400', color: 'var(--text-tertiary)' }}>generating...</span>
+              <span className="stat-sub" style={{ fontWeight: 400 }}>generating…</span>
             )}
           </h2>
           {loadingSummary ? (
-            <div style={{ color: 'var(--text-tertiary)', fontSize: '14px', fontStyle: 'italic' }}>
-              Analyzing {articles.length} articles with Gemini...
+            <div className="stack stack--tight" aria-busy="true">
+              <div className="skeleton skeleton-line" style={{ width: '92%' }} />
+              <div className="skeleton skeleton-line" style={{ width: '85%' }} />
+              <div className="skeleton skeleton-line" style={{ width: '60%' }} />
             </div>
           ) : (
-            <div style={{
-              fontSize: '14px',
-              lineHeight: '1.75',
-              color: 'var(--text-primary)',
-              whiteSpace: 'pre-wrap',
-            }}>
-              {summary}
-            </div>
+            <div className="topic-detail__summary">{summary}</div>
           )}
         </div>
 
         {/* Articles list */}
         <div className="entity-chart-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{
-            padding: '1rem 1.5rem',
-            borderBottom: '1px solid var(--border-color)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-              All Articles
-            </h2>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{articles.length} total</span>
+          <div className="topic-detail__list-head">
+            <h2 className="section-title" style={{ margin: 0 }}>All articles</h2>
+            <span className="article-list__count">{articles.length} total</span>
           </div>
 
           {articles.length === 0 ? (
-            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '14px' }}>
-              No articles found for this topic.
+            <div className="empty-state">
+              <FileText size={28} className="empty-state__icon" />
+              <div className="empty-state__title">No articles in this topic yet</div>
+              <div className="empty-state__body">
+                As more issues are processed, articles tagged with this topic will appear here.
+              </div>
             </div>
           ) : (
-            <div className="entity-articles-list" style={{ padding: '0 1.5rem' }}>
+            <div className="entity-articles-list" style={{ padding: '0 var(--space-5)' }}>
               {articles.map((article, idx) => (
                 <div
                   key={article.id || idx}
                   className="entity-article-row"
                   onClick={() => navigate(`/article/${article.id}`)}
                 >
-                  <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', minWidth: '28px' }}>
-                    {idx + 1}
-                  </span>
+                  <span className="topic-detail__row-num">{idx + 1}</span>
                   <div className="entity-article-info">
                     <span className="entity-article-headline">
                       {article.headline}
@@ -203,14 +175,12 @@ const TopicDetailPage: React.FC = () => {
                     )}
                   </div>
                   {article.sentiment_label && (
-                    <span style={{
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      color: sentimentColor[article.sentiment_label] || 'var(--text-secondary)',
-                      textTransform: 'capitalize',
-                      minWidth: '55px',
-                      textAlign: 'right',
-                    }}>
+                    <span
+                      className="topic-detail__sentiment"
+                      style={{
+                        color: sentimentColor[article.sentiment_label] || 'var(--text-secondary)',
+                      }}
+                    >
                       {article.sentiment_label}
                     </span>
                   )}

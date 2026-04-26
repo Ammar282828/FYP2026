@@ -228,3 +228,173 @@ def classify_topic_gemini(
         return other_fallback
 
     return _coerce(parsed, taxonomy)
+
+
+# ─── Batch classifier ─────────────────────────────────────────────────────
+
+# Default batch size. 10 articles per Gemini call ≈ 10× fewer round-trips
+# than the single-article path. Gemini happily handles a single prompt with
+# 10 article snippets at ~600 chars each (≈ 6000 char prompt, well within
+# context). Set lower if articles are unusually long; the per-article cap
+# below is the primary safety net.
+BATCH_TOPIC_SIZE = 10
+_BATCH_PER_ARTICLE_CHARS = 800
+
+_BATCH_PROMPT_TEMPLATE = """You are a topic classifier for articles from Dawn, a 1990s Pakistani English-language daily.
+
+Classify EACH article below into the single best-fitting topic from this fixed list. Choose by *primary subject*, not passing mentions. If an article genuinely doesn't match anything, use 99 (Other) — don't force a fit.
+
+Topics:
+{TOPICS}
+
+Articles:
+{ARTICLES}
+
+Return ONLY a JSON array, no markdown fences, with one object per article in the same order they appear above:
+[
+  {{"index": 0, "topic_id": <int>, "confidence": <float 0..1>, "reasoning": "<one short sentence>"}},
+  ...
+]
+
+The "index" field MUST match the article number you saw above (0, 1, 2, …). Include exactly {N} entries — one per article.
+"""
+
+
+def _extract_json_array(raw: str) -> Optional[list]:
+    """Pull the first JSON array out of model output (handles ```json fences)."""
+    if not raw:
+        return None
+    fenced = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
+    if fenced:
+        candidate = fenced.group(1)
+    else:
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        candidate = m.group(0) if m else None
+    if not candidate:
+        return None
+    try:
+        parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, list) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def classify_topics_batch_gemini(
+    texts: List[str],
+    *,
+    model_name: str = "gemini-2.5-flash",
+    api_key: Optional[str] = None,
+    batch_size: int = BATCH_TOPIC_SIZE,
+) -> List[Dict]:
+    """Classify N articles into the curated taxonomy in BATCH_TOPIC_SIZE-sized
+    Gemini calls.
+
+    Returns a list of topic dicts (same shape as ``classify_topic_gemini``)
+    in the SAME order as ``texts``. Articles that couldn't be classified get
+    the "Other" fallback (so the caller can always zip the result with the
+    input).
+
+    Why this exists separately from ``classify_topic_gemini``: the per-
+    article version was costing 1 Gemini call per article. On a page with
+    13 articles that's 13 round-trips. Batching at 10 cuts that to 2 calls
+    per page — the dominant per-page cost in the ingestion pipeline.
+
+    Robustness:
+      * If Gemini returns a malformed array, the WHOLE batch falls back to
+        "Other" — but only that batch, not the whole input list. So a
+        single bad batch doesn't poison the rest of the page.
+      * Per-article fallback is also applied when the model omits an index
+        from its response (some indices may be classified, others may not).
+    """
+    other_fallback = {
+        "topic_id": _OTHER_ID,
+        "topic_key": _OTHER_KEY,
+        "topic_label": _OTHER_LABEL,
+        "confidence": 0.0,
+        "reasoning": "",
+    }
+
+    if not texts:
+        return []
+
+    taxonomy = load_taxonomy()
+    if not taxonomy:
+        return [{**other_fallback, "reasoning": "topics_taxonomy.json missing"} for _ in texts]
+
+    key = (api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+    if not key:
+        return [{**other_fallback, "reasoning": "GEMINI_API_KEY not set"} for _ in texts]
+
+    topic_block = _build_topic_block(taxonomy)
+    results: List[Optional[Dict]] = [None] * len(texts)
+
+    for batch_start in range(0, len(texts), batch_size):
+        batch = texts[batch_start: batch_start + batch_size]
+        # Build the per-batch articles block. Truncate each article to
+        # _BATCH_PER_ARTICLE_CHARS to keep the total prompt cheap — topic
+        # classification doesn't need the full body, the lede + first few
+        # paragraphs carry the subject.
+        articles_block_lines = []
+        for j, text in enumerate(batch):
+            snippet = (text or "")[:_BATCH_PER_ARTICLE_CHARS].strip()
+            if not snippet:
+                snippet = "(empty)"
+            articles_block_lines.append(f"--- Article {j} ---\n{snippet}\n")
+        articles_block = "\n".join(articles_block_lines)
+
+        prompt = (
+            _BATCH_PROMPT_TEMPLATE
+            .replace("{TOPICS}", topic_block)
+            .replace("{ARTICLES}", articles_block)
+            .replace("{N}", str(len(batch)))
+        )
+
+        try:
+            model = _create_gemini_model(key, model_name)
+            response = model.generate_content(prompt)
+            raw = getattr(response, "text", "") or ""
+        except Exception as exc:  # noqa: BLE001
+            # Whole-batch fallback. Tagged so the caller can see why.
+            for j in range(len(batch)):
+                results[batch_start + j] = {
+                    **other_fallback,
+                    "reasoning": f"gemini batch error: {exc}",
+                }
+            continue
+
+        parsed = _extract_json_array(raw)
+        if not parsed:
+            for j in range(len(batch)):
+                results[batch_start + j] = {
+                    **other_fallback,
+                    "reasoning": f"unparseable batch response: {raw[:120]!r}",
+                }
+            continue
+
+        # Index per-article responses by the model's "index" field. Then
+        # for each article in the batch look up its result; missing
+        # entries get the per-article fallback.
+        by_index: Dict[int, dict] = {}
+        for entry in parsed:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                idx = int(entry.get("index", -1))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < len(batch):
+                by_index[idx] = entry
+
+        for j in range(len(batch)):
+            entry = by_index.get(j)
+            if entry is None:
+                results[batch_start + j] = {
+                    **other_fallback,
+                    "reasoning": "model omitted this index",
+                }
+            else:
+                results[batch_start + j] = _coerce(entry, taxonomy)
+
+    # Replace any leftover Nones (shouldn't happen but defensive) with
+    # the safe fallback so the return shape always matches len(texts).
+    return [r if r is not None else dict(other_fallback) for r in results]

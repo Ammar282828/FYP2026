@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { User, Bookmark, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface UserMenuProps {
@@ -28,9 +29,8 @@ const UserMenu: React.FC<UserMenuProps> = ({ onShowBookmarks, onShowAuth, onShow
 
   if (!user) {
     return (
-      <button className="auth-submit-btn" onClick={onShowAuth}
-        style={{ padding: '6px 16px', width: 'auto', fontSize: '0.8rem' }}>
-        Sign In
+      <button className="btn btn--primary btn--sm" onClick={onShowAuth}>
+        Sign in
       </button>
     );
   }
@@ -46,79 +46,52 @@ const UserMenu: React.FC<UserMenuProps> = ({ onShowBookmarks, onShowAuth, onShow
     <div ref={menuRef} className="user-menu">
       <button
         onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '4px 12px 4px 4px',
-          background: open ? 'var(--bg-tertiary)' : 'transparent',
-          border: '1px solid var(--border-color)',
-          borderRadius: '24px',
-          cursor: 'pointer',
-          transition: 'background 0.2s'
-        }}
+        className={`btn btn--ghost user-menu__trigger ${open ? 'is-active' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
-        <div className="user-avatar" style={{
-          background: user.avatar_color || 'var(--primary-color)',
-          width: '32px',
-          height: '32px',
-          border: 'none'
-        }}>
+        <span
+          className="user-avatar"
+          style={{ background: user.avatar_color || 'var(--primary-color)' }}
+        >
           {initials}
-        </div>
-        <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)' }}>
-          {user.name.split(' ')[0]}
         </span>
+        <span>{user.name.split(' ')[0]}</span>
       </button>
 
       {open && (
-        <div className="user-dropdown">
+        <div className="user-dropdown" role="menu">
           {/* User info */}
-          <div style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}>
-            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-              {user.name}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-              {user.email}
-            </div>
+          <div className="user-dropdown__header">
+            <div className="user-dropdown__name">{user.name}</div>
+            <div className="user-dropdown__email">{user.email}</div>
           </div>
 
           {/* Menu items */}
-          <div style={{ padding: '4px 0' }}>
+          <div className="user-dropdown__group">
             {onShowProfile && (
-              <button onClick={() => { onShowProfile(); setOpen(false); }}>
-                {'\u25CB'} Profile
+              <button className="menu-item" onClick={() => { onShowProfile(); setOpen(false); }}>
+                <User size={14} />
+                Profile
               </button>
             )}
-            <button onClick={() => { onShowBookmarks(); setOpen(false); }}>
-              {'\u2605'} My Bookmarks
+            <button className="menu-item" onClick={() => { onShowBookmarks(); setOpen(false); }}>
+              <Bookmark size={14} />
+              My bookmarks
               {user.bookmark_count > 0 && (
-                <span style={{
-                  marginLeft: 'auto',
-                  background: 'var(--bg-tertiary)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.7rem',
-                  fontWeight: 600,
-                  padding: '2px 6px',
-                  borderRadius: '10px',
-                  float: 'right'
-                }}>
-                  {user.bookmark_count}
-                </span>
+                <span className="menu-item__count">{user.bookmark_count}</span>
               )}
             </button>
           </div>
 
           {/* Logout */}
-          <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <div className="user-dropdown__group user-dropdown__group--top-border">
             <button
+              className="menu-item menu-item--danger"
               onClick={() => { logout(); setOpen(false); }}
-              style={{ color: 'var(--danger-color)' }}
             >
-              Sign Out
+              <LogOut size={14} />
+              Sign out
             </button>
           </div>
         </div>

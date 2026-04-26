@@ -15,10 +15,13 @@ import {
   BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
+import { Search, Download, Tag } from 'lucide-react';
 import { API_BASE } from '../config';
 import { exportToCSV } from '../utils/csvExport';
 import { SkeletonChart } from './ui/Skeleton';
+import EmptyState from './ui/EmptyState';
 import { useDateBounds } from '../hooks/useDataVersion';
+import { TOOLTIP_STYLE, TOOLTIP_CURSOR, AXIS_STYLE } from '../theme/chartTheme';
 
 // Keyword Frequency Over Time
 export const KeywordFrequencyOverTime: React.FC = () => {
@@ -31,9 +34,6 @@ export const KeywordFrequencyOverTime: React.FC = () => {
   const [endDate, setEndDate] = useState(maxBound);
   const [granularity, setGranularity] = useState('month');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-
-  const ctrlStyle = { padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)' };
-  const labelStyle = { fontSize: '13px', fontWeight: '600' as const, color: 'var(--text-primary)', marginRight: '8px' };
 
   useEffect(() => {
     axios.get(`${API_BASE}/analytics/top-keywords?limit=30`)
@@ -66,41 +66,34 @@ export const KeywordFrequencyOverTime: React.FC = () => {
   const peak = data.length > 0 ? Math.max(...data.map(d => d.count)) : 0;
 
   return (
-    <div>
-      <h3 style={{ marginBottom: '0.5rem' }}>Keyword Frequency Over Time</h3>
+    <div className="stack">
+      <div className="section-header">
+        <div className="section-title">Keyword Frequency Over Time</div>
+      </div>
 
       {/* Search bar */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
+      <div className="cluster">
         <input
           type="text"
           value={inputValue}
           onChange={e => setInputValue(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') search(inputValue); }}
           placeholder="Type a keyword..."
-          style={{ ...ctrlStyle, flex: 1, padding: '7px 12px' }}
+          className="kw-search-input"
         />
-        <button
-          onClick={() => search(inputValue)}
-          style={{ padding: '7px 18px', borderRadius: '6px', border: 'none', background: 'var(--primary-color)', color: 'white', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
-        >
-          Search
+        <button onClick={() => search(inputValue)} className="btn btn--primary">
+          <Search size={14} aria-hidden /> Search
         </button>
       </div>
 
       {/* Suggestion pills */}
       {suggestions.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+        <div className="kw-cloud">
           {suggestions.slice(0, 20).map(kw => (
             <button
               key={kw}
               onClick={() => { setInputValue(kw); search(kw); }}
-              style={{
-                padding: '3px 10px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
-                border: `2px solid ${keyword === kw ? 'var(--primary-color)' : 'var(--border-color)'}`,
-                background: keyword === kw ? 'var(--primary-color)' : 'var(--bg-primary)',
-                color: keyword === kw ? 'white' : 'var(--text-primary)',
-                fontWeight: keyword === kw ? '600' : '400',
-              }}
+              className={`kw-pill${keyword === kw ? ' kw-pill--selected' : ''}`}
             >
               {kw}
             </button>
@@ -109,23 +102,23 @@ export const KeywordFrequencyOverTime: React.FC = () => {
       )}
 
       {/* Controls */}
-      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
-        <div>
-          <label style={labelStyle}>Granularity:</label>
-          <select value={granularity} onChange={e => setGranularity(e.target.value)} style={ctrlStyle}>
+      <div className="card card--inset card--quiet kw-controls">
+        <label className="kw-control">
+          <span className="kw-control__label">Granularity</span>
+          <select value={granularity} onChange={e => setGranularity(e.target.value)} className="kw-control__input">
             <option value="month">Monthly</option>
             <option value="year">Yearly</option>
             <option value="day">Daily</option>
           </select>
-        </div>
-        <div>
-          <label style={labelStyle}>From:</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={ctrlStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>To:</label>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={ctrlStyle} />
-        </div>
+        </label>
+        <label className="kw-control">
+          <span className="kw-control__label">From</span>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="kw-control__input" />
+        </label>
+        <label className="kw-control">
+          <span className="kw-control__label">To</span>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="kw-control__input" />
+        </label>
       </div>
 
       {loading ? (
@@ -133,30 +126,40 @@ export const KeywordFrequencyOverTime: React.FC = () => {
       ) : data.length > 0 ? (
         <>
           {/* Stats row */}
-          <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', padding: '0.75rem 1rem', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd', fontSize: '13px' }}>
-            <span>Total mentions: <strong style={{ color: '#0369a1' }}>{totalMentions.toLocaleString()}</strong></span>
-            <span>Peak: <strong style={{ color: '#0369a1' }}>{peak} in one period</strong></span>
-            <span style={{ marginLeft: 'auto' }}>
-              <button onClick={() => exportToCSV(data, `keyword_${keyword}_frequency`)}
-                style={{ padding: '3px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', fontSize: '12px', cursor: 'pointer' }}>
-                Export CSV
+          <div className="stat-grid">
+            <div className="stat-card stat-card--accent">
+              <span className="stat-label">Total mentions</span>
+              <span className="stat-value">{totalMentions.toLocaleString()}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Peak in one period</span>
+              <span className="stat-value">{peak.toLocaleString()}</span>
+            </div>
+            <div className="stat-card" style={{ justifyContent: 'center' }}>
+              <button
+                onClick={() => exportToCSV(data, `keyword_${keyword}_frequency`)}
+                className="btn btn--sm"
+              >
+                <Download size={14} aria-hidden /> Export CSV
               </button>
-            </span>
+            </div>
           </div>
           <ResponsiveContainer width="100%" height={420}>
             <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
-              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Mentions', angle: -90, position: 'insideLeft', fontSize: 12 }} />
-              <Tooltip contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }} />
-              <Bar dataKey="count" fill="#3b82f6" name={`"${keyword}" mentions`} radius={[3, 3, 0, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+              <XAxis dataKey="date" tick={AXIS_STYLE} angle={-40} textAnchor="end" height={70} />
+              <YAxis tick={AXIS_STYLE} label={{ value: 'Mentions', angle: -90, position: 'insideLeft', fontSize: 12, fill: 'var(--text-tertiary)' }} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} />
+              <Bar dataKey="count" fill="var(--primary-color)" name={`"${keyword}" mentions`} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </>
       ) : keyword ? (
-        <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
-          No mentions of <strong>"{keyword}"</strong> found in the selected date range.
-        </div>
+        <EmptyState
+          icon={<Tag size={28} aria-hidden />}
+          title={`No mentions of "${keyword}" in this window`}
+          description="Try widening the date range, switching granularity, or picking a more common keyword from the suggestions above."
+        />
       ) : null}
     </div>
   );

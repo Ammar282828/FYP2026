@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { ArrowLeft, Sparkles, ArrowUpRight, FileText } from 'lucide-react';
 import { API_BASE } from '../config';
-import { Skeleton, SkeletonChart } from './ui/Skeleton';
+import { SkeletonChart } from './ui/Skeleton';
 import BookmarkButton from './BookmarkButton';
 import { useToast } from './ui/Toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
@@ -83,8 +84,8 @@ const EntityPage: React.FC = () => {
   return (
     <div className="entity-page">
       <div className="entity-page-container">
-        <button className="back-button" onClick={() => navigate(-1)}>
-          {'\u2190'} Back
+        <button className="btn btn--ghost btn--sm" onClick={() => navigate(-1)}>
+          <ArrowLeft size={14} /> Back
         </button>
 
         <div className="entity-page-header">
@@ -103,76 +104,43 @@ const EntityPage: React.FC = () => {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <div className="toolbar">
           <button
             onClick={generateBio}
             disabled={bioLoading || !!bio}
-            style={{
-              padding: '0.5rem 0.9rem',
-              borderRadius: '6px',
-              border: '1px solid var(--border-color)',
-              background: 'var(--primary-color)',
-              color: 'white',
-              cursor: bioLoading || bio ? 'default' : 'pointer',
-              fontSize: '0.85rem',
-              opacity: bioLoading || bio ? 0.7 : 1,
-            }}
+            className="btn btn--primary btn--sm"
           >
-            {bioLoading ? 'Generating...' : bio ? '\uD83E\uDD16 AI Profile ready' : '\uD83E\uDD16 Generate AI Profile'}
+            <Sparkles size={14} />
+            {bioLoading ? 'Generating…' : bio ? 'AI profile ready' : 'Generate AI profile'}
           </button>
           <button
             onClick={copyPermalink}
-            style={{
-              padding: '0.5rem 0.9rem',
-              borderRadius: '6px',
-              border: '1px solid var(--border-color)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-            }}
+            className="btn btn--sm"
             title="Copy permalink"
           >
-            {'\uD83D\uDD17'} Copy link
+            <ArrowUpRight size={14} /> Copy link
           </button>
         </div>
 
         {bio && (
-          <div
-            className="entity-chart-card"
-            style={{
-              borderLeft: '3px solid var(--primary-color)',
-              background: 'var(--bg-secondary, var(--bg-primary))',
-              marginBottom: '1.25rem',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>{'\uD83E\uDD16'} AI Profile</h3>
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  background: 'var(--primary-color)',
-                  color: 'white',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.03em',
-                }}
-              >
+          <div className="entity-chart-card entity-bio-card">
+            <div className="cluster" style={{ marginBottom: 'var(--space-1)' }}>
+              <h3 style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Sparkles size={16} /> AI Profile
+              </h3>
+              <span className="chip chip--accent" style={{ textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 {bio.model}
               </span>
             </div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.6rem' }}>
+            <div className="stat-sub" style={{ marginBottom: 'var(--space-2)' }}>
               Based on {bio.source_count} article{bio.source_count === 1 ? '' : 's'}
             </div>
-            <div style={{ fontSize: '0.95rem', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-              {bio.bio}
-            </div>
+            <div className="entity-bio-card__body">{bio.bio}</div>
           </div>
         )}
 
         {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div className="stack stack--loose">
             <SkeletonChart />
             <SkeletonChart />
           </div>
@@ -233,9 +201,13 @@ const EntityPage: React.FC = () => {
             <div className="entity-chart-card">
               <h3>Articles Mentioning {decodedName}</h3>
               {articles.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  No articles found for this entity.
-                </p>
+                <div className="empty-state">
+                  <FileText size={28} className="empty-state__icon" />
+                  <div className="empty-state__title">No articles mention {decodedName} yet</div>
+                  <div className="empty-state__body">
+                    As more issues are processed, mentions will surface here automatically.
+                  </div>
+                </div>
               ) : (
                 <div className="entity-articles-list">
                   {articles.map((article: any) => (
@@ -245,13 +217,12 @@ const EntityPage: React.FC = () => {
                         <span className="entity-article-headline">{article.headline}</span>
                         <span className="entity-article-meta">
                           {article.publication_date?.slice(0, 10)}
-                          {article.topic_label && ` \u2022 ${article.topic_label.replace(/_/g, ' ').slice(0, 30)}`}
+                          {article.topic_label && ` • ${article.topic_label.replace(/_/g, ' ').slice(0, 30)}`}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <div className="cluster">
                         <span className="sentiment-badge" style={{
                           backgroundColor: sentColor(article.sentiment_label),
-                          fontSize: '0.7rem', padding: '2px 8px'
                         }}>
                           {article.sentiment_label}
                         </span>

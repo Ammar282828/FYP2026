@@ -17,6 +17,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { AlertCircle, ArrowRight, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useDateBounds } from '../hooks/useDataVersion';
 import DateRangePicker from './ui/DateRangePicker';
@@ -118,13 +119,16 @@ const CompareTab: React.FC = () => {
   }, [bFrom, bTo]);
 
   return (
-    <div className="compare-view" style={{ padding: '1rem 1.25rem' }}>
-      <h2 style={{ marginTop: 0 }}>Compare Two Periods</h2>
-      <p style={{ color: 'var(--text-secondary)', marginTop: 4, fontSize: 13 }}>
-        Pick two date ranges and see how coverage shifted between them.
-      </p>
+    <div className="compare-view" style={{ padding: 'var(--space-4) var(--space-5)' }}>
+      <header className="stack stack--tight" style={{ marginBottom: 'var(--space-2)' }}>
+        <span className="section-eyebrow">Compare</span>
+        <h2 style={{ margin: 0 }}>Two periods, side by side</h2>
+        <p className="stat-sub" style={{ margin: 0 }}>
+          Pick two date ranges and see how coverage, sentiment, and the cast of characters shifted.
+        </p>
+      </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16, marginTop: 16 }}>
+      <div className="compare-grid">
         <PeriodColumn
           title="Period A"
           color={chartColors.primary}
@@ -165,16 +169,10 @@ const PeriodColumn: React.FC<{
   const pct = (n: number) => ((n / total) * 100).toFixed(1);
 
   return (
-    <div style={{
-      border: `1px solid var(--border-color)`,
-      borderTop: `3px solid ${color}`,
-      borderRadius: 8,
-      padding: '0.75rem 1rem 1rem',
-      background: 'var(--bg-primary)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <h3 style={{ margin: 0, color }}>{title}</h3>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+    <div className="compare-period" style={{ borderTopColor: color }}>
+      <div className="compare-period__head">
+        <h3 className="compare-period__title" style={{ color }}>{title}</h3>
+        <span className="chip">
           {summary.articleCount.toLocaleString()} articles
         </span>
       </div>
@@ -186,52 +184,55 @@ const PeriodColumn: React.FC<{
         compact
       />
 
-      <hr style={{ margin: '12px 0', border: 0, borderTop: '1px solid var(--border-color)' }} />
+      <hr className="divider" style={{ margin: 'var(--space-3) 0' }} />
 
       {summary.loading ? (
         <SkeletonChart />
       ) : summary.error ? (
-        <EmptyState icon="!" title="Failed to load" description={summary.error} />
+        <EmptyState
+          icon={<AlertCircle size={28} strokeWidth={1.5} />}
+          title="Couldn't load this range"
+          description={summary.error}
+        />
       ) : summary.articleCount === 0 ? (
-        <EmptyState title="No articles in this range" />
+        <EmptyState
+          title="No articles in this range"
+          description="Widen the dates or pick a different stretch of the archive."
+        />
       ) : (
         <>
           {/* Sentiment bars */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Sentiment</div>
-            <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden' }}>
+          <div className="stack stack--tight" style={{ marginBottom: 'var(--space-3)' }}>
+            <div className="section-eyebrow" style={{ marginBottom: 0 }}>Sentiment</div>
+            <div className="compare-sentbar">
               <div title={`${sent.positive} positive`} style={{ width: `${pct(sent.positive)}%`, background: chartColors.positive }} />
               <div title={`${sent.neutral} neutral`}  style={{ width: `${pct(sent.neutral)}%`,  background: chartColors.muted }} />
               <div title={`${sent.negative} negative`} style={{ width: `${pct(sent.negative)}%`, background: chartColors.negative }} />
             </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
-              <span style={{ color: chartColors.positive }}>+ {pct(sent.positive)}%</span>
-              <span>= {pct(sent.neutral)}%</span>
-              <span style={{ color: chartColors.negative }}>- {pct(sent.negative)}%</span>
+            <div className="cluster" style={{ fontSize: 'var(--font-size-xs)', gap: 'var(--space-3)' }}>
+              <span style={{ color: chartColors.positive }}>Positive {pct(sent.positive)}%</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Neutral {pct(sent.neutral)}%</span>
+              <span style={{ color: chartColors.negative }}>Negative {pct(sent.negative)}%</span>
             </div>
           </div>
 
           {/* Top entities */}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Top entities</div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: 13 }}>
+            <div className="section-eyebrow">Top entities</div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {summary.topEntities.map(e => (
-                <li key={`${e.type}:${e.text}`} style={{
-                  display: 'flex', justifyContent: 'space-between',
-                  padding: '3px 0', borderBottom: '1px solid var(--border-color)',
-                }}>
+                <li key={`${e.type}:${e.text}`} className="compare-entity-row">
                   <button
                     type="button"
                     onClick={() => navigate(`/entity/${encodeURIComponent(e.text)}`)}
                     title={`View ${e.text}`}
-                    style={{
-                      background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
-                      color: 'var(--primary-color)', textAlign: 'left', font: 'inherit',
-                    }}
+                    className="compare-link"
                   >
-                    {e.text} <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>({e.type})</span>
+                    {e.text} <span className="compare-entity-type">({e.type})</span>
                   </button>
-                  <span style={{ fontWeight: 600 }}>{e.count.toLocaleString()}</span>
+                  <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    {e.count.toLocaleString()}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -261,66 +262,71 @@ const DeltaPanel: React.FC<{ a: PeriodSummary; b: PeriodSummary }> = ({ a, b }) 
   const bSet = new Set(b.topEntities.map(e => `${e.type}:${e.text.toLowerCase()}`));
   const goneInB = a.topEntities.filter(e => !bSet.has(`${e.type}:${e.text.toLowerCase()}`));
 
-  const arrow = (n: number) => n > 0 ? '▲' : n < 0 ? '▼' : '·';
+  const deltaIcon = (n: number, size = 14) => {
+    if (n > 0) return <ArrowUpRight size={size} aria-hidden="true" />;
+    if (n < 0) return <ArrowDownRight size={size} aria-hidden="true" />;
+    return <Minus size={size} aria-hidden="true" />;
+  };
   const sign = (n: number) => `${n > 0 ? '+' : ''}${n.toFixed(1)}`;
+  const deltaClass = (n: number) =>
+    n > 0 ? 'compare-delta-value compare-delta-value--positive'
+    : n < 0 ? 'compare-delta-value compare-delta-value--negative'
+    : 'compare-delta-value';
 
   return (
-    <div style={{
-      marginTop: 20, padding: '1rem 1.25rem',
-      border: '1px solid var(--border-color)', borderRadius: 8,
-      background: 'var(--bg-secondary)',
-    }}>
-      <h3 style={{ margin: '0 0 12px' }}>What changed between A → B</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 13 }}>
-        <div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 11, textTransform: 'uppercase' }}>Article volume</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: volumeDelta > 0 ? chartColors.positive : volumeDelta < 0 ? chartColors.negative : 'var(--text-primary)' }}>
-            {arrow(volumeDelta)} {sign(volumeDelta)}%
+    <div className="compare-delta-card">
+      <header className="cluster" style={{ marginBottom: 'var(--space-3)' }}>
+        <h3 className="section-title" style={{ margin: 0 }}>What changed</h3>
+        <span className="chip">
+          A <ArrowRight size={12} aria-hidden="true" /> B
+        </span>
+      </header>
+      <div className="compare-delta-grid">
+        <div className="stack stack--tight">
+          <div className="stat-label">Article volume</div>
+          <div className={deltaClass(volumeDelta)}>
+            {deltaIcon(volumeDelta, 16)} {sign(volumeDelta)}%
           </div>
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>
+          <div className="stat-sub">
             {a.articleCount.toLocaleString()} → {b.articleCount.toLocaleString()}
           </div>
         </div>
-        <div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 11, textTransform: 'uppercase' }}>Net sentiment</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: netDelta > 0 ? chartColors.positive : netDelta < 0 ? chartColors.negative : 'var(--text-primary)' }}>
-            {arrow(netDelta)} {sign(netDelta)} pts
+        <div className="stack stack--tight">
+          <div className="stat-label">Net sentiment</div>
+          <div className={deltaClass(netDelta)}>
+            {deltaIcon(netDelta, 16)} {sign(netDelta)} pts
           </div>
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>
+          <div className="stat-sub">
             {netA.toFixed(1)}% → {netB.toFixed(1)}%
           </div>
         </div>
-        <div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 11, textTransform: 'uppercase' }}>New top entities</div>
-          <div style={{ fontSize: 12 }}>
+        <div className="stack stack--tight">
+          <div className="stat-label">New top entities</div>
+          <div className="cluster" style={{ gap: 'var(--space-1)' }}>
             {newInB.length === 0
-              ? <em style={{ color: 'var(--text-tertiary)' }}>None</em>
-              : newInB.slice(0, 5).map((e, i) => (
-                  <React.Fragment key={`${e.type}:${e.text}`}>
-                    {i > 0 && ', '}
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/entity/${encodeURIComponent(e.text)}`)}
-                      style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer', color: 'var(--primary-color)', font: 'inherit' }}
-                    >{e.text}</button>
-                  </React.Fragment>
+              ? <span className="stat-sub">None — same cast.</span>
+              : newInB.slice(0, 5).map((e) => (
+                  <button
+                    key={`${e.type}:${e.text}`}
+                    type="button"
+                    onClick={() => navigate(`/entity/${encodeURIComponent(e.text)}`)}
+                    className="chip chip--accent compare-link"
+                  >{e.text}</button>
                 ))}
           </div>
         </div>
-        <div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 11, textTransform: 'uppercase' }}>Dropped from top</div>
-          <div style={{ fontSize: 12 }}>
+        <div className="stack stack--tight">
+          <div className="stat-label">Dropped from top</div>
+          <div className="cluster" style={{ gap: 'var(--space-1)' }}>
             {goneInB.length === 0
-              ? <em style={{ color: 'var(--text-tertiary)' }}>None</em>
-              : goneInB.slice(0, 5).map((e, i) => (
-                  <React.Fragment key={`${e.type}:${e.text}`}>
-                    {i > 0 && ', '}
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/entity/${encodeURIComponent(e.text)}`)}
-                      style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer', color: 'var(--primary-color)', font: 'inherit' }}
-                    >{e.text}</button>
-                  </React.Fragment>
+              ? <span className="stat-sub">Nobody dropped out.</span>
+              : goneInB.slice(0, 5).map((e) => (
+                  <button
+                    key={`${e.type}:${e.text}`}
+                    type="button"
+                    onClick={() => navigate(`/entity/${encodeURIComponent(e.text)}`)}
+                    className="chip compare-link"
+                  >{e.text}</button>
                 ))}
           </div>
         </div>

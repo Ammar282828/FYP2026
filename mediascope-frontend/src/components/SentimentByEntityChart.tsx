@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { AlertCircle, Building2, Calendar, Globe, MapPin, Tag, User, Users } from 'lucide-react';
 import { API_BASE } from '../config';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { SkeletonChart } from './ui/Skeleton';
 import EmptyState from './ui/EmptyState';
+import { TOOLTIP_STYLE, TOOLTIP_CURSOR, AXIS_STYLE } from '../theme/chartTheme';
 
 type SortKey = 'mentions' | 'positive' | 'negative' | 'avg' | 'name';
 
@@ -54,13 +56,14 @@ const SentimentByEntityChart: React.FC = () => {
   }, [data, sortKey]);
 
   const getEntityIcon = (type: string) => {
+    const props = { size: 14, 'aria-hidden': true } as const;
     switch(type) {
-      case 'PERSON': return 'P';
-      case 'ORG': return 'O';
-      case 'GPE': return 'L';
-      case 'NORP': return 'G';
-      case 'EVENT': return 'E';
-      default: return 'T';
+      case 'PERSON': return <User {...props} />;
+      case 'ORG': return <Building2 {...props} />;
+      case 'GPE': return <MapPin {...props} />;
+      case 'NORP': return <Globe {...props} />;
+      case 'EVENT': return <Calendar {...props} />;
+      default: return <Tag {...props} />;
     }
   };
 
@@ -74,10 +77,10 @@ const SentimentByEntityChart: React.FC = () => {
     <div className="sentiment-by-entity-chart">
       <div className="chart-header">
         <h3>Sentiment by Entity</h3>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>
+        <p className="chart-caption">
           How people, organizations, and locations are portrayed in articles (positive, neutral, or negative sentiment)
         </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <div className="cluster">
           <select
             value={entityType}
             onChange={(e) => setEntityType(e.target.value)}
@@ -108,9 +111,9 @@ const SentimentByEntityChart: React.FC = () => {
       {loading ? (
         <SkeletonChart />
       ) : error ? (
-        <EmptyState icon="!" title="Couldn't load sentiment by entity" description={error} action={{ label: 'Retry', onClick: loadData }} />
+        <EmptyState icon={<AlertCircle size={28} aria-hidden />} title="Couldn't load sentiment by entity" description={error} action={{ label: 'Retry', onClick: loadData }} />
       ) : sorted.length === 0 ? (
-        <EmptyState title="No data available" description="Try a different entity type." />
+        <EmptyState icon={<Users size={28} aria-hidden />} title="No entities matched this filter" description="No people, organizations, or locations of the selected type appeared often enough to score. Try a broader entity type." />
       ) : (
         <>
           <div className="entity-sentiment-list">
@@ -164,37 +167,34 @@ const SentimentByEntityChart: React.FC = () => {
             })}
           </div>
 
-          <div className="chart-container" style={{ marginTop: '24px' }}>
+          <div className="chart-container chart-container--spaced">
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={sorted.slice(0, 10)}>
-                <CartesianGrid strokeDasharray="3 3" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                 <XAxis
                   dataKey="entity_text"
                   angle={-45}
                   textAnchor="end"
                   height={100}
                   interval={0}
+                  tick={AXIS_STYLE}
                 />
-                <YAxis />
-                <Tooltip />
+                <YAxis tick={AXIS_STYLE} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={TOOLTIP_CURSOR} />
                 <Legend />
-                <Bar dataKey="positive_count" fill="#10b981" name="Positive" />
-                <Bar dataKey="neutral_count" fill="#6b7280" name="Neutral" />
-                <Bar dataKey="negative_count" fill="#ef4444" name="Negative" />
+                <Bar dataKey="positive_count" fill="var(--positive)" name="Positive" />
+                <Bar dataKey="neutral_count" fill="var(--text-tertiary)" name="Neutral" />
+                <Bar dataKey="negative_count" fill="var(--negative)" name="Negative" />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
           {sorted.length >= limit && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+            <div className="cluster" style={{ justifyContent: 'center', marginTop: 'var(--space-3)' }}>
               <button
                 onClick={() => setLimit(l => l + 15)}
                 disabled={loading}
-                style={{
-                  padding: '6px 14px', fontSize: 13, borderRadius: 6,
-                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)', cursor: 'pointer',
-                }}
+                className="btn btn--sm"
               >
                 Load 15 more
               </button>

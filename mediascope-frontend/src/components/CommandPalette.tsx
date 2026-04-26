@@ -1,6 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import {
+  Search,
+  Home,
+  BookOpen,
+  BarChart,
+  User,
+  Upload,
+  Square,
+  Shuffle,
+  FileText,
+  Command as CommandIcon,
+  ArrowUp,
+  ArrowDown,
+  CornerDownLeft,
+} from 'lucide-react';
 import { API_BASE } from '../config';
 
 interface CommandPaletteProps {
@@ -10,23 +25,25 @@ interface CommandPaletteProps {
   onNavigate?: (tab: string) => void;
 }
 
+type ResultIcon = React.ComponentType<{ size?: number | string }>;
+
 interface SearchResult {
   id: string;
   type: 'article' | 'topic' | 'nav' | 'action';
   title: string;
   subtitle?: string;
-  icon: string;
+  Icon: ResultIcon;
 }
 
 const NAV_ITEMS: SearchResult[] = [
-  { id: 'nav-home',      type: 'nav', title: 'Home',       subtitle: 'Go to dashboard', icon: '\u2302' },
-  { id: 'nav-search',    type: 'nav', title: 'Search',     subtitle: 'Search articles',  icon: '\u2315' },
-  { id: 'nav-stories',   type: 'nav', title: 'Stories',    subtitle: 'Browse stories',   icon: '\u2261' },
-  { id: 'nav-analytics', type: 'nav', title: 'Analytics',  subtitle: 'View analytics',   icon: '\u2237' },
-  { id: 'nav-profile',   type: 'nav', title: 'Profile',    subtitle: 'Your bookmarks & history', icon: '\u25CB' },
-  { id: 'nav-ocr',       type: 'nav', title: 'OCR Upload', subtitle: 'Upload newspaper', icon: '\u21E7' },
-  { id: 'nav-ad-browser',type: 'nav', title: 'Ad Browser', subtitle: 'Browse ads',       icon: '\u25A1' },
-  { id: 'action-random', type: 'action', title: 'Random Article', subtitle: 'Open a random article from the archive', icon: '\uD83C\uDFB2' },
+  { id: 'nav-home',       type: 'nav',    title: 'Home',          subtitle: 'Go to dashboard',                      Icon: Home },
+  { id: 'nav-search',     type: 'nav',    title: 'Search',        subtitle: 'Search articles',                      Icon: Search },
+  { id: 'nav-stories',    type: 'nav',    title: 'Stories',       subtitle: 'Browse stories',                       Icon: BookOpen },
+  { id: 'nav-analytics',  type: 'nav',    title: 'Analytics',     subtitle: 'View analytics',                       Icon: BarChart },
+  { id: 'nav-profile',    type: 'nav',    title: 'Profile',       subtitle: 'Your bookmarks & history',             Icon: User },
+  { id: 'nav-ocr',        type: 'nav',    title: 'OCR Upload',    subtitle: 'Upload newspaper',                     Icon: Upload },
+  { id: 'nav-ad-browser', type: 'nav',    title: 'Ad Browser',    subtitle: 'Browse ads',                           Icon: Square },
+  { id: 'action-random',  type: 'action', title: 'Random Article', subtitle: 'Open a random article from the archive', Icon: Shuffle },
 ];
 
 const CommandPalette: React.FC<CommandPaletteProps> = ({ onNavigate }) => {
@@ -37,6 +54,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ onNavigate }) => {
   const [selected, setSelected] = useState(0);
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const debounceRef = useRef<NodeJS.Timeout>();
 
   // Cmd+K / Ctrl+K toggle
@@ -46,20 +64,23 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ onNavigate }) => {
         e.preventDefault();
         setOpen(prev => !prev);
       }
-      if (e.key === 'Escape') setOpen(false);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Focus input on open
+  // Sync state with the native <dialog>; reset query/selection on open.
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+    if (open && !dlg.open) {
+      dlg.showModal();
       setQuery('');
       setResults(NAV_ITEMS);
       setSelected(0);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
+    if (!open && dlg.open) dlg.close();
   }, [open]);
 
   // Search logic
@@ -85,8 +106,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ onNavigate }) => {
         id: a.id,
         type: 'article' as const,
         title: a.headline || 'Untitled',
-        subtitle: `${a.publication_date?.slice(0, 10) || ''} \u2022 ${a.sentiment_label || ''}`,
-        icon: '\u2637'
+        subtitle: `${a.publication_date?.slice(0, 10) || ''} • ${a.sentiment_label || ''}`,
+        Icon: FileText,
       }));
       setResults([...navMatches, ...articles]);
     } catch {
@@ -139,60 +160,77 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ onNavigate }) => {
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div className="cmd-overlay" onClick={() => setOpen(false)}>
-      <div className="cmd-palette" onClick={e => e.stopPropagation()}>
-        <div className="cmd-input-row">
-          <span className="cmd-search-icon">{'\u2315'}</span>
-          <input
-            ref={inputRef}
-            className="cmd-input"
-            placeholder="Search articles, navigate..."
-            value={query}
-            onChange={e => handleQueryChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <kbd className="cmd-kbd">esc</kbd>
-        </div>
+    <dialog
+      ref={dialogRef}
+      className="app-dialog cmd-dialog"
+      onClose={() => setOpen(false)}
+      onClick={(e) => {
+        if (e.target === dialogRef.current) setOpen(false);
+      }}
+    >
+      <div className="cmd-input-row">
+        <Search size={16} className="cmd-search-icon" />
+        <input
+          ref={inputRef}
+          className="cmd-input"
+          placeholder="Search articles, navigate…"
+          value={query}
+          onChange={e => handleQueryChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <kbd className="kbd">esc</kbd>
+      </div>
 
-        <div className="cmd-results">
-          {searching && (
-            <div className="cmd-searching">Searching...</div>
-          )}
+      <div className="cmd-results">
+        {searching && (
+          <div className="cmd-searching">Searching the archive…</div>
+        )}
 
-          {!query && <div className="cmd-section-label">Quick Navigation</div>}
-          {query && results.length > 0 && <div className="cmd-section-label">Results</div>}
+        {!query && <div className="section-eyebrow cmd-section-label">Quick navigation</div>}
+        {query && results.length > 0 && (
+          <div className="section-eyebrow cmd-section-label">Results</div>
+        )}
 
-          {results.map((r, i) => (
+        {results.map((r, i) => {
+          const Icon = r.Icon;
+          return (
             <button
               key={r.id}
               className={`cmd-result ${i === selected ? 'cmd-result-active' : ''}`}
               onClick={() => executeResult(r)}
               onMouseEnter={() => setSelected(i)}
             >
-              <span className="cmd-result-icon">{r.icon}</span>
+              <span className="cmd-result-icon"><Icon size={16} /></span>
               <div className="cmd-result-text">
                 <span className="cmd-result-title">{r.title}</span>
                 {r.subtitle && <span className="cmd-result-sub">{r.subtitle}</span>}
               </div>
               <span className="cmd-result-type">{r.type}</span>
             </button>
-          ))}
+          );
+        })}
 
-          {query && results.length === 0 && !searching && (
-            <div className="cmd-empty">No results for "{query}"</div>
-          )}
-        </div>
-
-        <div className="cmd-footer">
-          <span><kbd>{'\u2191'}</kbd><kbd>{'\u2193'}</kbd> navigate</span>
-          <span><kbd>{'\u21B5'}</kbd> open</span>
-          <span><kbd>esc</kbd> close</span>
-        </div>
+        {query && results.length === 0 && !searching && (
+          <div className="empty-state">
+            <Search size={28} className="empty-state__icon" />
+            <div className="empty-state__title">Nothing matched “{query}”</div>
+            <div className="empty-state__body">
+              Try a different keyword or jump back to a section above.
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+
+      <div className="app-dialog__footer cmd-footer">
+        <span className="cluster"><kbd className="kbd"><ArrowUp size={10} /></kbd><kbd className="kbd"><ArrowDown size={10} /></kbd> navigate</span>
+        <span className="cluster"><kbd className="kbd"><CornerDownLeft size={10} /></kbd> open</span>
+        <span className="cluster"><kbd className="kbd">esc</kbd> close</span>
+        <span className="cluster" style={{ marginLeft: 'auto' }}>
+          <CommandIcon size={11} /> command palette
+        </span>
+      </div>
+    </dialog>
   );
 };
 

@@ -1320,11 +1320,28 @@ class MediaScopePipeline:
                 print(f"[WARNING] Ad save phase failed: {e}")
 
             print(f"[OK] Found {len(articles)} articles")
-            
+
             articles_processed = 0
             articles_failed = 0
 
-            for article in articles:
+            # Batch-classify topics for ALL articles on this page in a
+            # single Gemini call (well, ⌈N/10⌉ calls). Was ~13 round-trips
+            # per page (one per article); now ~1-2. The dominant per-page
+            # cost on text-heavy editions. Uses the same Gemini-only
+            # classifier the backfill uses, so labels stay consistent.
+            try:
+                from services.topics_gemini import classify_topics_batch_gemini
+                combined_texts = [
+                    f"{a.get('headline','')}\n\n{a.get('text','')}" for a in articles
+                ]
+                batch_topics = classify_topics_batch_gemini(combined_texts)
+                print(f"  [OK] Topic batch: classified {len(batch_topics)} articles "
+                      f"in ⌈{len(articles)}/10⌉ Gemini call(s)")
+            except Exception as e:
+                print(f"  [WARNING] Topic batch failed, falling back to per-article: {e}")
+                batch_topics = [None] * len(articles)
+
+            for article, batch_topic in zip(articles, batch_topics):
                 try:
                     print(f"\n  Article {article['number']}: {article['headline'][:50]}...")
 
@@ -1337,11 +1354,26 @@ class MediaScopePipeline:
                     print(f"    [OK] Sentiment: {sentiment['label']} ({sentiment['score']}) "
                           f"via {sentiment.get('method', 'roberta')}")
 
-                    print("    Classifying topic (Gemini)...")
+                    # Topic — use the batch result when available; only fall
+                    # back to a per-article Gemini call if the batch failed
+                    # entirely OR returned a confidence==0 fallback for this
+                    # specific article.
                     combined_text = f"{article['headline']}\n\n{article['text']}"
-                    topic = self.nlp_processor.assign_topic(combined_text)
-                    print(f"    [OK] Topic: {topic.get('topic_label', 'N/A')} "
-                          f"(id={topic.get('topic_id')}, via {topic.get('method', 'legacy')})")
+                    if batch_topic and batch_topic.get('confidence', 0) > 0:
+                        topic = {
+                            'topic_id': batch_topic['topic_id'],
+                            'topic_label': batch_topic['topic_label'],
+                            'topic_key': batch_topic.get('topic_key'),
+                            'confidence': batch_topic['confidence'],
+                            'method': 'gemini-curated',
+                        }
+                        print(f"    [OK] Topic (batch): {topic['topic_label']} "
+                              f"(id={topic['topic_id']}, conf={topic['confidence']:.2f})")
+                    else:
+                        print("    Classifying topic (per-article fallback)…")
+                        topic = self.nlp_processor.assign_topic(combined_text)
+                        print(f"    [OK] Topic: {topic.get('topic_label', 'N/A')} "
+                              f"(id={topic.get('topic_id')}, via {topic.get('method', 'legacy')})")
 
                     article_data = {
                         'article_number': article['number'],
