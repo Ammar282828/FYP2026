@@ -191,6 +191,7 @@ All backfills accept `--dry-run`, `--limit N`, `--throttle S` (seconds), and `--
 
 ## Documentation
 
+- **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)** — first-time user walkthrough (researchers, journalists)
 - **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — codebase graph for LLMs and new devs
 - [`docs/FIREBASE_SETUP.md`](docs/FIREBASE_SETUP.md)
 - [`docs/FRESH_START_GUIDE.md`](docs/FRESH_START_GUIDE.md)
