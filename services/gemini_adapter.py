@@ -9,7 +9,19 @@ This lets the existing pipeline (which was written against the old
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable, List
+
+
+# Per-request socket timeout, in seconds. Without this, a Gemini call
+# whose underlying TCP connection silently dies (NAT timeout, dropped
+# RST/FIN, server-side abort) blocks on recv() forever — observed in
+# production as an 8-hour silent stall on the v4 ingestion run.
+# Override via GEMINI_REQUEST_TIMEOUT env var if a workload genuinely
+# needs longer (e.g. a 20-page batch OCR call). 180s is a safe default:
+# the slowest legitimate single call we've seen is ~227s under quota
+# pressure, but the batch path keeps real wall time well under that.
+_DEFAULT_TIMEOUT = float(os.getenv('GEMINI_REQUEST_TIMEOUT', '180'))
 
 
 def _detect_transport(api_key: str) -> str:
@@ -90,6 +102,11 @@ class _VertexModel:
         cfg_kwargs = {}
         if self._safety_settings:
             cfg_kwargs['safety_settings'] = self._safety_settings
+        # Apply the global request timeout via the new SDK's HttpOptions.
+        # Caller can override per-call by passing timeout=N as a kwarg.
+        cfg_kwargs['http_options'] = self._types.HttpOptions(
+            timeout=int(kwargs.get('timeout', _DEFAULT_TIMEOUT) * 1000),  # ms
+        )
         config = self._types.GenerateContentConfig(**cfg_kwargs) if cfg_kwargs else None
         response = self._client.models.generate_content(
             model=self._model_name,
@@ -137,10 +154,26 @@ class _LegacyGeminiModel:
         self._safety_settings = safety_settings
 
     def generate_content(self, prompt_parts, safety_settings=None, **kwargs):
-        return self._model.generate_content(
-            prompt_parts,
-            safety_settings=safety_settings or self._safety_settings,
-        )
+        # Legacy SDK exposes a per-request RequestOptions(timeout=...)
+        # mechanism — apply the global default unless caller overrides.
+        # Without this, a TCP-half-closed connection blocks the call
+        # forever on recv() (the bug that caused the v4 8-hour stall).
+        try:
+            from google.generativeai.types import RequestOptions  # type: ignore
+            req_opts = RequestOptions(timeout=kwargs.get('timeout', _DEFAULT_TIMEOUT))
+            return self._model.generate_content(
+                prompt_parts,
+                safety_settings=safety_settings or self._safety_settings,
+                request_options=req_opts,
+            )
+        except ImportError:
+            # Older google-generativeai versions don't expose RequestOptions.
+            # Fall back to a passthrough call — caller's _call_timeout
+            # watchdog (scripts/_call_timeout.py) is the safety net here.
+            return self._model.generate_content(
+                prompt_parts,
+                safety_settings=safety_settings or self._safety_settings,
+            )
 
 
 # ─── Public factory ───────────────────────────────────────────────────────────

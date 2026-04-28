@@ -15,6 +15,13 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
 
+# Per-call socket timeout for Storage uploads. Without it,
+# `blob.upload_from_filename(...)` blocks forever when the underlying
+# TCP connection silently dies (NAT timeout, dropped FIN/RST, server
+# abort) — same recv()-on-dead-socket pattern that caused the v4
+# pipeline 8-hour stall on Gemini. Override via STORAGE_REQUEST_TIMEOUT.
+_UPLOAD_TIMEOUT = float(os.getenv('STORAGE_REQUEST_TIMEOUT', '180'))
+
 # ─── Story helpers ────────────────────────────────────────────────────────────
 _STORY_ENTITY_TYPES = {'PERSON', 'ORG', 'GPE'}
 
@@ -1315,9 +1322,14 @@ class FirestoreDB:
 
             print(f"[INFO] Uploading {image_path} to {storage_path}")
             blob = self.bucket.blob(storage_path)
-            blob.upload_from_filename(image_path)
+            # 180s upload + 30s metadata timeout — matches the global
+            # GEMINI_REQUEST_TIMEOUT default. Without this, an upload
+            # whose underlying TCP connection silently dies blocks the
+            # whole pipeline forever (same bug that caused the v4 8-hour
+            # stall, just on a different network call).
+            blob.upload_from_filename(image_path, timeout=_UPLOAD_TIMEOUT)
 
-            blob.make_public()
+            blob.make_public(timeout=30)
 
             public_url = blob.public_url
             print(f"[OK] Uploaded image to Storage: {storage_path}")
@@ -1336,8 +1348,12 @@ class FirestoreDB:
         try:
             storage_path = f"ads/{newspaper_id}/{ad_id}.jpg"
             blob = self.bucket.blob(storage_path)
-            blob.upload_from_filename(image_path, content_type='image/jpeg')
-            blob.make_public()
+            blob.upload_from_filename(
+                image_path,
+                content_type='image/jpeg',
+                timeout=_UPLOAD_TIMEOUT,
+            )
+            blob.make_public(timeout=30)
             return blob.public_url
         except Exception as e:
             print(f"[ERROR] Failed to upload ad image: {e}")

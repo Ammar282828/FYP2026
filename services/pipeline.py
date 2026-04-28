@@ -1247,7 +1247,7 @@ class MediaScopePipeline:
             # processes) are correct here: each call is network-bound on
             # the Gemini API, and Python releases the GIL during socket
             # I/O so true concurrency happens despite the GIL.
-            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
             def _run_metadata():
                 if publication_date is not None:
@@ -1275,13 +1275,32 @@ class MediaScopePipeline:
                     image_path, prepared_image=page_img
                 )
 
+            # Per-future deadline = 1.5× the per-call Gemini timeout so a
+            # genuine slow-but-progressing call still completes, but a
+            # stuck recv() on a dead socket can't wedge the executor
+            # forever. Without this belt-and-suspenders, even the SDK's
+            # request-options timeout has been observed to be ignored on
+            # rare network paths — the v4 8-hour stall happened with
+            # the SDK theoretically capable of timing out.
+            _PAGE_FUTURE_DEADLINE_S = 300.0
+
             with ThreadPoolExecutor(max_workers=3, thread_name_prefix='page') as ex:
                 f_meta = ex.submit(_run_metadata)
                 f_ads = ex.submit(_run_detect)
                 f_arts = ex.submit(_run_articles)
-                metadata = f_meta.result()
-                detected_ads = f_ads.result()
-                articles = f_arts.result()
+                try:
+                    metadata = f_meta.result(timeout=_PAGE_FUTURE_DEADLINE_S)
+                    detected_ads = f_ads.result(timeout=_PAGE_FUTURE_DEADLINE_S)
+                    articles = f_arts.result(timeout=_PAGE_FUTURE_DEADLINE_S)
+                except FuturesTimeoutError as e:
+                    # Cancel any still-running futures so the executor's
+                    # __exit__ doesn't block forever on join().
+                    for f in (f_meta, f_ads, f_arts):
+                        f.cancel()
+                    raise RuntimeError(
+                        f"Page-level Gemini call exceeded {_PAGE_FUTURE_DEADLINE_S}s deadline — "
+                        f"likely a stuck recv() on a closed socket. Skipping this page."
+                    ) from e
 
             pub_date = metadata['date']
             page_num = metadata['page']
