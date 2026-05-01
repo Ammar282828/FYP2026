@@ -293,7 +293,6 @@ const ArticleDetailPage: React.FC = () => {
           key={`mark-${i}`}
           className="user-annotation"
           title={m.note || ''}
-          style={{ backgroundColor: '#fff3a3', padding: '0 2px', borderRadius: '2px' }}
         >
           {content.substring(m.start, m.end)}
         </mark>
@@ -396,7 +395,7 @@ const ArticleDetailPage: React.FC = () => {
           display: none !important;
         }
         .user-annotation {
-          background-color: #fff3a3;
+          background-color: color-mix(in srgb, var(--warning-color) 30%, var(--paper-cream));
           padding: 0 2px;
           border-radius: 2px;
           cursor: help;
@@ -404,38 +403,38 @@ const ArticleDetailPage: React.FC = () => {
         .annotation-floating-btn {
           position: absolute;
           transform: translate(-50%, -100%);
-          background: #2563eb;
-          color: white;
+          background: var(--primary-color);
+          color: var(--paper-cream);
           border: none;
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           padding: 6px 12px;
           font-size: 13px;
           font-weight: 600;
           cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+          box-shadow: var(--shadow-md);
           z-index: 1000;
         }
         .annotations-panel {
           margin-top: 16px;
-          border: 1px solid var(--border-color, #e5e7eb);
-          border-radius: 8px;
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
           padding: 12px;
-          background: var(--bg-secondary, #f9fafb);
+          background: var(--bg-secondary);
         }
         .annotations-panel h3 { margin: 0 0 8px; font-size: 14px; }
         .annotation-item {
           padding: 8px;
-          border-bottom: 1px solid var(--border-color, #e5e7eb);
+          border-bottom: 1px solid var(--border-color);
           display: flex;
           justify-content: space-between;
           gap: 8px;
           font-size: 13px;
         }
         .annotation-item:last-child { border-bottom: none; }
-        .annotation-item .ann-text { font-style: italic; color: var(--text-primary, #111827); }
-        .annotation-item .ann-note { color: var(--text-secondary, #6b7280); font-size: 12px; margin-top: 4px; }
+        .annotation-item .ann-text { font-style: italic; color: var(--text-primary); }
+        .annotation-item .ann-note { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
         .annotation-item button {
-          background: transparent; border: none; color: #dc2626; cursor: pointer; font-size: 14px;
+          background: transparent; border: none; color: var(--danger-color); cursor: pointer; font-size: 14px;
         }
         .citation-modal-overlay {
           position: fixed; inset: 0;
@@ -444,33 +443,34 @@ const ArticleDetailPage: React.FC = () => {
           z-index: 2000;
         }
         .citation-modal {
-          background: var(--bg-primary, #fff); border-radius: 10px; padding: 20px;
-          width: 90%; max-width: 560px; box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+          background: var(--bg-primary); border-radius: var(--radius-sm); padding: 20px;
+          width: 90%; max-width: 560px; box-shadow: var(--shadow-lg);
+          border: 1px solid var(--border-color);
         }
         .citation-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
         .citation-tab {
           flex: 1; padding: 8px 10px;
-          border: 1px solid var(--border-color, #e5e7eb);
-          background: var(--bg-secondary, #f9fafb);
-          border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px;
+          border: 1px solid var(--border-color);
+          background: var(--bg-secondary);
+          border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 13px;
         }
-        .citation-tab.active { background: #2563eb; color: white; border-color: #2563eb; }
+        .citation-tab.active { background: var(--primary-color); color: var(--paper-cream); border-color: var(--primary-color); }
         .citation-body {
-          background: var(--bg-secondary, #f9fafb); padding: 14px; border-radius: 6px;
+          background: var(--bg-secondary); padding: 14px; border-radius: var(--radius-sm);
           font-size: 14px; line-height: 1.6; margin-bottom: 14px; word-break: break-word;
         }
         .citation-actions { display: flex; justify-content: flex-end; gap: 8px; }
         .citation-actions button {
-          padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border-color, #e5e7eb);
-          background: var(--bg-secondary, #f9fafb); cursor: pointer; font-weight: 600;
+          padding: 8px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);
+          background: var(--bg-secondary); cursor: pointer; font-weight: 600;
         }
-        .citation-actions .btn-primary { background: #2563eb; color: white; border-color: #2563eb; }
+        .citation-actions .btn-primary { background: var(--primary-color); color: var(--paper-cream); border-color: var(--primary-color); }
         .reading-mode-toggle, .cite-button {
-          padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color, #e5e7eb);
-          background: var(--bg-secondary, #f9fafb); cursor: pointer; font-size: 13px; font-weight: 600;
+          padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);
+          background: var(--bg-secondary); cursor: pointer; font-size: 13px; font-weight: 600;
           margin-left: 8px;
         }
-        .reading-mode-toggle.active { background: #2563eb; color: white; border-color: #2563eb; }
+        .reading-mode-toggle.active { background: var(--primary-color); color: var(--paper-cream); border-color: var(--primary-color); }
       `}</style>
 
       <div className="article-detail-container">
@@ -502,7 +502,7 @@ const ArticleDetailPage: React.FC = () => {
               onClick={() => setReadingMode((v) => !v)}
               title="Toggle reading mode"
             >
-              {'\uD83D\uDCD6'} Reading Mode
+              Reading Mode
             </button>
           </div>
         </div>

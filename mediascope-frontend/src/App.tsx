@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './components/ui/Toast';
 import MediaScopeDashboard from './MediaScopeDashboard';
+import Landing from './components/Landing';
 import ArticleDetailPage from './components/ArticleDetailPage';
 import TopicDetailPage from './components/TopicDetailPage';
 import EntityPage from './components/EntityPage';
@@ -34,7 +35,8 @@ function App() {
           <Router>
             <GlobalChrome />
             <Routes>
-              <Route path="/" element={<MediaScopeDashboard />} />
+              <Route path="/" element={<Landing />} />
+              <Route path="/dashboard" element={<MediaScopeDashboard />} />
               <Route path="/article/:id" element={<ArticleDetailPage />} />
               <Route path="/topic/:id" element={<TopicDetailPage />} />
               <Route path="/entity/:name" element={<EntityPage />} />

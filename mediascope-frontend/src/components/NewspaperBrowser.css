@@ -335,3 +335,124 @@
   border-radius: 8px;
   margin-top: 20px;
 }
+
+/* ── Increment 5: newspaper browser editorial skin ─────────────────────── */
+
+.newspaper-browser {
+  color: var(--text-primary);
+}
+
+.browser-header,
+.date-filters,
+.summary-section,
+.articles-section,
+.page-header {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-top: 4px double var(--sepia-rule);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.browser-header {
+  padding: var(--space-5);
+  text-align: left;
+}
+
+.browser-header h2,
+.page-header h2,
+.summary-header h3,
+.articles-section h3,
+.newspaper-date,
+.article-headline {
+  font-family: var(--font-serif-head);
+  letter-spacing: 0;
+}
+
+.browser-header h2,
+.page-header h2 {
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 0.98;
+}
+
+.browser-header .subtitle,
+.newspaper-section,
+.article-number,
+.page-meta span,
+.date-filters label,
+.word-count,
+.sentiment {
+  font-family: var(--font-serif-smallcaps);
+  letter-spacing: 0.06em;
+}
+
+.date-filters {
+  justify-content: flex-start;
+}
+
+.date-filters input[type="date"],
+.date-filters button,
+.generate-summary-btn,
+.back-button,
+.page-meta span,
+.article-number,
+.sentiment {
+  border-radius: var(--radius-sm);
+}
+
+.date-filters button,
+.generate-summary-btn {
+  color: var(--paper-cream);
+}
+
+.newspaper-card,
+.article-card {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  border-left: 3px double var(--sepia-rule);
+  box-shadow: var(--shadow-sm);
+  background: var(--bg-primary);
+}
+
+.newspaper-card:hover,
+.article-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--sepia-rule);
+}
+
+.page-header {
+  color: var(--text-primary);
+}
+
+.page-meta span {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.summary-content {
+  background: var(--bg-secondary);
+  border-left: 4px double var(--sepia-rule);
+  border-radius: var(--radius-sm);
+}
+
+.article-number {
+  background: var(--primary-color);
+  color: var(--paper-cream);
+}
+
+.sentiment.positive,
+.sentiment.negative,
+.sentiment.neutral {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.sentiment.positive { color: var(--positive); }
+.sentiment.negative { color: var(--negative); }
+.sentiment.neutral { color: var(--text-secondary); }
+
+.no-results,
+.loading {
+  border-radius: var(--radius-sm);
+}

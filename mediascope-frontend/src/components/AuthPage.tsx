@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface AuthPageProps {
   onClose?: () => void;
+  initialMode?: 'login' | 'register';
 }
 
 /**
@@ -13,10 +14,10 @@ interface AuthPageProps {
  * `onClose` isn't passed (the dialog opens on mount and locks the screen
  * — useful for the protected-route flow).
  */
-const AuthPage: React.FC<AuthPageProps> = ({ onClose }) => {
+const AuthPage: React.FC<AuthPageProps> = ({ onClose, initialMode = 'login' }) => {
   const { login, register } = useAuth();
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
