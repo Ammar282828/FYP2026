@@ -772,3 +772,263 @@
     min-width: 80px;
   }
 }
+
+/* ── Increment 4: classifieds desk skin.
+   Chart interiors intentionally keep the functional Recharts palettes. ─── */
+
+.ad-browser-view {
+  background: var(--bg-secondary);
+}
+
+.ad-browser-header {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-top: 4px double var(--sepia-rule);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.ad-browser-header h2 {
+  font-family: var(--font-serif-head);
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
+  line-height: 1.05;
+  margin: 0 0 var(--space-1);
+}
+
+.view-switcher {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.view-btn {
+  border-radius: var(--radius-sm);
+  font-family: var(--font-serif-smallcaps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.view-btn--active {
+  background: var(--primary-color);
+  color: var(--paper-cream);
+  box-shadow: none;
+}
+
+.search-section {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.search-form .search-input {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.search-form .search-input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.search-btn,
+.clear-btn {
+  border-radius: var(--radius-sm);
+  font-family: var(--font-serif-smallcaps);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.search-btn {
+  color: var(--paper-cream);
+  border: 1px solid var(--primary-color);
+}
+
+.search-btn:hover,
+.clear-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.ad-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-top: 3px double var(--sepia-rule);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.ad-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--sepia-rule);
+}
+
+.ad-card-image {
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.ad-card-header h3,
+.analytics-card-title,
+.card-title,
+.modal-header h2 {
+  font-family: var(--font-serif-head);
+  letter-spacing: 0;
+}
+
+.ad-location,
+.ad-date,
+.ad-model,
+.chip,
+.category-badge,
+.visual-label,
+.strategy-item strong,
+.audience-label,
+.assessment-item strong,
+.text-section strong,
+.kpi-label {
+  font-family: var(--font-serif-smallcaps);
+  letter-spacing: 0.06em;
+}
+
+.ad-model,
+.chip,
+.category-badge,
+.color-tag,
+.technique-tag,
+.period-badge {
+  border-radius: var(--radius-sm);
+}
+
+.chip--brand,
+.chip--cat,
+.category-badge,
+.period-badge {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+}
+
+.ad-card-meta {
+  border-bottom: 3px double var(--border-subtle);
+}
+
+.modal-content {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-primary);
+}
+
+.modal-close {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.modal-close:hover {
+  transform: none;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.modal-header {
+  border-bottom: 3px double var(--sepia-rule);
+}
+
+.modal-ad-image,
+.ad-info-section {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.structured-analysis {
+  gap: var(--space-4);
+}
+
+.insight-card,
+.analytics-card,
+.kpi-row {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+  background: var(--bg-primary);
+}
+
+.insight-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.insight-card::before,
+.insight-card.brand-card::before,
+.insight-card.visual-card::before,
+.insight-card.strategy-card::before,
+.insight-card.audience-card::before,
+.insight-card.cultural-card::before,
+.insight-card.assessment-card::before,
+.insight-card.text-card::before {
+  background: var(--sepia-rule);
+}
+
+.card-title {
+  background: var(--bg-secondary);
+  border-bottom: 3px double var(--border-color);
+}
+
+.brand-name {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--primary-color);
+}
+
+.visual-item,
+.strategy-item,
+.audience-item,
+.cultural-item,
+.assessment-item,
+.text-section,
+.text-section p,
+.insight-item {
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border-left-color: var(--sepia-rule);
+  box-shadow: none;
+}
+
+.visual-item:hover,
+.strategy-item:hover,
+.audience-item:hover,
+.cultural-item:hover,
+.assessment-item:hover,
+.insight-item:hover {
+  transform: translateX(1px);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.strategy-item.highlight,
+.strategy-item.cta {
+  background: var(--bg-secondary);
+  border-color: var(--sepia-rule);
+}
+
+.cta-text,
+.color-tag,
+.technique-tag {
+  color: var(--primary-color) !important;
+  border-color: var(--border-color);
+  background: var(--bg-primary);
+}
+
+.color-tag:hover,
+.technique-tag:hover {
+  background: var(--primary-color);
+  color: var(--paper-cream) !important;
+  transform: none;
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import SearchPanel from './components/SearchPanel';
@@ -178,6 +178,14 @@ const MediaScopeDashboard: React.FC = () => {
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [minBound, maxBound] = useDateBounds();
+  const mastheadDate = useMemo(() => (
+    new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(new Date())
+  ), []);
 
   const openRandomArticle = async () => {
     try {
@@ -235,16 +243,17 @@ const MediaScopeDashboard: React.FC = () => {
   return (
     <div className="mediascope-dashboard">
       <header className="dashboard-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div className="logo-section" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('home')}>
+        <div className="dashboard-masthead">
+          <div className="logo-section" onClick={() => setActiveTab('home')}>
             <h1>MediaScope</h1>
             <p className="tagline">Dawn Newspaper Archive (1990-1992)</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="masthead-date">{mastheadDate}</div>
+          <div className="dashboard-actions">
             <button className="cmd-k-hint" onClick={() => {
               window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
             }}>
-              <span style={{ opacity: 0.7 }}>{'\u2315'}</span> Search
+              <span className="cmd-k-hint__mark">{'\u2315'}</span> Search
               <kbd className="cmd-kbd-inline">{'\u2318'}K</kbd>
             </button>
             <button
@@ -252,7 +261,7 @@ const MediaScopeDashboard: React.FC = () => {
               onClick={openRandomArticle}
               title="Open a random article"
             >
-              {'\uD83C\uDFB2'} Random
+              Random
             </button>
             <button className="theme-toggle" onClick={toggleTheme}
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
