@@ -538,16 +538,363 @@ If a field cannot be read confidently, write UNKNOWN for that field."""
             # to the original image.
             return image
     
+    # ─── Per-region article OCR (replaces whole-page OCR) ─────────────
+    #
+    # The whole-page OCR path (kept below as `extract_articles_whole_page`
+    # for fallback) was independently audited at ~53% severe-or-worse
+    # error rate: fabricated names/numbers in short briefs, missed
+    # right-column content, conflated multi-item entries. Root cause was
+    # asking Gemini to do region segmentation + reading order + verbatim
+    # OCR + boundary inference all at once on a 4000×3000-pixel image.
+    # When attention budget runs out, the model fills the structured
+    # response template with plausible-sounding fabrication.
+    #
+    # The per-region path splits the work in two:
+    #   1. detect_article_regions: cheap bbox detection (Gemini sees the
+    #      whole page but only outputs coordinates + type, no transcription).
+    #   2. _ocr_region: per-crop verbatim transcription. Each call sees
+    #      ONE article. No template to fill, no spatial bias, no
+    #      conflation — the model can only describe what's literally in
+    #      front of it.
+    #
+    # Mirrors the working pattern of detect_ads + analyze_ad_image.
+
+    # When converting Gemini's bbox coordinates to crops, pad each side
+    # by this fraction of the box's own dimension. Smoke testing showed
+    # the model's bboxes shave 1-3 characters off the edges of articles —
+    # which the per-region OCR honestly reports as "[...]" but is purely
+    # an artifact of imprecise bbox detection. 8% padding fully captures
+    # the article body; the dedupe step below handles the overlap that
+    # padding introduces between adjacent articles.
+    _REGION_PAD_FRACTION = 0.08
+    # Two regions are considered the same article when their IoU
+    # (intersection over union) exceeds this. Picked conservatively —
+    # genuine adjacent articles share at most ~20% of their union when
+    # padded; same-article duplicates routinely hit 60-90%.
+    _REGION_DEDUPE_IOU = 0.45
+
+    @staticmethod
+    def _bbox_iou(a, b):
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return 0.0
+        inter = (ix2 - ix1) * (iy2 - iy1)
+        a_area = (ax2 - ax1) * (ay2 - ay1)
+        b_area = (bx2 - bx1) * (by2 - by1)
+        union = a_area + b_area - inter
+        return inter / union if union > 0 else 0.0
+
+    def detect_article_regions(self, image: Image.Image) -> List[Dict]:
+        """Identify article-like regions on a newspaper page.
+
+        Returns a list of region dicts with bounding boxes (as
+        absolute pixel coords, padded for OCR safety) and a type tag.
+        Boxes are deduplicated by IoU so a single article isn't OCR'd
+        twice when the model returns overlapping detections.
+        """
+        try:
+            width, height = image.size
+            prompt = """You are a layout analyzer for a Dawn newspaper page (Pakistan, 1990-1992).
+
+Identify the bounding box of EVERY distinct content region on the page. Include:
+  - Articles, editorials, opinion pieces (label "article")
+  - Photo captions standing alone under or beside images (label "caption")
+  - TV / radio listings, schedules, results tables (label "listing")
+  - Obituaries, condolences, death notices (label "obituary")
+
+Skip mastheads (the newspaper title block at the top), advertisements, weather boxes,
+stock-price tables, classifieds, cartoons, and page-number bands.
+
+CRITICAL — bounding box accuracy:
+  - Each box must FULLY contain the article including its headline AND every line of body text.
+  - It is much better to include 5-10 pixels of whitespace beyond the article on every side
+    than to clip a single character at the edges.
+  - Do NOT split a single article into multiple regions just because it has subheadings or
+    runs across columns — one article = one box, even if it spans multiple visual columns.
+  - Do NOT overlap regions: each piece of body text should belong to exactly one region.
+
+Coordinate system: x1, y1 are the top-left of the region as fractions of page WIDTH/HEIGHT
+(0.0 to 1.0). x2, y2 are bottom-right.
+
+Respond with ONLY a JSON object, no markdown:
+{
+  "regions": [
+    {
+      "x1": 0.05, "y1": 0.10, "x2": 0.32, "y2": 0.28,
+      "type": "article",
+      "headline_hint": "the headline you see (or null if none visible)"
+    }
+  ]
+}
+
+If you can't see any content regions at all, return {"regions": []}.
+Be exhaustive — small briefs, single-paragraph items, and right-column items count too."""
+
+            response = self._generate([prompt, self._prepare_for_gemini(image)])
+            text = response.text if response.parts else ""
+
+            json_match = re.search(r'\{[\s\S]*\}', text)
+            if not json_match:
+                return []
+            data = json.loads(json_match.group())
+            raw_regions = data.get('regions', []) or []
+
+            # Convert fractional coords to pixels + filter degenerate boxes.
+            out = []
+            for r in raw_regions:
+                try:
+                    x1 = float(r['x1']) * width
+                    y1 = float(r['y1']) * height
+                    x2 = float(r['x2']) * width
+                    y2 = float(r['y2']) * height
+                    bw, bh = x2 - x1, y2 - y1
+                    if bw < 60 or bh < 60:
+                        continue
+                    if (bw * bh) / (width * height) > 0.85:
+                        # Almost-whole-page region = model gave up on
+                        # segmentation. Drop it.
+                        continue
+                    # Pad each side to compensate for imprecise bboxes
+                    # (smoke testing showed 1-3 characters shaved off edges).
+                    pad_w = bw * self._REGION_PAD_FRACTION
+                    pad_h = bh * self._REGION_PAD_FRACTION
+                    px1 = max(0, int(x1 - pad_w))
+                    py1 = max(0, int(y1 - pad_h))
+                    px2 = min(width, int(x2 + pad_w))
+                    py2 = min(height, int(y2 + pad_h))
+                    rtype = (r.get('type') or 'article').strip().lower()
+                    out.append({
+                        'bbox': (px1, py1, px2, py2),
+                        'type': rtype if rtype in ('article', 'caption', 'listing', 'obituary') else 'article',
+                        'headline_hint': (r.get('headline_hint') or '').strip() or None,
+                        '_area': (px2 - px1) * (py2 - py1),
+                    })
+                except (KeyError, ValueError, TypeError):
+                    continue
+
+            # Dedupe overlapping regions: when two boxes have IoU above
+            # _REGION_DEDUPE_IOU, keep the larger one. Padded boxes for
+            # adjacent articles overlap slightly but never above 0.45;
+            # duplicate detections of the same article routinely hit
+            # 0.6-0.9. Sort by area desc so we always keep the "main"
+            # box and discard sub-regions.
+            out.sort(key=lambda r: -r['_area'])
+            kept = []
+            for r in out:
+                if any(self._bbox_iou(r['bbox'], k['bbox']) > self._REGION_DEDUPE_IOU for k in kept):
+                    continue
+                kept.append(r)
+
+            for r in kept:
+                r.pop('_area', None)
+
+            if len(kept) < len(out):
+                print(f"    [INFO] Region dedupe: {len(out)} → {len(kept)} (IoU > {self._REGION_DEDUPE_IOU})")
+            return kept
+
+        except Exception as e:
+            print(f"  [WARNING] Article region detection failed: {e}")
+            return []
+
+    def _ocr_region(self, region_image: Image.Image, region_type: str = 'article') -> Optional[Dict]:
+        """OCR a single cropped region — one article, one caption, etc.
+
+        Tight prompt: transcribe ONLY visible text. No invention, no
+        completion of cut-off sentences from "context". Returns
+        ``{headline, body, word_count}`` or None if the crop is genuinely
+        unreadable.
+        """
+        try:
+            if region_type == 'caption':
+                prompt = """Transcribe the photo caption visible in this image, verbatim.
+A caption is one or two sentences describing a photograph.
+
+Rules:
+- Transcribe ONLY what is literally printed in this image.
+- Do NOT infer missing text. Do NOT complete cut-off sentences.
+- If you cannot read any text, return {"text": ""}
+
+Respond ONLY with JSON:
+{"text": "<the caption text, verbatim>"}"""
+            else:
+                prompt = """Transcribe the news article visible in this image. This is from "Dawn",
+a Pakistani English-language daily newspaper from 1990-1992.
+
+Rules:
+- Transcribe ONLY what is literally printed in this image.
+- Do NOT infer missing words. Do NOT invent names, places, numbers, or dates.
+- Do NOT summarise. Do NOT paraphrase. Verbatim only.
+- If part of the text is cut off at the image edges, transcribe what you can see and
+  end with "[…]". Do not guess what came next.
+- The "headline" is the boldface or large-type title at the top of the article.
+  If there's no clearly distinct headline, set headline to null and put everything
+  in body.
+- Preserve paragraph breaks with \\n\\n.
+- If you cannot read any text in this image, return {"headline": null, "body": ""}.
+
+Respond ONLY with JSON:
+{
+  "headline": "<headline text, or null>",
+  "body": "<full body text, verbatim, paragraph-broken with \\n\\n>"
+}"""
+
+            response = self._generate([prompt, self._prepare_for_gemini(region_image)])
+            raw = response.text.strip() if response.parts else ""
+            if '```json' in raw:
+                raw = raw.split('```json')[1].split('```')[0].strip()
+            elif '```' in raw:
+                raw = raw.split('```')[1].split('```')[0].strip()
+
+            data = json.loads(raw)
+
+            if region_type == 'caption':
+                text = (data.get('text') or '').strip()
+                if not text:
+                    return None
+                return {'headline': None, 'body': text, 'word_count': len(text.split())}
+
+            headline = data.get('headline')
+            if headline:
+                headline = str(headline).strip() or None
+            body = (data.get('body') or '').strip()
+
+            # Reject empty/microscopic results. A real article has at
+            # least a sentence; anything less is most likely a failed
+            # OCR or a pure-image region we shouldn't have asked about.
+            if not body and not headline:
+                return None
+            if body and len(body.split()) < 5 and not headline:
+                return None
+
+            return {
+                'headline': headline,
+                'body': body,
+                'word_count': len(body.split()),
+            }
+
+        except json.JSONDecodeError as e:
+            print(f"    [WARNING] Region OCR JSON parse failed: {e}")
+            return None
+        except Exception as e:
+            print(f"    [WARNING] Region OCR failed: {e}")
+            return None
+
     def extract_articles(self, image_path: str,
                          prepared_image: Optional[Image.Image] = None) -> List[Dict]:
+        """Per-region article OCR.
+
+        Two-stage pipeline:
+          1. Detect article regions on the page (one Gemini call, bbox-only).
+          2. For each region, crop and OCR independently in parallel
+             (N Gemini calls, each on a small image with a strict
+             "verbatim only" prompt).
+
+        Returns the same shape as the legacy whole-page path
+        (``[{number, headline, text, word_count}]``) so downstream code
+        is unchanged. Falls back to whole-page OCR if region detection
+        returns nothing (the model genuinely couldn't segment).
+        """
         try:
-            # Reuse the caller's pre-loaded + enhanced image when given.
-            # Solo path still does the open+enhance dance for backwards
-            # compatibility with test_pipeline_dry_run.py and any
-            # standalone callers — but the orchestrator at
-            # process_single_newspaper now passes `prepared_image` to
-            # avoid re-decoding the JPEG (one less ~6-12MB I/O+decode
-            # per page).
+            if prepared_image is not None:
+                img = prepared_image
+            else:
+                img = Image.open(image_path)
+                img = self.enhance_image(img)
+
+            print(f"  [INFO] Detecting article regions...")
+            regions = self.detect_article_regions(img)
+            if not regions:
+                print(f"  [WARNING] No regions detected — falling back to whole-page OCR")
+                return self._extract_articles_whole_page(image_path, img)
+
+            print(f"  [OK] Detected {len(regions)} regions "
+                  f"({sum(1 for r in regions if r['type']=='article')} articles, "
+                  f"{sum(1 for r in regions if r['type']=='caption')} captions, "
+                  f"{sum(1 for r in regions if r['type']=='listing')} listings, "
+                  f"{sum(1 for r in regions if r['type']=='obituary')} obituaries)")
+
+            # Crop each region from the FULL-RES image (not the downscaled
+            # gem_img — we want the model to see the same pixel density it
+            # would see if we'd OCR'd the page directly). Then OCR them in
+            # parallel; cap concurrency at 4 so a 25-region page doesn't
+            # slam Gemini all at once and trigger 429s.
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            crops = []
+            for r in regions:
+                x1, y1, x2, y2 = r['bbox']
+                try:
+                    crop = img.crop((x1, y1, x2, y2))
+                    crops.append((r, crop))
+                except Exception as e:
+                    print(f"    [WARNING] Crop failed for region {r['bbox']}: {e}")
+
+            articles = []
+            n_workers = min(4, max(1, len(crops)))
+            with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix='region') as ex:
+                future_to_region = {
+                    ex.submit(self._ocr_region, crop, r['type']): (r, idx)
+                    for idx, (r, crop) in enumerate(crops)
+                }
+                results = [None] * len(crops)
+                for fut in as_completed(future_to_region):
+                    r, idx = future_to_region[fut]
+                    try:
+                        ocr = fut.result()
+                    except Exception as e:
+                        print(f"    [WARNING] Region {idx} OCR exception: {e}")
+                        ocr = None
+                    results[idx] = (r, ocr)
+
+            for idx, item in enumerate(results):
+                if not item or not item[1]:
+                    continue
+                r, ocr = item
+                # Use the OCR'd headline; fall back to the bbox-detector's
+                # hint if the region OCR didn't return one.
+                headline = ocr.get('headline') or r.get('headline_hint')
+                body = ocr.get('body', '')
+                if not body and not headline:
+                    continue
+                articles.append({
+                    'number': len(articles) + 1,
+                    'headline': (headline or '').strip(),
+                    'text': body,
+                    'word_count': ocr.get('word_count', len(body.split())),
+                    'region_type': r['type'],  # so downstream can distinguish caption from article
+                })
+
+            print(f"  [OK] Per-region OCR returned {len(articles)} successful items "
+                  f"out of {len(regions)} detected regions")
+
+            if not articles:
+                print(f"  [WARNING] All regions failed OCR — falling back to whole-page")
+                return self._extract_articles_whole_page(image_path, img)
+
+            return articles
+
+        except Exception as e:
+            import traceback
+            print(f"  [ERROR] Per-region article extraction failed: {e}")
+            traceback.print_exc()
+            print(f"  [INFO] Falling back to whole-page OCR")
+            try:
+                return self._extract_articles_whole_page(image_path, img if 'img' in locals() else None)
+            except Exception:
+                return []
+
+    def _extract_articles_whole_page(self, image_path: str,
+                                      prepared_image: Optional[Image.Image] = None) -> List[Dict]:
+        """Legacy whole-page article OCR.
+
+        Kept for fallback when per-region detection fails (model returns
+        zero regions, or every region OCR fails). Audited at ~53%
+        severe-or-worse error rate on dense pages — should rarely be
+        the production path.
+        """
+        try:
             if prepared_image is not None:
                 img = prepared_image
             else:
@@ -557,7 +904,7 @@ If a field cannot be read confidently, write UNKNOWN for that field."""
             # Cache the downscaled copy so attempt-1 and attempt-2 share it.
             gem_img = self._prepare_for_gemini(img)
 
-            print(f"  [INFO] Attempting OCR extraction (attempt 1/2)...")
+            print(f"  [INFO] Attempting whole-page OCR extraction (attempt 1/2)...")
             prompt = """You are an OCR + layout analyzer for a Dawn newspaper page (Pakistan, 1990-1992).
 
 Identify every distinct news article / editorial / opinion piece on this page and transcribe each one as a SEPARATE block in EXACTLY this format (no markdown, no preamble, no commentary):
@@ -577,8 +924,8 @@ ARTICLE_END
 Rules:
 - Skip ads, classifieds, photo captions, weather boxes, stock tables, cartoons, crosswords, and mastheads.
 - Skip anything that is clearly a photo caption rather than a standalone article.
-- If a piece has no headline (rare), invent a short one that summarises it.
-- Transcribe text verbatim — do not summarise the body.
+- If a piece has no headline (rare), use the first line of the body as the headline (do NOT invent one).
+- Transcribe text verbatim — do not summarise the body. Do NOT invent names, places, or numbers.
 - Output nothing outside the ARTICLE_START/ARTICLE_END blocks. No explanations, no "Here is..." preamble.
 
 Begin now."""
