@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, BookOpenText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -8,15 +8,14 @@ interface AuthPageProps {
 }
 
 /**
- * Auth dialog. Uses the native <dialog> element instead of a hand-rolled
- * overlay+card so we get focus trapping, escape-to-close, and the proper
- * `::backdrop` pseudo-element for free. Falls back gracefully when
- * `onClose` isn't passed (the dialog opens on mount and locks the screen
- * — useful for the protected-route flow).
+ * Auth modal. Plain div overlay rather than the native <dialog>, because
+ * <dialog>+React StrictMode race the mount/unmount/mount cycle in Safari
+ * and the second showModal() silently no-ops. The custom overlay gives
+ * us guaranteed visibility, ESC-to-close, and click-outside-to-close
+ * without relying on browser dialog semantics.
  */
 const AuthPage: React.FC<AuthPageProps> = ({ onClose, initialMode = 'login' }) => {
   const { login, register } = useAuth();
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,16 +23,20 @@ const AuthPage: React.FC<AuthPageProps> = ({ onClose, initialMode = 'login' }) =
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ESC closes (mirrors native <dialog> behaviour), and we lock body
+  // scroll while the modal is open so the page underneath doesn't drift.
   useEffect(() => {
-    const dlg = dialogRef.current;
-    if (!dlg) return;
-    if (typeof dlg.showModal === 'function' && !dlg.open) {
-      dlg.showModal();
-    }
-    return () => {
-      if (dlg.open) dlg.close();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && onClose) onClose();
     };
-  }, []);
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,8 +66,17 @@ const AuthPage: React.FC<AuthPageProps> = ({ onClose, initialMode = 'login' }) =
   const isLogin = mode === 'login';
 
   return (
-    <dialog ref={dialogRef} className="auth-dialog" onClose={onClose}>
-      <form method="dialog" onSubmit={handleSubmit} className="auth-form">
+    <div
+      className="auth-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        // Click on the dimmed backdrop (not the card itself) closes.
+        if (e.target === e.currentTarget && onClose) onClose();
+      }}
+    >
+      <div className="auth-dialog" onClick={(e) => e.stopPropagation()}>
+      <form onSubmit={handleSubmit} className="auth-form">
         {onClose && (
           <button
             type="button"
@@ -151,7 +163,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onClose, initialMode = 'login' }) =
           {isLogin ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
         </button>
       </form>
-    </dialog>
+      </div>
+    </div>
   );
 };
 

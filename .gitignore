@@ -69,3 +69,7 @@ uploads/
 *.backup[0-9]
 *.backup[0-9][0-9]
 topic_model
+# Snapshot/cache variants created when manually busting backend caches.
+# Same data as .articles_snapshot.json — just renamed copies. ~50MB each.
+.analytics_cache.json.*
+.articles_snapshot.json.*

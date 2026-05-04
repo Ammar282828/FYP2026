@@ -7,22 +7,25 @@
  * don't pick up `var(--...)` reliably.
  */
 
+// Vintage newspaper palette — sepia / rust / muted greens rather than
+// modern bright primaries. Sentiment still uses green/red so the
+// universal meaning is preserved, but both are dampened to read as ink.
 export const chartColors = {
-  // Sentiment polarity — green/red is the universally-understood mapping.
-  positive: '#10b981',
-  neutral: '#6b7280',
-  negative: '#ef4444',
+  // Sentiment polarity
+  positive: '#5a7a3e',     // muted moss
+  neutral:  '#8a7a62',     // sepia gray
+  negative: '#a23a2c',     // brick red
 
-  // Generic data series — used for anonymous "value over time" charts.
-  primary: '#3b82f6',
-  secondary: '#8b5cf6',
-  accent: '#f59e0b',
-  highlight: '#ec4899',
-  muted: '#94a3b8',
+  // Generic data series — vintage tones
+  primary:   '#8b3a1f',    // rust (paired with --accent-rust)
+  secondary: '#3b2a1c',    // dark ink
+  accent:    '#a87a3e',    // muted gold
+  highlight: '#c47b5a',    // dusty rose
+  muted:     '#a89378',    // faded sepia
 
-  // Reference lines / axes.
-  axisLabel: '#94a3b8',
-  axisGrid: 'var(--border-color)',
+  // Reference lines / axes
+  axisLabel: '#8a7a62',
+  axisGrid:  'var(--border-color)',
 } as const;
 
 /** Sentiment color helper — accepts any of the labels we emit. */

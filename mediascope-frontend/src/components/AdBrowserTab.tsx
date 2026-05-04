@@ -142,7 +142,7 @@ const AdBrowserTab: React.FC = () => {
   const loadAds = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE}/ads/browse`, { params: { limit: 200 } });
+      const response = await axios.get(`${API_BASE}/ads/browse`, { params: { limit: 2000 } });
       const filtered = filterAds(response.data.ads);
       setAds(filtered);
       setTotal(filtered.length);
@@ -170,7 +170,7 @@ const AdBrowserTab: React.FC = () => {
     if (!searchKeyword.trim()) { loadAds(); return; }
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE}/ads/search`, { keyword: searchKeyword, limit: 200 });
+      const response = await axios.post(`${API_BASE}/ads/search`, { keyword: searchKeyword, limit: 2000 });
       const filtered = filterAds(response.data.ads);
       setAds(filtered);
       setTotal(filtered.length);

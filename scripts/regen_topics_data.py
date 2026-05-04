@@ -106,24 +106,31 @@ def main() -> int:
             'count': counts.get(label, 0),
         })
 
-    # Anything still under a legacy underscore label gets a synthetic entry
-    # so the topic browser doesn't lie about totals while backfill is in
-    # flight. These will disappear once backfill finishes.
+    # Surface every non-taxonomy label individually instead of
+    # collapsing them into one "Legacy" bucket. The audit was lumping
+    # ~45 distinct labels (Cricket, Education, Foreign Relations, …)
+    # under a single row, which (a) hid topics from the browser and
+    # (b) made the topic count look stuck at ~40. Each gets its own
+    # entry with a synthetic id (10000+i) so they can't collide with
+    # curated taxonomy ids.
     used_labels = {t["name"] for t in topics_list}
-    legacy_labels = [(lbl, n) for lbl, n in counts.items() if lbl not in used_labels]
-    if legacy_labels:
-        print(f"[regen-topics] {len(legacy_labels)} legacy labels still in DB "
-              "(will appear under topic_id -1 group):")
-        # Group all legacy under topic_id -1 so the endpoint surfaces them.
-        legacy_total = sum(n for _, n in legacy_labels)
-        topics_list.append({
-            'topic_id': -1,
-            'name': 'Legacy / Pending Backfill',
-            'keywords': [],
-            'description': "Articles still carrying old BERTopic-style labels. "
-                           "Run scripts/backfill_topics.py to migrate.",
-            'count': legacy_total,
-        })
+    extras = sorted(
+        ((lbl, n) for lbl, n in counts.items() if lbl not in used_labels),
+        key=lambda kv: -kv[1],
+    )
+    if extras:
+        print(f"[regen-topics] including {len(extras)} extra labels not in "
+              "the curated taxonomy")
+        for i, (lbl, n) in enumerate(extras):
+            topics_list.append({
+                'topic_id': 10000 + i,
+                'name': lbl,
+                'keywords': [],
+                'description': "Auto-generated topic — not part of the curated taxonomy. "
+                               "Edit data/topics_taxonomy.json to promote.",
+                'count': n,
+                'auto': True,
+            })
 
     output_data = {
         'total_topics': len(topics_list),

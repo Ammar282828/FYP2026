@@ -910,77 +910,150 @@ def _attach_newspaper_image_urls(db, ads: list) -> None:
 
 @router.get("/browse")
 def browse_advertisements(
-    limit: int = 50,
+    limit: int = 200,
     offset: int = 0,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     category: Optional[str] = None
 ):
-    # Browse all advertisements with filtering
-    try:
-        from datetime import datetime as dt
+    """Browse all advertisements with optional filtering.
 
-        limit = min(limit, 200)
+    Pulls from the in-memory ads cache (refreshed every 5 min) so the
+    full 980-ad collection is available without a Firestore round-trip
+    per request. `total` is the count AFTER filtering but BEFORE
+    pagination, so the UI can show "Found N advertisements" honestly.
+
+    Cap is now 1000 per page (was 200). Asking for `limit=2000` returns
+    the whole collection in one shot — small enough for the client.
+    """
+    try:
+        from datetime import datetime as dt, timezone
+
+        limit = min(max(limit, 1), 2000)
         db = get_firestore_db()
 
-        query = db.db.collection('advertisements')
+        # Pull from cache; falls back to a fresh stream the first time.
+        all_ads = _get_ads_cached(db)
 
-        # Apply filters
-        if start_date:
-            start_dt = dt.fromisoformat(start_date)
-            query = query.where('publication_date', '>=', start_dt)
+        def _to_naive(d):
+            """Strip tz so comparisons work uniformly. Firestore returns
+            offset-aware datetimes; date-string filters from the UI parse
+            as naive. Mixing them raises TypeError."""
+            if d is None:
+                return None
+            if d.tzinfo is not None:
+                d = d.astimezone(timezone.utc).replace(tzinfo=None)
+            return d
 
-        if end_date:
-            end_dt = dt.fromisoformat(end_date)
-            query = query.where('publication_date', '<=', end_dt)
+        # In-memory filters (cheap on lowercase string blobs).
+        start_dt = _to_naive(dt.fromisoformat(start_date)) if start_date else None
+        end_dt = _to_naive(dt.fromisoformat(end_date)) if end_date else None
+        cat_low = (category or '').lower()
 
-        query = query.limit(500)
+        def _within_range(ad):
+            pub = ad.get('publication_date')
+            if not pub:
+                return start_dt is None and end_dt is None
+            try:
+                pub_dt = dt.fromisoformat(pub) if isinstance(pub, str) else pub
+            except Exception:
+                return start_dt is None and end_dt is None
+            pub_dt = _to_naive(pub_dt)
+            if start_dt and pub_dt < start_dt: return False
+            if end_dt and pub_dt > end_dt:     return False
+            return True
 
-        ads_docs = list(query.stream())
+        filtered = [a for a in all_ads if _within_range(a)]
+        if cat_low:
+            filtered = [a for a in filtered if cat_low in a.get('_search_blob', '')]
 
-        # Sort in Python to avoid requiring a Firestore composite index
-        def _sort_key(doc):
-            pub = doc.to_dict().get('publication_date')
-            if pub is None:
-                return ''
-            return pub.isoformat() if hasattr(pub, 'isoformat') else str(pub)
+        # Sort by publication_date desc.
+        filtered.sort(key=lambda a: a.get('publication_date') or '', reverse=True)
 
-        ads_docs.sort(key=_sort_key, reverse=True)
-        ads_docs = ads_docs[offset:offset + limit]
-
-        ads = []
-        for doc in ads_docs:
-            ad_data = doc.to_dict()
-            ad_data['id'] = doc.id
-
-            # Convert datetime to string
-            if 'publication_date' in ad_data and hasattr(ad_data['publication_date'], 'isoformat'):
-                ad_data['publication_date'] = ad_data['publication_date'].isoformat()
-            if 'created_at' in ad_data and hasattr(ad_data['created_at'], 'isoformat'):
-                ad_data['created_at'] = ad_data['created_at'].isoformat()
-
-            # Extract category from analysis if available
-            if category:
-                analysis_text = ad_data.get('analysis', '').lower()
-                if category.lower() not in analysis_text:
-                    continue
-
-            ads.append(ad_data)
+        total = len(filtered)
+        page = [dict(a) for a in filtered[offset:offset + limit]]
+        for a in page:
+            a.pop('_search_blob', None)
 
         # Attach parent newspaper image URLs so the client can render
-        # accurate crops from the source image (the stored ad image_url
-        # is often a degraded pre-cut crop).
-        _attach_newspaper_image_urls(db, ads)
+        # accurate crops from the source image.
+        _attach_newspaper_image_urls(db, page)
 
         return {
-            "ads": ads,
-            "total": len(ads),
+            "ads": page,
+            "total": total,           # full filtered count (was: page-only count)
+            "shown": len(page),
             "limit": limit,
-            "offset": offset
+            "offset": offset,
         }
 
     except Exception as e:
         raise HTTPException(500, f"Error browsing ads: {str(e)}")
+
+
+# In-memory cache of the ads collection. Restreaming Firestore on every
+# search request was the dominant latency cost (3000+ ads per call).
+# We invalidate after _ADS_CACHE_TTL seconds so freshly-ingested ads
+# eventually surface; for an archive that updates slowly this is fine.
+_ADS_CACHE: list = []
+_ADS_CACHE_AT: float = 0.0
+_ADS_CACHE_TTL: float = 300.0  # 5 min
+
+
+def _flatten_analysis(v) -> str:
+    """`analysis` may be a dict (structured Gemini output) or a string.
+    Return a flat searchable string regardless."""
+    if not v:
+        return ''
+    if isinstance(v, str):
+        return v
+    if isinstance(v, dict):
+        # Walk one level — dict values may be strings, lists, or nested dicts
+        parts = []
+        for val in v.values():
+            if isinstance(val, str):
+                parts.append(val)
+            elif isinstance(val, list):
+                parts.extend(str(x) for x in val if x)
+            elif isinstance(val, dict):
+                parts.extend(str(x) for x in val.values() if x)
+        return ' '.join(parts)
+    return str(v)
+
+
+def _get_ads_cached(db) -> list:
+    """Return all ads as plain dicts, refreshing every TTL seconds.
+
+    Each cached entry has a precomputed `_search_blob` (lowercased
+    analysis+identifier+description+brand+category) so per-request
+    keyword matching is a cheap substring search.
+    """
+    import time as _time
+    global _ADS_CACHE, _ADS_CACHE_AT
+    now = _time.time()
+    if _ADS_CACHE and now - _ADS_CACHE_AT < _ADS_CACHE_TTL:
+        return _ADS_CACHE
+    out = []
+    for doc in db.db.collection('advertisements').stream():
+        a = doc.to_dict()
+        a['id'] = doc.id
+        # Datetime → str (json-safe)
+        for k in ('publication_date', 'created_at'):
+            v = a.get(k)
+            if v is not None and hasattr(v, 'isoformat'):
+                a[k] = v.isoformat()
+        # Precompute the search corpus
+        a['_search_blob'] = ' '.join([
+            _flatten_analysis(a.get('analysis')),
+            a.get('identifier') or '',
+            a.get('description') or '',
+            a.get('brand') or '',
+            a.get('category') or '',
+        ]).lower()
+        out.append(a)
+    _ADS_CACHE = out
+    _ADS_CACHE_AT = now
+    return out
 
 
 def _ad_quality_score(ad: dict) -> int:
@@ -989,11 +1062,15 @@ def _ad_quality_score(ad: dict) -> int:
     Boosts ads with the full Gemini analysis pipeline run (analysis,
     identifier, description) over bare image-only records that haven't
     been processed yet. Mirrors article _quality_score in spirit.
+
+    `analysis` may be a dict (structured Gemini output) or a string —
+    flatten before measuring length.
     """
     score = 0
-    analysis = (ad.get('analysis') or '').strip()
-    desc = (ad.get('description') or '').strip()
-    ident = (ad.get('identifier') or '').strip()
+    analysis = _flatten_analysis(ad.get('analysis')).strip()
+    desc = (ad.get('description') or '').strip() if isinstance(ad.get('description'), str) else _flatten_analysis(ad.get('description')).strip()
+    ident_v = ad.get('identifier')
+    ident = ident_v.strip() if isinstance(ident_v, str) else ''
     if analysis: score += 25 + min(len(analysis.split()) // 20, 15)  # up to 40
     if desc:     score += 20 + min(len(desc.split()) // 10, 10)      # up to 30
     if ident and len(ident) > 2: score += 15
@@ -1017,33 +1094,17 @@ def search_advertisements(request: dict):
 
     try:
         db = get_firestore_db()
-
-        # Get all ads (Firestore doesn't support full-text search natively)
-        ads_docs = list(db.db.collection('advertisements').stream())
-
-        # Filter by keyword in memory
+        # In-memory cache + precomputed search blob — first call may be
+        # slow (full collection scan), subsequent calls are millisecond
+        # substring filters.
+        all_ads = _get_ads_cached(db)
         keyword_lower = keyword.lower()
-        matching_ads = []
-
-        for doc in ads_docs:
-            ad_data = doc.to_dict()
-            ad_data['id'] = doc.id
-
-            # Search in analysis, identifier, and description
-            searchable_text = ' '.join([
-                ad_data.get('analysis', ''),
-                ad_data.get('identifier', ''),
-                ad_data.get('description', '')
-            ]).lower()
-
-            if keyword_lower in searchable_text:
-                # Convert datetime to string
-                if 'publication_date' in ad_data and hasattr(ad_data['publication_date'], 'isoformat'):
-                    ad_data['publication_date'] = ad_data['publication_date'].isoformat()
-                if 'created_at' in ad_data and hasattr(ad_data['created_at'], 'isoformat'):
-                    ad_data['created_at'] = ad_data['created_at'].isoformat()
-
-                matching_ads.append(ad_data)
+        # Shallow copy each match so we don't mutate the cache when
+        # _attach_newspaper_image_urls writes thumbnails onto it.
+        matching_ads = [dict(a) for a in all_ads if keyword_lower in a.get('_search_blob', '')]
+        # Drop the internal cache helper field before returning
+        for a in matching_ads:
+            a.pop('_search_blob', None)
 
         # Sort: quality-aware default puts fully-analyzed ads first,
         # then breaks ties by publication_date desc.

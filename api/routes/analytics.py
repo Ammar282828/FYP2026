@@ -187,15 +187,22 @@ def top_keywords(limit: int = 30):
 # you can filter by type and date range
 def top_entities(entity_type: Optional[str] = None, limit: int = 15,
                 start_date: Optional[str] = None, end_date: Optional[str] = None):
-    """Get top entities with proper error handling"""
-    limit = min(limit, 100)
+    """Get top entities with proper error handling.
+
+    Cache strategy: always compute limit=100 internally and slice to the
+    requested limit on the way out. Different `limit=` values from the
+    UI (12, 15, 20, 30…) used to each be a separate cache miss; now
+    they all share one warm entry per (entity_type, date-range).
+    """
+    requested_limit = min(max(limit, 1), 100)
     try:
         db = get_db()
-        key = f"top_entities:{entity_type}:{limit}:{start_date}:{end_date}"
+        # Note: NO `limit` in the cache key.
+        key = f"top_entities:{entity_type}:{start_date}:{end_date}"
         entities = _cached(key, lambda: db.get_top_entities(
-            entity_type=entity_type, limit=limit,
+            entity_type=entity_type, limit=100,
             start_date=start_date, end_date=end_date))
-        return {"entities": entities}
+        return {"entities": (entities or [])[:requested_limit]}
     except HTTPException:
         raise
     except Exception as e:
@@ -205,15 +212,18 @@ def top_entities(entity_type: Optional[str] = None, limit: int = 15,
 @router.get("/sentiment-by-entity")
 def sentiment_by_entity(entity_type: Optional[str] = None, limit: int = 20):
     # shows sentiment for each entity (like if Pakistan is mentioned positively or negatively)
-    limit = min(limit, 100)
+    requested_limit = min(max(limit, 1), 100)
     try:
         db = get_db()
-        key = f"sentiment_by_entity:{entity_type}:{limit}"
+        # Same trick: cache the limit=100 version and slice on read so
+        # any limit value the UI requests gets served from the same
+        # warm entry.
+        key = f"sentiment_by_entity:{entity_type}"
         entities = _cached(key, lambda: db.get_sentiment_by_entity(
-            entity_type=entity_type, limit=limit))
+            entity_type=entity_type, limit=100))
         return {
-            "entities": entities,
-            "entity_type": entity_type
+            "entities": (entities or [])[:requested_limit],
+            "entity_type": entity_type,
         }
     except HTTPException:
         raise

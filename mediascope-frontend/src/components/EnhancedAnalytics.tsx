@@ -12,6 +12,7 @@ import { SkeletonChart } from './ui/Skeleton';
 import EmptyStatePrim from './ui/EmptyState';
 import { chartColors } from '../theme/chartColors';
 import { entityInfo } from '../data/entityTypes';
+import { useDateBounds } from '../hooks/useDataVersion';
 
 // Summary Cards Component
 export const AnalyticsSummary: React.FC = () => {
@@ -260,64 +261,207 @@ export const TopicDistribution: React.FC = () => {
         </div>
       </div>
       <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', margin: `0 0 var(--space-3) 0` }}>
-        Click a topic to see its articles.
+        Pick one from the dropdown or scroll the list below.
       </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        {data.map((topic, idx) => {
-          const topicColor = `hsl(${(idx * 137.5) % 360}, 65%, 50%)`;
-          return (
-            <div
-              key={topic.topic_id}
-              onClick={() => navigate(`/topic/${topic.topic_id}`)}
-              style={{
-                border: '1px solid var(--border-color)',
-                borderLeft: `4px solid ${topicColor}`,
-                borderRadius: '8px',
-                background: 'var(--bg-primary)',
-                padding: '12px 16px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                transition: 'background 0.15s, box-shadow 0.15s',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'var(--bg-secondary)';
-                e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'var(--bg-primary)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '14px' }}>
-                    {topic.name}
-                  </span>
-                  <span style={{
-                    background: topicColor,
-                    color: 'white',
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                  }}>
-                    {topic.count} articles
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {topic.keywords.slice(0, 8).join(' • ')}
-                </div>
-              </div>
-              <span style={{ color: 'var(--text-tertiary)', fontSize: '16px' }}>→</span>
-            </div>
-          );
-        })}
+
+      {/* Quick-jump dropdown — 82 topics is too many to scroll. Picking
+          a topic from here navigates straight to its detail page. */}
+      <div style={{
+        display: 'flex',
+        gap: '0.5rem',
+        alignItems: 'center',
+        marginBottom: 'var(--space-3)',
+      }}>
+        <label style={{
+          fontSize: '0.75rem',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'var(--text-secondary)',
+          fontFamily: 'var(--font-serif-smallcaps, serif)',
+        }} htmlFor="topic-quickjump">Jump to:</label>
+        <select
+          id="topic-quickjump"
+          defaultValue=""
+          onChange={(e) => {
+            const id = e.target.value;
+            if (id) navigate(`/topic/${id}`);
+          }}
+          style={{
+            flex: 1,
+            padding: '0.5rem 0.75rem',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-sm, 6px)',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-primary)',
+            font: 'inherit',
+          }}
+        >
+          <option value="">— select a topic —</option>
+          {data.map((topic) => (
+            <option key={topic.topic_id} value={topic.topic_id}>
+              {topic.name} ({(topic.count || 0).toLocaleString()})
+            </option>
+          ))}
+        </select>
       </div>
+
+      <TopicGroupedList data={data} onSelect={(id) => navigate(`/topic/${id}`)} />
     </div>
   );
 };
+
+// Render a topic card with the vintage palette colour band on its left.
+function TopicCard({ topic, idx, onSelect }:
+  { topic: any; idx: number; onSelect: (id: string|number) => void }) {
+  const topicColor = TOPIC_COLORS[idx % TOPIC_COLORS.length];
+  return (
+    <div
+      key={topic.topic_id}
+      onClick={() => onSelect(topic.topic_id)}
+      style={{
+        border: '1px solid var(--border-color)',
+        borderLeft: `4px solid ${topicColor}`,
+        borderRadius: '8px',
+        background: 'var(--bg-primary)',
+        padding: '12px 16px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        transition: 'background 0.15s, box-shadow 0.15s',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.background = 'var(--bg-secondary)';
+        e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.background = 'var(--bg-primary)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+    >
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '14px' }}>
+            {topic.name}
+          </span>
+          <span style={{
+            background: topicColor,
+            color: 'var(--paper-cream, white)',
+            padding: '2px 10px',
+            borderRadius: '12px',
+            fontSize: '12px',
+            fontWeight: 600,
+            fontFeatureSettings: '"tnum" 1, "lnum" 1',
+          }}>
+            {(topic.count || 0).toLocaleString()} articles
+          </span>
+        </div>
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+          {(topic.keywords || []).slice(0, 8).join(' • ')}
+        </div>
+      </div>
+      <span style={{ color: 'var(--text-tertiary)', fontSize: '16px' }}>→</span>
+    </div>
+  );
+}
+
+// Group topics by article-count tier and render each tier as a
+// collapsible section. 82 topics in one flat list is too long; tiering
+// puts the news-defining ones on top and tucks the long tail away.
+function TopicGroupedList({ data, onSelect }:
+  { data: any[]; onSelect: (id: string|number) => void }) {
+  // Tier thresholds chosen to land roughly in 3 reasonable buckets for
+  // this corpus (top: 5–10 dominant categories; mid: 20–30; tail: rest).
+  const major       = data.filter((t: any) => (t.count || 0) >= 500);
+  const significant = data.filter((t: any) => (t.count || 0) < 500 && (t.count || 0) >= 100);
+  const minor       = data.filter((t: any) => (t.count || 0) < 100);
+
+  const [showSig, setShowSig] = useState(true);
+  const [showMinor, setShowMinor] = useState(false);
+
+  const tierStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    margin: '1rem 0 0.5rem', padding: '0.4rem 0',
+    borderBottom: '1px solid var(--border-color)',
+  };
+  const eyebrowStyle: React.CSSProperties = {
+    fontSize: '0.78rem', letterSpacing: '0.08em',
+    textTransform: 'uppercase', color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-serif-smallcaps, serif)', fontWeight: 600,
+  };
+  const counterStyle: React.CSSProperties = {
+    fontSize: '0.78rem', color: 'var(--text-tertiary, var(--text-secondary))',
+    fontFeatureSettings: '"tnum" 1, "lnum" 1',
+  };
+  const toggleBtnStyle: React.CSSProperties = {
+    background: 'transparent', border: '1px solid var(--border-color)',
+    borderRadius: '999px', padding: '0.2rem 0.7rem',
+    fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer',
+  };
+
+  return (
+    <div>
+      {/* Tier 1 — major (always expanded) */}
+      {major.length > 0 && (
+        <>
+          <div style={tierStyle}>
+            <span style={eyebrowStyle}>Major topics · 500+ articles</span>
+            <span style={counterStyle}>{major.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {major.map((t: any, i: number) => (
+              <TopicCard key={t.topic_id} topic={t} idx={i} onSelect={onSelect} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Tier 2 — significant (collapsible, default open) */}
+      {significant.length > 0 && (
+        <>
+          <div style={tierStyle}>
+            <span style={eyebrowStyle}>Significant topics · 100–499 articles</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={counterStyle}>{significant.length}</span>
+              <button type="button" style={toggleBtnStyle} onClick={() => setShowSig(s => !s)}>
+                {showSig ? 'Hide' : 'Show'}
+              </button>
+            </span>
+          </div>
+          {showSig && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {significant.map((t: any, i: number) => (
+                <TopicCard key={t.topic_id} topic={t} idx={major.length + i} onSelect={onSelect} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Tier 3 — minor (collapsible, default hidden) */}
+      {minor.length > 0 && (
+        <>
+          <div style={tierStyle}>
+            <span style={eyebrowStyle}>Smaller topics · &lt;100 articles</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={counterStyle}>{minor.length}</span>
+              <button type="button" style={toggleBtnStyle} onClick={() => setShowMinor(s => !s)}>
+                {showMinor ? 'Hide' : 'Show'}
+              </button>
+            </span>
+          </div>
+          {showMinor && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {minor.map((t: any, i: number) => (
+                <TopicCard key={t.topic_id} topic={t} idx={major.length + significant.length + i} onSelect={onSelect} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 // Enhanced Entity Co-occurrence with Network Visualization
 export const EntityCooccurrenceNetwork: React.FC = () => {
@@ -691,11 +835,14 @@ export const CoverageHeatmap: React.FC = () => {
   );
 };
 
-// Topic Trends Over Time - Shows how topic prevalence changes
+// Topic Trends Over Time - Shows how topic prevalence changes.
+// Vintage palette to match the newspaper-themed UI: sepia, rust,
+// faded gold, dusty rose — 15 muted hues that still read distinctly
+// without screaming "modern dashboard".
 const TOPIC_COLORS = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-  '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16',
-  '#a855f7', '#22c55e', '#eab308', '#f43f5e', '#0ea5e9',
+  '#8b3a1f', '#a87a3e', '#5a7a3e', '#3b2a1c', '#7a4a2c',
+  '#c47b5a', '#a89378', '#6e5a3a', '#9c5a3c', '#8a7a62',
+  '#b8946a', '#765538', '#a23a2c', '#5a4a2c', '#c8a574',
 ];
 
 // Human-readable names for known topic labels
@@ -765,8 +912,20 @@ export const TopicTrendsOverTime: React.FC = () => {
   const [selectedTopics, setSelectedTopics] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [granularity, setGranularity] = useState<'year' | 'month' | 'day'>('month');
+  // Pull the actual corpus span from /data-version. Defaulting these to
+  // empty strings caused the browser <input type="date"> to render
+  // "today" (May 4, 2026), and querying that range returned empty —
+  // hence the "No trend data available" placeholder.
+  const [minBound, maxBound] = useDateBounds();
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  // Auto-fill the pickers once the bounds resolve, but only if the
+  // user hasn't manually typed in them.
+  useEffect(() => {
+    if (minBound && !startDate) setStartDate(minBound);
+    if (maxBound && !endDate) setEndDate(maxBound);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minBound, maxBound]);
 
   const loadTrends = async () => {
     setLoading(true);
@@ -969,7 +1128,9 @@ export const TopicSentimentOverTime: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [granularity, setGranularity] = useState<'year' | 'month' | 'day'>('month');
 
-  const SENT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'];
+  // Vintage palette (mirrors TOPIC_COLORS) so per-keyword sentiment
+  // lines blend with the newspaper aesthetic instead of fighting it.
+  const SENT_COLORS = ['#8b3a1f', '#a87a3e', '#5a7a3e', '#3b2a1c', '#7a4a2c', '#c47b5a', '#a89378', '#6e5a3a', '#9c5a3c', '#8a7a62'];
 
   // Load topics list
   useEffect(() => {

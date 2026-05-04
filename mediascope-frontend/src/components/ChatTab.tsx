@@ -42,6 +42,10 @@ const ChatTab: React.FC = () => {
     const q = question.trim();
     if (!q || loading) return;
 
+    // Snapshot the conversation BEFORE adding the new user turn so the
+    // backend's `history` reflects what came before this question.
+    const priorHistory = messages.map(m => ({ role: m.role, content: m.content }));
+
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setInput('');
     setLoading(true);
@@ -49,7 +53,8 @@ const ChatTab: React.FC = () => {
     try {
       const response = await axios.post(`${API_BASE}/chat/ask`, {
         question: q,
-        max_context: 6,
+        max_context: 12,
+        history: priorHistory,
       });
       const { answer, sources } = response.data;
       setMessages(prev => [

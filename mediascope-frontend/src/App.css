@@ -3453,12 +3453,34 @@
   border-radius: var(--radius-sm);
   padding: var(--space-5);
   box-shadow: var(--shadow-sm);
+  /* Make sure we inherit a contrasty text color from the page theme,
+     not whatever the user's OS prefers; some browser default styles
+     leak in otherwise. */
+  color: var(--text-primary);
 }
 
+/* Hover: subtle elevation, NOT a hard background switch. The previous
+   rule slammed `paper-cream` on hover regardless of theme — in dark
+   mode that produced cream-on-cream text (zero contrast). Use a tinted
+   var that respects the active theme instead. */
 .article-card:hover {
-  background: var(--paper-cream);
+  background: var(--bg-secondary);
   border-color: var(--sepia-rule);
   box-shadow: var(--shadow-md);
+}
+
+/* Belt-and-braces: force contrasty headline + body colors regardless of
+   what state the card is in, so hover, focus, or read-state styles can
+   never wash the text out. */
+.article-card,
+.article-card .article-headline,
+.article-card .article-list .article-headline,
+.article-card a.article-headline {
+  color: var(--text-primary);
+}
+.article-card .article-content-preview,
+.article-card p {
+  color: var(--text-secondary);
 }
 
 .article-list .article-header {

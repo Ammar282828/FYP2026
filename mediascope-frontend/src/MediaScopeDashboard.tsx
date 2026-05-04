@@ -28,6 +28,7 @@ import AdBrowserTab from './components/AdBrowserTab';
 import StoriesTab from './components/StoriesTab';
 import ArticleComparison from './components/ArticleComparison';
 import ChatTab from './components/ChatTab';
+import BrowseByDateTab from './components/BrowseByDateTab';
 import SearchTimeline from './components/SearchTimeline';
 import DashboardHome from './components/DashboardHome';
 import UserMenu from './components/UserMenu';
@@ -201,7 +202,7 @@ const MediaScopeDashboard: React.FC = () => {
   // are linkable: e.g. /?tab=analytics&sub=corpus opens straight to that view.
   const [tabParam, setTabParam] = useQueryState('tab', 'home');
   const [subParam, setSubParam] = useQueryState('sub', 'overview');
-  const activeTab = tabParam as 'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser' | 'bookmarks' | 'profile' | 'chat' | 'compare' | 'periods';
+  const activeTab = tabParam as 'home' | 'search' | 'analytics' | 'stories' | 'ocr' | 'ad-browser' | 'bookmarks' | 'profile' | 'chat' | 'compare' | 'periods' | 'by-date';
   const setActiveTab = (t: typeof activeTab) => setTabParam(t);
   const analyticsSubTab = subParam as 'overview' | 'topics' | 'entities' | 'keywords' | 'corpus';
   const setAnalyticsSubTab = (t: typeof analyticsSubTab) => setSubParam(t);
@@ -311,6 +312,7 @@ const MediaScopeDashboard: React.FC = () => {
               group: 'Read',
               items: [
                 { id: 'search', label: 'Search' },
+                { id: 'by-date', label: 'Browse by date', title: 'See every article from a single day or range' },
                 { id: 'stories', label: 'Stories' },
               ],
             },
@@ -407,6 +409,8 @@ const MediaScopeDashboard: React.FC = () => {
             )}
           </div>
         )}
+
+        {activeTab === 'by-date' && <BrowseByDateTab />}
 
         {activeTab === 'stories' && <StoriesTab />}
 

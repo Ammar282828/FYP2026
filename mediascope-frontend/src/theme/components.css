@@ -524,9 +524,27 @@
   background: var(--bg-secondary);
 }
 
-/* ── Auth dialog (native <dialog>) ─────────────────────────────────── */
+/* ── Auth modal (custom overlay; native <dialog> raced StrictMode in Safari) ── */
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  animation: auth-overlay-fade 120ms ease-out;
+}
+@keyframes auth-overlay-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 
 .auth-dialog {
+  position: relative;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 0;
@@ -535,10 +553,11 @@
   box-shadow: var(--shadow-lg);
   width: min(420px, calc(100vw - 2rem));
   max-width: 420px;
+  animation: auth-card-rise 160ms ease-out;
 }
-.auth-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
+@keyframes auth-card-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .auth-dialog__close {
   position: absolute;

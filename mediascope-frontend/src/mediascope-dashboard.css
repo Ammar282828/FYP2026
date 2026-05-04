@@ -154,51 +154,59 @@ textarea {
   background: var(--bg-secondary);
 }
 
-/* Header */
+/* ── Header — tighter, single horizontal row, less visual noise ───── */
 .dashboard-header {
   background: var(--bg-primary);
-  border-bottom: 3px double var(--sepia-rule);
-  padding: var(--space-4) var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--sepia-line);
+  padding: var(--space-3) var(--space-5) 0;
   box-shadow: none;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: saturate(140%) blur(6px);
 }
 
 .dashboard-masthead {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
-  align-items: start;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
   gap: var(--space-4);
+  padding-bottom: var(--space-2);
 }
 
 .logo-section {
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
 }
-
 .logo-section h1 {
   font-family: var(--font-serif-display);
-  font-size: clamp(2.1rem, 4vw, 3.4rem);
-  line-height: 0.95;
+  font-size: clamp(1.4rem, 2.2vw, 1.85rem);
+  line-height: 1;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 0.25rem;
+  margin: 0;
+  letter-spacing: -0.005em;
 }
-
 .tagline {
-  color: var(--text-secondary);
+  color: var(--text-tertiary, var(--text-secondary));
   font-family: var(--font-serif-smallcaps);
-  font-size: var(--font-size-sm);
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  margin-top: 0.25em;
 }
 
 .masthead-date {
   justify-self: center;
-  padding-top: var(--space-2);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary, var(--text-secondary));
   font-family: var(--font-serif-smallcaps);
-  font-size: var(--font-size-sm);
-  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   white-space: nowrap;
+  opacity: 0.85;
 }
 
 .dashboard-actions {
@@ -206,64 +214,69 @@ textarea {
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
+/* ── Nav — single row when possible, denser, friendlier active state ── */
 .dashboard-nav {
   display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
+  gap: 0.15rem;
   flex-wrap: wrap;
   align-items: center;
+  padding: 0.4rem 0 0;
   border-top: 1px solid var(--sepia-line);
+  margin-top: 0;
 }
-
-/* Visual grouping inside the nav: tight cluster per group, separator
-   between groups. Lets a 9-button bar feel like 4 sections. */
 .nav-group {
   display: inline-flex;
-  gap: 0.25rem;
+  gap: 0.1rem;
   align-items: center;
 }
 .nav-group-sep {
   display: inline-block;
   width: 1px;
-  height: 22px;
+  height: 16px;
   background: var(--border-color);
-  margin: 0 0.5rem;
-  opacity: 0.6;
+  margin: 0 0.4rem;
+  opacity: 0.5;
 }
-@media (max-width: 768px) {
+@media (max-width: 880px) {
   .nav-group-sep { display: none; }
 }
 
 .dashboard-nav button {
-  padding: var(--space-2) var(--space-3);
+  /* Smaller, denser pill so 9 tabs fit one row on a 1280-wide viewport */
+  padding: 0.45rem 0.75rem;
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid transparent;
-  border-bottom-color: transparent;
-  border-radius: 0;
+  border-radius: 6px 6px 0 0;
   cursor: pointer;
   font-family: var(--font-serif-smallcaps);
-  font-size: var(--font-size-sm);
+  font-size: 0.82rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  transition: all 0.2s;
+  letter-spacing: 0.05em;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  position: relative;
+  white-space: nowrap;
 }
-
 .dashboard-nav button:hover {
   background: var(--bg-secondary);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
+  color: var(--text-primary);
 }
-
 .dashboard-nav button.active {
-  background: transparent;
-  color: var(--primary-color);
-  border-color: transparent;
-  border-bottom: 2px solid var(--primary-color);
+  color: var(--accent-rust, var(--primary-color));
+  background: color-mix(in srgb, var(--accent-rust, var(--primary-color)) 8%, transparent);
+}
+.dashboard-nav button.active::after {
+  content: '';
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent-rust, var(--primary-color));
+  border-radius: 2px 2px 0 0;
 }
 
 /* Main Content */
@@ -2018,47 +2031,55 @@ textarea {
 
 /* ── Theme Toggle ──────────────────────────────────────────────────────── */
 .theme-toggle {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;            /* circular icon button matches avatar */
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
 .theme-toggle:hover {
   background: var(--bg-secondary);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
+  border-color: var(--accent-rust, var(--primary-color));
+  color: var(--accent-rust, var(--primary-color));
 }
 
-/* ── Cmd+K Hint Button ─────────────────────────────────────────────────── */
+/* ── Cmd+K Hint Button — primary header action, made more inviting ─── */
 .cmd-k-hint {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.75rem;
+  gap: 0.45rem;
+  padding: 0.4rem 0.85rem;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;          /* pill shape — focal point of header */
   background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-family: var(--font-serif-smallcaps);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
+  min-width: 180px;
 }
-
 .cmd-k-hint:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
+  border-color: var(--accent-rust, var(--primary-color));
+  color: var(--accent-rust, var(--primary-color));
   background: var(--bg-secondary);
+}
+.cmd-k-hint::before {
+  /* Tiny search-glyph dot to anchor the pill visually */
+  content: '⌕';
+  margin-right: 0.05rem;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.7;
 }
 
 .cmd-k-hint__mark {
@@ -2602,22 +2623,26 @@ textarea {
 }
 
 .user-avatar {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: 2px solid var(--border-color);
+  border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  color: white;
+  letter-spacing: 0.04em;
+  /* Override any inline cyan/teal background — match the vintage palette */
+  background: var(--accent-rust, var(--primary-color)) !important;
+  color: var(--paper-cream, white);
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.15s ease, transform 0.15s ease;
 }
 
 .user-avatar:hover {
-  border-color: var(--primary-color);
+  border-color: var(--accent-rust, var(--primary-color));
+  transform: scale(1.05);
 }
 
 .user-dropdown {

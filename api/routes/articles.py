@@ -160,7 +160,13 @@ router = APIRouter(prefix="/api", tags=["articles"])
 
 
 @router.get("/articles")
-def list_articles(limit: int = 100, offset: int = 0, sort_by: str = 'relevance'):
+def list_articles(
+    limit: int = 100,
+    offset: int = 0,
+    sort_by: str = 'relevance',
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+):
     """List articles. Default sort = quality-aware ranking.
 
     `limit` counts non-classified articles — i.e. asking for limit=100
@@ -175,25 +181,52 @@ def list_articles(limit: int = 100, offset: int = 0, sort_by: str = 'relevance')
         above fragments and meta-stubs. Demonstrates corpus quality
         rather than just chronology.
       date — most-recent first (legacy behaviour).
+
+    date_from / date_to: ISO yyyy-mm-dd strings (inclusive). When set,
+    Firestore is queried with a publication_date range filter so we
+    only fetch the relevant slice of the archive. If only one bound is
+    given the other side is open. The "Browse by date" UI uses this.
     """
+    from datetime import datetime as _dt
     try:
         db = get_db()
-        # Over-fetch: assume up to ~30% of the recent corpus may be
-        # classifieds, plus padding for garbage-headline drops. For
-        # `relevance` sort we need a wider candidate pool so the
-        # quality re-rank has real choices; pull in chronological order
-        # from Firestore (cheapest server-side sort), then re-sort
-        # client-side.
-        if sort_by == 'relevance':
-            oversample = max((limit + offset) * 6, 600)
+        q = db.db.collection('articles')
+
+        # Range query lives in Firestore so we don't pull the whole
+        # corpus when the user just wants a single day. Firestore needs
+        # an order_by on the same field as the inequality; that's fine
+        # — we want chronological order anyway.
+        if date_from:
+            try:
+                df = _dt.fromisoformat(date_from)
+                q = q.where('publication_date', '>=', df)
+            except ValueError:
+                raise HTTPException(400, f"date_from must be yyyy-mm-dd, got {date_from!r}")
+        if date_to:
+            try:
+                # End of day so 'date_to=2090-10-15' includes that day.
+                dt = _dt.fromisoformat(date_to).replace(hour=23, minute=59, second=59)
+                q = q.where('publication_date', '<=', dt)
+            except ValueError:
+                raise HTTPException(400, f"date_to must be yyyy-mm-dd, got {date_to!r}")
+
+        if date_from or date_to:
+            # Range: pull everything matching, sorted ascending so we
+            # naturally walk forward through the slice.
+            q = q.order_by('publication_date', direction='ASCENDING')
+            # Don't truncate the range; users asking "show me everything
+            # in October 1990" want everything. Bound at 5000 to keep
+            # responses sane.
+            q = q.limit(min(5000, limit + offset + 500))
         else:
-            oversample = max((limit + offset) * 2, (limit + offset) + 200)
-        articles_ref = (
-            db.db.collection('articles')
-            .order_by('publication_date', direction='DESCENDING')
-            .limit(oversample)
-        )
-        raw_docs = list(articles_ref.stream())
+            # No range: original "recent corpus" behaviour.
+            if sort_by == 'relevance':
+                oversample = max((limit + offset) * 6, 600)
+            else:
+                oversample = max((limit + offset) * 2, (limit + offset) + 200)
+            q = q.order_by('publication_date', direction='DESCENDING').limit(oversample)
+
+        raw_docs = list(q.stream())
 
         keepers = []
         for doc in raw_docs:
@@ -205,11 +238,22 @@ def list_articles(limit: int = 100, offset: int = 0, sort_by: str = 'relevance')
             data['content_preview'] = (data.get('content') or '')[:200]
             keepers.append(data)
 
+        # Apply requested sort to whatever we pulled.
         if sort_by == 'relevance':
             keepers.sort(key=_quality_sort_key, reverse=True)
-        # else: already in publication_date DESC order from Firestore
+        elif sort_by == 'date_asc':
+            keepers.sort(key=lambda x: _date_sort_key(x, ascending=True))
+        elif sort_by == 'date':
+            keepers.sort(key=lambda x: _date_sort_key(x, ascending=False), reverse=True)
+        # else: leave whatever Firestore gave us
 
-        return {"articles": keepers[offset:offset + limit]}
+        total = len(keepers)
+        return {
+            "articles": keepers[offset:offset + limit],
+            "total": total,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
     except Exception as e:
         raise HTTPException(500, f"Database error: {str(e)}")
 
@@ -524,12 +568,77 @@ def get_related_articles(article_id: str):
         raise HTTPException(500, f"Database error: {str(e)}")
 
 
+_STOPWORDS = {
+    'a','an','the','and','or','but','of','in','on','at','to','from','for',
+    'with','by','as','is','are','was','were','be','been','being','have',
+    'has','had','do','does','did','will','would','should','could','can',
+    'may','might','must','shall','this','that','these','those','it','its',
+    'they','them','their','there','here','what','which','who','whom',
+    'whose','when','where','why','how','tell','me','about','you','your',
+    'we','our','us','i','my','mine','also','any','all','some','more',
+    'most','many','few','one','two','three','than','then','so','too','if',
+    'into','out','over','under','during','between','before','after','up',
+    'down','no','not','nor','only','same','very','just','really'
+}
+
+# Years 1980..2099 — used to narrow searches when a question mentions a year.
+_YEAR_RE = re.compile(r'\b(19[89]\d|20\d{2})\b')
+
+
+def _extract_query_signals(q: str) -> dict:
+    """Pull retrieval-useful signals out of a free-form question.
+
+    Returns:
+      keywords: lower-cased non-stopword tokens (>=3 chars), preserving order.
+      proper_nouns: capitalised tokens / multi-word capitalised spans
+        (likely entities to query against the entities index).
+      years: any 4-digit year mentioned (used for date-range fallback).
+    """
+    text = q.strip()
+    keywords: list[str] = []
+    seen = set()
+    for tok in re.findall(r"[A-Za-z][A-Za-z'\-]{2,}", text):
+        low = tok.lower()
+        if low in _STOPWORDS or low in seen:
+            continue
+        keywords.append(low)
+        seen.add(low)
+    # Capitalised runs (e.g. "Benazir Bhutto", "Gulf War") — but skip the
+    # first word of the sentence which is always capitalised.
+    proper_nouns: list[str] = []
+    # Drop the first word from consideration as a sentence-start cap.
+    rest = ' '.join(text.split()[1:]) if text.split() else ''
+    for m in re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b', rest):
+        if m and m.lower() not in _STOPWORDS:
+            proper_nouns.append(m)
+    years = list(set(_YEAR_RE.findall(text)))
+    return {'keywords': keywords[:8], 'proper_nouns': proper_nouns[:6], 'years': years}
+
+
 @router.post("/chat/ask")
 def ask_archive(request: dict):
     """
-    Ask-the-Archive: natural-language Q&A grounded in article search.
+    Ask-the-Archive: natural-language Q&A grounded in archive search.
 
-    Body: { "question": "...", "max_context": 6 }
+    Body:
+      question: str (required)
+      max_context: int (default 12, max 20) — how many articles to feed Gemini
+      history: optional list of {role, content} prior turns, last 6 used
+      model: optional override ('gemini-2.5-pro' [default] or 'gemini-2.5-flash')
+
+    Pipeline:
+      1. Extract keywords, proper nouns, year hints from the question.
+      2. Run multi-strategy retrieval in parallel:
+           - keyword search on each significant term (top 8)
+           - entity search on each proper-noun phrase (top 6)
+           - if a year was mentioned, pull articles from that year too
+      3. Merge candidates, dedup by ID.
+      4. Score each candidate by:
+           - count of question terms found in headline/body (high weight)
+           - bonus if a proper-noun phrase appears verbatim
+           - +0.4 × _quality_score (cleanness of the OCR / pipeline metadata)
+      5. Send top max_context articles + the conversation history to
+         gemini-2.5-pro for a synthesised, cited answer.
     """
     question = (request.get("question") or "").strip()
     if not question:
@@ -540,36 +649,92 @@ def ask_archive(request: dict):
     if not gemini_key:
         raise HTTPException(500, "GEMINI_API_KEY not configured")
 
-    max_context = min(int(request.get("max_context", 6)), 12)
+    max_context = min(int(request.get("max_context", 12)), 20)
+    history = request.get("history") or []
+    # Default to flash because gemini-2.5-pro is heavily quota-throttled
+    # on the trial-tier project — sending the request to pro reliably
+    # 429s after ~14s and then we fall back, doubling latency. flash is
+    # plenty good for archive Q&A and answers in ~3-6s. Frontend can
+    # opt into pro by sending {"model": "gemini-2.5-pro"} explicitly.
+    model_name = request.get("model") or 'gemini-2.5-flash'
 
     try:
         db = get_db()
-        # Retrieve candidate articles via keyword search on the question terms
-        terms = [t for t in question.split() if len(t) >= 4][:4]
-        candidates: list = []
-        seen = set()
-        for term in terms:
+        signals = _extract_query_signals(question)
+        keywords = signals['keywords']
+        proper_nouns = signals['proper_nouns']
+        years = signals['years']
+
+        # Multi-strategy candidate gather. Tag each hit with its source
+        # so we can boost articles that surfaced via multiple paths.
+        candidates: dict = {}  # id -> (article, retrieval_count)
+        def _add(art, source: str):
+            aid = art.get('id')
+            if not aid:
+                return
+            cur = candidates.get(aid)
+            if cur is None:
+                candidates[aid] = (art, {source})
+            else:
+                cur[1].add(source)
+
+        # 1) Keyword search on each significant term.
+        for term in keywords[:6]:
             try:
-                hits = db.search_articles(term, limit=10) or []
+                hits = db.search_articles(term, limit=15) or []
             except Exception:
                 hits = []
             for h in hits:
-                aid = h.get('id')
-                if aid and aid not in seen:
-                    seen.add(aid)
-                    candidates.append(h)
-                if len(candidates) >= max_context * 2:
-                    break
-            if len(candidates) >= max_context * 2:
-                break
+                _add(h, 'kw')
 
-        # Rank by naive keyword overlap with question
-        ql = question.lower()
-        def _score(a):
-            txt = ((a.get('headline') or '') + ' ' + (a.get('content_preview') or a.get('content') or '')).lower()
-            return sum(1 for t in terms if t.lower() in txt) + (2 if any(w in txt for w in ql.split()) else 0)
-        candidates.sort(key=_score, reverse=True)
-        context_articles = candidates[:max_context]
+        # 2) Entity search on proper nouns.
+        for ent in proper_nouns:
+            try:
+                hits = db.search_by_entity(ent, limit=10) or []
+            except Exception:
+                hits = []
+            for h in hits:
+                _add(h, 'entity')
+
+        # 3) Year hint → pull articles from that year for chronological context.
+        if years and len(candidates) < max_context * 2:
+            from datetime import datetime as _dt
+            for yr in years[:1]:  # just the first year; usually one is plenty
+                try:
+                    df = _dt(int(yr), 1, 1)
+                    dt = _dt(int(yr), 12, 31, 23, 59, 59)
+                    yearq = (db.db.collection('articles')
+                             .where('publication_date', '>=', df)
+                             .where('publication_date', '<=', dt)
+                             .order_by('publication_date', direction='DESCENDING')
+                             .limit(40))
+                    for doc in yearq.stream():
+                        _add(doc.to_dict(), 'year')
+                except Exception:
+                    pass
+
+        # If nothing found, drop into the legacy LLM-only fallback below.
+        candidate_list = [(a, srcs) for a, srcs in candidates.values()]
+        # Filter classifieds + garbage headlines so the LLM doesn't get
+        # noise.
+        candidate_list = [
+            (a, srcs) for (a, srcs) in candidate_list
+            if not _is_classified(a) and not _is_garbage_headline(a.get('headline') or '')
+        ]
+
+        # 4) Score: term overlap + quality
+        ql_terms = set(keywords)
+        ql_proper = [p.lower() for p in proper_nouns]
+        def _rich_score(item):
+            a, srcs = item
+            txt = ((a.get('headline') or '') + ' ' + (a.get('content') or a.get('content_preview') or '')).lower()
+            term_hits = sum(1 for t in ql_terms if t in txt)
+            proper_hits = sum(2 for p in ql_proper if p and p in txt)
+            multi_source_bonus = 2 if len(srcs) >= 2 else 0
+            quality = _quality_score(a) * 0.04   # max ~5
+            return term_hits + proper_hits + multi_source_bonus + quality
+        candidate_list.sort(key=_rich_score, reverse=True)
+        context_articles = [a for a, _ in candidate_list[:max_context]]
 
         if not context_articles:
             # Fall back to a direct LLM answer with a clear disclaimer so the
@@ -610,33 +775,93 @@ Answer:"""
             else:
                 date_str = str(pd)[:10]
             headline = (a.get('headline') or 'Untitled').strip()
-            excerpt = (a.get('content') or a.get('content_preview') or '')[:500].strip()
-            blocks.append(f"[{i}] ({date_str}) {headline}\n{excerpt}")
+            page = a.get('page_number')
+            page_str = f" · p. {page}" if page else ''
+            topic = (a.get('topic_label') or '').strip()
+            topic_str = f" · {topic}" if topic else ''
+            # Bigger excerpt — 2.5-pro has a huge context window; the
+            # synthesis is dramatically better with the actual article
+            # body instead of a 500-char teaser.
+            excerpt = (a.get('content') or a.get('content_preview') or '').strip()
+            if len(excerpt) > 1500:
+                excerpt = excerpt[:1500] + '…'
+            blocks.append(
+                f"[{i}] ({date_str}{page_str}{topic_str}) {headline}\n{excerpt}"
+            )
             sources.append({
                 "id": a.get('id'),
                 "headline": headline,
                 "publication_date": date_str,
                 "citation_index": i,
+                "topic_label": topic or None,
+                "page_number": page,
             })
 
-        prompt = f"""You are a research assistant for the Dawn newspaper archive (Pakistan, 1990-1992).
+        # Compress conversation history to last 6 turns and a summary line.
+        history_block = ''
+        if isinstance(history, list) and history:
+            tail = []
+            for turn in history[-6:]:
+                role = (turn.get('role') or '').lower()
+                content = (turn.get('content') or '').strip()
+                if not content or role not in ('user', 'assistant'):
+                    continue
+                # Trim long prior assistant answers — we just need the gist
+                # so the model can keep a thread going.
+                if role == 'assistant' and len(content) > 600:
+                    content = content[:600] + '…'
+                tail.append(f"{role.upper()}: {content}")
+            if tail:
+                history_block = "\n\nPRIOR CONVERSATION (most recent last):\n" + "\n".join(tail)
 
-Answer the user's question using ONLY the articles below. Cite each claim with [number] notation pointing to the article it came from. If the articles don't answer the question, say so honestly — do not make up facts.
+        prompt = f"""You are a careful research assistant working with the Dawn newspaper archive (Pakistan, primarily 1990–1992). You answer questions using only the articles supplied below.
 
-ARTICLES:
-{chr(10).join(blocks)}
+GROUND RULES
+1. Use ONLY information present in the articles. If something isn't covered, say so plainly — do not fill in from general knowledge.
+2. Cite every factual claim with [n] markers tied to the article numbers. Multiple citations like [3][7] are fine when several articles back the same point.
+3. Where dates differ across articles, present them chronologically and call out the disagreement explicitly.
+4. Disambiguate names, places, and roles when the articles do (e.g. "Nawaz Sharif (then PM)"). Don't assume context that isn't in the text.
+5. Be concise but specific. Aim for 3–8 sentences for simple questions; longer with structure (paragraphs, bullets) only when the question is broad and the articles support depth.
+6. When the corpus has obvious OCR damage in a citation (gutter cuts, [...] markers), flag it briefly rather than guessing missing words.
+7. End with a one-line "Sources used:" summary listing the most load-bearing citations (e.g. "Sources used: [1], [3], [5]").
 
-QUESTION: {question}
+ARTICLES (in retrieval-rank order):
+{chr(10).join(blocks)}{history_block}
 
-Answer (with [#] citations):"""
+CURRENT QUESTION: {question}
 
-        model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
-        response = model.generate_content(prompt)
+ANSWER (with [n] citations):"""
+
+        # Default model is gemini-2.5-pro — significantly better at
+        # synthesising across many sources than 2.5-flash. Fall back to
+        # 2.5-flash if pro hits a quota.
+        try:
+            model = _create_gemini_model(gemini_key, model_name)
+            response = model.generate_content(prompt)
+            answer_text = (response.text or '').strip()
+            used_model = model_name
+        except Exception as primary_err:
+            try:
+                model = _create_gemini_model(gemini_key, 'gemini-2.5-flash')
+                response = model.generate_content(prompt)
+                answer_text = (response.text or '').strip()
+                used_model = 'gemini-2.5-flash'
+            except Exception:
+                raise primary_err
+
         return {
             "question": question,
-            "answer": response.text.strip(),
+            "answer": answer_text,
             "sources": sources,
-            "model": "gemini-2.5-flash",
+            "model": used_model,
+            "retrieval": {
+                "candidates_considered": len(candidate_list),
+                "context_used": len(context_articles),
+                "keywords": keywords[:6],
+                "proper_nouns": proper_nouns,
+                "years": years,
+            },
+            "grounded": True,
         }
     except HTTPException:
         raise

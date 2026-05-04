@@ -1,5 +1,5 @@
 {
-  "total_topics": 40,
+  "total_topics": 85,
   "topics": [
     {
       "topic_id": 1,
@@ -17,7 +17,7 @@
       ],
       "description": "Domestic Pakistani politics: PPP, MQM, IJI, federal/provincial governments, Bhutto, Sharif, party affairs, elections, assemblies.",
       "key": "pakistan-politics",
-      "count": 276
+      "count": 2853
     },
     {
       "topic_id": 2,
@@ -32,7 +32,7 @@
       ],
       "description": "Pakistan's bilateral diplomacy, foreign-ministry statements, UN, embassies, visits by foreign leaders, treaties.",
       "key": "foreign-relations",
-      "count": 36
+      "count": 590
     },
     {
       "topic_id": 3,
@@ -46,7 +46,7 @@
       ],
       "description": "Kashmir dispute, line of control, Indian-occupied Kashmir, Hurriyat, militancy, Pakistan\u2013India tensions over Kashmir.",
       "key": "kashmir",
-      "count": 27
+      "count": 259
     },
     {
       "topic_id": 4,
@@ -61,7 +61,7 @@
       ],
       "description": "Afghan civil war, mujahideen factions, Najibullah, Kabul, refugees, post-Soviet-withdrawal politics, Geneva accords.",
       "key": "afghanistan",
-      "count": 10
+      "count": 84
     },
     {
       "topic_id": 5,
@@ -77,7 +77,7 @@
       ],
       "description": "Gulf War, Iraq\u2013Kuwait, Iran, Israel\u2013Palestine, Saudi Arabia, Arab League, OPEC politics (not oil prices).",
       "key": "middle-east",
-      "count": 31
+      "count": 1048
     },
     {
       "topic_id": 6,
@@ -92,7 +92,7 @@
       ],
       "description": "Soviet Union breakup, Eastern Europe revolutions, Gorbachev, Yeltsin, US\u2013USSR summits, German reunification.",
       "key": "cold-war",
-      "count": 57
+      "count": 478
     },
     {
       "topic_id": 7,
@@ -107,7 +107,7 @@
       ],
       "description": "Pakistani armed forces, military exercises, weapons procurement, defence budget, retired officer affairs.",
       "key": "defence-military",
-      "count": 19
+      "count": 120
     },
     {
       "topic_id": 10,
@@ -122,7 +122,7 @@
       ],
       "description": "Karachi Stock Exchange, share prices, dividends, modarabas, IPOs, market closing reports.",
       "key": "stock-market",
-      "count": 31
+      "count": 199
     },
     {
       "topic_id": 11,
@@ -137,7 +137,7 @@
       ],
       "description": "Foreign exchange rates, dollar, yen, sterling, kerb market, gold prices.",
       "key": "forex-currency",
-      "count": 60
+      "count": 286
     },
     {
       "topic_id": 12,
@@ -151,7 +151,7 @@
       ],
       "description": "OPEC quotas, oil prices, petroleum products, refining, fuel imports.",
       "key": "oil-energy-markets",
-      "count": 11
+      "count": 204
     },
     {
       "topic_id": 13,
@@ -165,7 +165,7 @@
       ],
       "description": "Federal/provincial budgets, taxation policy, customs duties, fiscal measures.",
       "key": "budget-tax",
-      "count": 50
+      "count": 456
     },
     {
       "topic_id": 14,
@@ -179,7 +179,7 @@
       ],
       "description": "IMF programmes, World Bank loans, foreign debt, structural adjustment, balance of payments.",
       "key": "imf-debt",
-      "count": 16
+      "count": 187
     },
     {
       "topic_id": 15,
@@ -193,7 +193,7 @@
       ],
       "description": "Company AGMs, board notices, dividends, mergers, listed-company financials.",
       "key": "corporate-finance",
-      "count": 37
+      "count": 226
     },
     {
       "topic_id": 16,
@@ -209,7 +209,7 @@
       ],
       "description": "Cotton, wheat, rice, sugar, ginning, export prices, food grains, crop reports.",
       "key": "agriculture-commodities",
-      "count": 91
+      "count": 773
     },
     {
       "topic_id": 17,
@@ -224,7 +224,7 @@
       ],
       "description": "Cargo, container traffic, port operations (KPT), shipping companies, exports/imports.",
       "key": "shipping-trade",
-      "count": 39
+      "count": 378
     },
     {
       "topic_id": 18,
@@ -239,7 +239,7 @@
       ],
       "description": "Textile mills, cement, steel, fertilizer, chemicals, factory output, productivity.",
       "key": "industry-manufacturing",
-      "count": 53
+      "count": 310
     },
     {
       "topic_id": 19,
@@ -254,7 +254,7 @@
       ],
       "description": "Property listings, plot/house sales, Defence/Clifton/Gulshan, real-estate agents.",
       "key": "real-estate",
-      "count": 70
+      "count": 202
     },
     {
       "topic_id": 20,
@@ -267,7 +267,7 @@
       ],
       "description": "Public tenders, government procurement notices, situations-vacant, want-ads.",
       "key": "tenders-classifieds",
-      "count": 139
+      "count": 583
     },
     {
       "topic_id": 21,
@@ -281,7 +281,7 @@
       ],
       "description": "Situations vacant, recruitment ads with experience requirements and how to apply.",
       "key": "job-listings",
-      "count": 58
+      "count": 305
     },
     {
       "topic_id": 30,
@@ -296,7 +296,7 @@
       ],
       "description": "Murders, killings, riots, sectarian violence, kidnappings, police actions, terrorism.",
       "key": "crime-violence",
-      "count": 218
+      "count": 1809
     },
     {
       "topic_id": 31,
@@ -311,7 +311,7 @@
       ],
       "description": "Schools, colleges, universities, exam results (intermediate/matric), teacher affairs.",
       "key": "education",
-      "count": 67
+      "count": 528
     },
     {
       "topic_id": 32,
@@ -325,7 +325,7 @@
       ],
       "description": "Hospitals, doctors, public health, disease outbreaks, drug regulation, medical strikes.",
       "key": "health-medicine",
-      "count": 31
+      "count": 347
     },
     {
       "topic_id": 33,
@@ -338,7 +338,7 @@
       ],
       "description": "Women's rights, women in workforce, motherhood, maternal health, gender debates.",
       "key": "women-issues",
-      "count": 12
+      "count": 84
     },
     {
       "topic_id": 34,
@@ -352,7 +352,7 @@
       ],
       "description": "Death notices, condolence messages, soyem/chehlum announcements.",
       "key": "obituaries",
-      "count": 10
+      "count": 112
     },
     {
       "topic_id": 40,
@@ -368,7 +368,7 @@
       ],
       "description": "Electricity (KESC/WAPDA), load-shedding, gas, water supply (KWSB), tariffs.",
       "key": "utilities",
-      "count": 32
+      "count": 224
     },
     {
       "topic_id": 41,
@@ -382,7 +382,7 @@
       ],
       "description": "Telephone services, exchanges, subscribers, billing, telegraph, postal.",
       "key": "telecom",
-      "count": 9
+      "count": 108
     },
     {
       "topic_id": 42,
@@ -396,7 +396,7 @@
       ],
       "description": "Roads, traffic, public transport, driving schools, KCR, transport policy.",
       "key": "transport",
-      "count": 30
+      "count": 299
     },
     {
       "topic_id": 43,
@@ -410,7 +410,7 @@
       ],
       "description": "PAEC, nuclear energy, radiation, atomic research, nuclear non-proliferation talks.",
       "key": "nuclear-programme",
-      "count": 3
+      "count": 34
     },
     {
       "topic_id": 50,
@@ -424,7 +424,7 @@
       ],
       "description": "Computers, IBM, software, IT services, business machinery quotations.",
       "key": "technology",
-      "count": 11
+      "count": 97
     },
     {
       "topic_id": 51,
@@ -438,7 +438,7 @@
       ],
       "description": "Car ads, Suzuki/Toyota models, dealer notices, vehicle listings.",
       "key": "automotive",
-      "count": 29
+      "count": 83
     },
     {
       "topic_id": 52,
@@ -452,7 +452,7 @@
       ],
       "description": "Refrigerators, air-conditioners, VCRs, TVs, household appliances.",
       "key": "consumer-electronics",
-      "count": 6
+      "count": 17
     },
     {
       "topic_id": 60,
@@ -467,7 +467,7 @@
       ],
       "description": "Cricket matches, tours, Pakistan team, World Cup, batting/bowling reports.",
       "key": "cricket",
-      "count": 47
+      "count": 569
     },
     {
       "topic_id": 61,
@@ -481,7 +481,7 @@
       ],
       "description": "Hockey, football, squash, tennis, athletics \u2014 anything other than cricket.",
       "key": "other-sports",
-      "count": 86
+      "count": 1261
     },
     {
       "topic_id": 62,
@@ -495,7 +495,7 @@
       ],
       "description": "Exhibitions, paintings, music, film, theatre, arts council.",
       "key": "arts-culture",
-      "count": 24
+      "count": 219
     },
     {
       "topic_id": 63,
@@ -509,7 +509,7 @@
       ],
       "description": "Radio (PBC), PTV, news transmission schedules, media policy.",
       "key": "media-broadcasting",
-      "count": 22
+      "count": 130
     },
     {
       "topic_id": 80,
@@ -523,7 +523,7 @@
       ],
       "description": "Court notices, claim objections, legal advertisements, public notices.",
       "key": "legal-notices",
-      "count": 23
+      "count": 95
     },
     {
       "topic_id": 81,
@@ -537,7 +537,7 @@
       ],
       "description": "Weather forecasts, monsoon updates, temperature reports.",
       "key": "weather",
-      "count": 8
+      "count": 42
     },
     {
       "topic_id": 82,
@@ -551,7 +551,7 @@
       ],
       "description": "Crosswords, chess problems, bridge columns.",
       "key": "puzzles",
-      "count": 6
+      "count": 33
     },
     {
       "topic_id": 99,
@@ -559,16 +559,377 @@
       "keywords": [],
       "description": "Routine listings, schedules, or short snippets that do not fit any other topic.",
       "key": "other",
-      "count": 212
+      "count": 2192
     },
     {
-      "topic_id": -1,
-      "name": "Legacy / Pending Backfill",
+      "topic_id": 10000,
+      "name": "mqm_kashmir_ppp_sindh_minister",
       "keywords": [],
-      "description": "Articles still carrying old BERTopic-style labels. Run scripts/backfill_topics.py to migrate.",
-      "count": 2988
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 130,
+      "auto": true
+    },
+    {
+      "topic_id": 10001,
+      "name": "police_injured_shot_dead_killed",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 67,
+      "auto": true
+    },
+    {
+      "topic_id": 10002,
+      "name": "tender_tenders_90_earnest money_earnest",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 65,
+      "auto": true
+    },
+    {
+      "topic_id": 10003,
+      "name": "match_cricket_team_final_england",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 56,
+      "auto": true
+    },
+    {
+      "topic_id": 10004,
+      "name": "yards_defence_clifton_estate_phone",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 55,
+      "auto": true
+    },
+    {
+      "topic_id": 10005,
+      "name": "experience_candidates_applications_apply_years experience",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 50,
+      "auto": true
+    },
+    {
+      "topic_id": 10006,
+      "name": "billion_tax_cent_budget_programme",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 40,
+      "auto": true
+    },
+    {
+      "topic_id": 10007,
+      "name": "soviet_union_soviet union_europe_gorbachev",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 34,
+      "auto": true
+    },
+    {
+      "topic_id": 10008,
+      "name": "doctors_strike_newspaper_patients_protest",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 32,
+      "auto": true
+    },
+    {
+      "topic_id": 10009,
+      "name": "company_directors_general meeting_dividend_year ended",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 27,
+      "auto": true
+    },
+    {
+      "topic_id": 10010,
+      "name": "radio_soyem_held_imam_death",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 27,
+      "auto": true
+    },
+    {
+      "topic_id": 10011,
+      "name": "00_kgs_grams_oil_40 kgs",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 26,
+      "auto": true
+    },
+    {
+      "topic_id": 10012,
+      "name": "notice_claim_objection_shall_person",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 23,
+      "auto": true
+    },
+    {
+      "topic_id": 10013,
+      "name": "21_rs 21_rates_buying_selling",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 23,
+      "auto": true
+    },
+    {
+      "topic_id": 10014,
+      "name": "quality_productivity_process_improvement_continuous",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 20,
+      "auto": true
+    },
+    {
+      "topic_id": 10015,
+      "name": "students_teachers_schools_college_university",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 20,
+      "auto": true
+    },
+    {
+      "topic_id": 10016,
+      "name": "arab_israel_iran_syria_iraq",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 19,
+      "auto": true
+    },
+    {
+      "topic_id": 10017,
+      "name": "news_00 news_35_katrak_transmission",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 17,
+      "auto": true
+    },
+    {
+      "topic_id": 10018,
+      "name": "computer_ibm_machines_quotations_machinery",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 16,
+      "auto": true
+    },
+    {
+      "topic_id": 10019,
+      "name": "iv_ii_results_intermediate_examination",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 16,
+      "auto": true
+    },
+    {
+      "topic_id": 10020,
+      "name": "women_health_motherhood_safe motherhood_safe",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 14,
+      "auto": true
+    },
+    {
+      "topic_id": 10021,
+      "name": "dollars_afternoon_kerb_thursday_gold",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 12,
+      "auto": true
+    },
+    {
+      "topic_id": 10022,
+      "name": "mujahideen_sri_kabul_regime_tanai",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 12,
+      "auto": true
+    },
+    {
+      "topic_id": 10023,
+      "name": "nuclear_french_eec_plant_chamber",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 12,
+      "auto": true
+    },
+    {
+      "topic_id": 10024,
+      "name": "technology_hmc_cad_cam_engineering",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 11,
+      "auto": true
+    },
+    {
+      "topic_id": 10025,
+      "name": "car_contact_suzuki_toyota_model",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 10,
+      "auto": true
+    },
+    {
+      "topic_id": 10026,
+      "name": "dollar_yen_japanese_japan_cent",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 10,
+      "auto": true
+    },
+    {
+      "topic_id": 10027,
+      "name": "cargo_containers_tons_ships_general cargo",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 10,
+      "auto": true
+    },
+    {
+      "topic_id": 10028,
+      "name": "power_generation_electricity_energy_conservation",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 9,
+      "auto": true
+    },
+    {
+      "topic_id": 10029,
+      "name": "66_67_closing_cotton_fri",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 9,
+      "auto": true
+    },
+    {
+      "topic_id": 10030,
+      "name": "telephone_bills_subscribers_exchange_dates",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 9,
+      "auto": true
+    },
+    {
+      "topic_id": 10031,
+      "name": "fumigation_proofing_tank cleaning_termite_water tank",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 9,
+      "auto": true
+    },
+    {
+      "topic_id": 10032,
+      "name": "correspond_clue_black_panel_numbers",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 8,
+      "auto": true
+    },
+    {
+      "topic_id": 10033,
+      "name": "cotton_bids_bid_seed_ginning",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 8,
+      "auto": true
+    },
+    {
+      "topic_id": 10034,
+      "name": "water_kwsb_supply_areas_colony",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 8,
+      "auto": true
+    },
+    {
+      "topic_id": 10035,
+      "name": "oil_opec_petroleum_uae_kuwait",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 8,
+      "auto": true
+    },
+    {
+      "topic_id": 10036,
+      "name": "mep_export price_price_minimum_export",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 7,
+      "auto": true
+    },
+    {
+      "topic_id": 10037,
+      "name": "imf_countries_debt_gold_nations",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 7,
+      "auto": true
+    },
+    {
+      "topic_id": 10038,
+      "name": "science_education_university_teaching_educational",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 7,
+      "auto": true
+    },
+    {
+      "topic_id": 10039,
+      "name": "shares_paisa_modaraba_market_investors",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 6,
+      "auto": true
+    },
+    {
+      "topic_id": 10040,
+      "name": "airconditioning_car_airconditioners_installation_sunny",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 6,
+      "auto": true
+    },
+    {
+      "topic_id": 10041,
+      "name": "driving_pick drop_instructors_metropole_drop",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 5,
+      "auto": true
+    },
+    {
+      "topic_id": 10042,
+      "name": "wheat_tons_million tons_port_stocks",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 5,
+      "auto": true
+    },
+    {
+      "topic_id": 10043,
+      "name": "refrigerators_household_vcr_airconditioners_cookers",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 4,
+      "auto": true
+    },
+    {
+      "topic_id": 10044,
+      "name": "nuclear_company_radiation_ray_paec",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 3,
+      "auto": true
+    },
+    {
+      "topic_id": 10045,
+      "name": "artistes_exhibition_arts_paintings_council",
+      "keywords": [],
+      "description": "Auto-generated topic \u2014 not part of the curated taxonomy. Edit data/topics_taxonomy.json to promote.",
+      "count": 3,
+      "auto": true
     }
   ],
-  "extracted_at": "2026-04-26T09:05:38.912813+00:00",
+  "extracted_at": "2026-05-04T18:09:16.198535+00:00",
   "source": "curated taxonomy (data/topics_taxonomy.json) + Firestore counts"
 }

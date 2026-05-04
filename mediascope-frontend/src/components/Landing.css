@@ -141,6 +141,28 @@ body:has(.landing-page) {
   font-style: italic;
 }
 
+.landing-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5em 0.75em;
+  margin-top: var(--space-3);
+  color: var(--ink-secondary);
+  font-size: clamp(0.85rem, 1.1vw, 1rem);
+  letter-spacing: 0.02em;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+}
+.landing-stats strong {
+  color: var(--ink-primary);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.landing-stats__latest em {
+  font-style: italic;
+  color: var(--ink-primary);
+}
+
 .landing-cta-row {
   display: flex;
   flex-wrap: wrap;
