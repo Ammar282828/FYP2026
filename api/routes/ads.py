@@ -983,12 +983,34 @@ def browse_advertisements(
         raise HTTPException(500, f"Error browsing ads: {str(e)}")
 
 
+def _ad_quality_score(ad: dict) -> int:
+    """Quality-aware ranking for ads. Higher = better.
+
+    Boosts ads with the full Gemini analysis pipeline run (analysis,
+    identifier, description) over bare image-only records that haven't
+    been processed yet. Mirrors article _quality_score in spirit.
+    """
+    score = 0
+    analysis = (ad.get('analysis') or '').strip()
+    desc = (ad.get('description') or '').strip()
+    ident = (ad.get('identifier') or '').strip()
+    if analysis: score += 25 + min(len(analysis.split()) // 20, 15)  # up to 40
+    if desc:     score += 20 + min(len(desc.split()) // 10, 10)      # up to 30
+    if ident and len(ident) > 2: score += 15
+    if ad.get('topic'):           score += 10
+    if ad.get('image_path') or ad.get('crop_url'): score += 10
+    if ad.get('publication_date'): score += 8
+    if ad.get('page_number'):      score += 4
+    return score
+
+
 @router.post("/search")
 def search_advertisements(request: dict):
     # Search advertisements by keyword
     keyword = request.get('keyword', '').strip()
     limit = min(request.get('limit', 50), 200)
     offset = max(request.get('offset', 0), 0)
+    sort_by = request.get('sort_by', 'relevance')
 
     if not keyword:
         raise HTTPException(400, "Keyword is required")
@@ -1022,6 +1044,16 @@ def search_advertisements(request: dict):
                     ad_data['created_at'] = ad_data['created_at'].isoformat()
 
                 matching_ads.append(ad_data)
+
+        # Sort: quality-aware default puts fully-analyzed ads first,
+        # then breaks ties by publication_date desc.
+        if sort_by == 'relevance':
+            matching_ads.sort(
+                key=lambda a: (_ad_quality_score(a), a.get('publication_date') or ''),
+                reverse=True,
+            )
+        elif sort_by == 'date':
+            matching_ads.sort(key=lambda a: a.get('publication_date') or '', reverse=True)
 
         # Apply pagination
         total = len(matching_ads)

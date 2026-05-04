@@ -75,6 +75,77 @@ def _date_sort_key(article: dict, *, ascending: bool):
         return pd.isoformat()
     return str(pd)
 
+
+def _quality_score(article: dict) -> int:
+    """Quality-aware ranking score for search results.
+
+    Higher = better.
+
+    The intent is to surface articles where the full pipeline ran cleanly
+    (region OCR + topic + sentiment + entities) over articles that came
+    out fragmented or are missing downstream metadata. Search results
+    sorted by this key visibly demonstrate the value of every backfill
+    pass: clean prose with topic/sentiment/entities/summary bubbles up,
+    OCR fragments and meta-only stubs sink.
+
+    All factors are additive and bounded so the worst-case score stays
+    small (lets date desc act as a tie-breaker among comparable articles).
+    """
+    score = 0
+    headline = (article.get('headline') or '').strip()
+    body = (article.get('content') or '').strip()
+    wc = article.get('word_count') or len(body.split())
+
+    # Computed metadata — proves downstream pipeline ran
+    if article.get('topic_label'): score += 30
+    if article.get('topic_method'): score += 10
+    if article.get('sentiment_method'): score += 20
+    if article.get('summary'): score += 25
+    ents = article.get('entities')
+    if ents:
+        score += 10 + min(len(ents), 5)  # up to +15
+    kws = article.get('keywords')
+    if kws:
+        score += min(len(kws), 5)        # up to +5
+
+    # Word-count sweet spot — full extracted articles beat fragments + dumps
+    if 50 <= wc <= 800:
+        score += 25
+    elif 800 < wc <= 2000:
+        score += 15
+    elif 30 <= wc < 50:
+        score += 5
+    # else: 0 (fragments <30w, mega-dumps >2000w both penalised)
+
+    # Headline cleanliness
+    if 15 <= len(headline) <= 120:
+        score += 15
+    if headline and not headline.startswith('['):
+        score += 5
+    if headline and not headline.isupper():
+        score += 5
+
+    # Body cleanliness — no [...] markers means region OCR fully captured
+    bracket_count = body.count('[...]') + body.count('[…]')
+    bracket_density = bracket_count / max(wc / 100.0, 1.0)
+    if bracket_density < 0.5:
+        score += 20
+    elif bracket_density > 2.0:
+        score -= 15
+
+    # Has metadata that lets the article be cited / dated
+    if article.get('publication_date'): score += 10
+    if article.get('page_number'): score += 5
+
+    return score
+
+
+def _quality_sort_key(article: dict):
+    """Combined sort key: highest quality first, then most-recent.
+    Returns a tuple that sort(reverse=True) sorts as desired.
+    """
+    return (_quality_score(article), _date_sort_key(article, ascending=False))
+
 try:
     import google.generativeai as genai
 except ImportError:
@@ -89,20 +160,34 @@ router = APIRouter(prefix="/api", tags=["articles"])
 
 
 @router.get("/articles")
-def list_articles(limit: int = 100, offset: int = 0):
-    """List recent articles, ordered by publication_date DESC.
+def list_articles(limit: int = 100, offset: int = 0, sort_by: str = 'relevance'):
+    """List articles. Default sort = quality-aware ranking.
 
     `limit` counts non-classified articles — i.e. asking for limit=100
     returns 100 *visible* articles, not 100 raw docs of which a chunk
     are tenders/vacancies you'd never see. We over-fetch by a generous
     margin so a long stretch of classifieds at the head of the corpus
     doesn't starve the page.
+
+    sort_by:
+      relevance (default) — articles with full pipeline metadata
+        (topic + sentiment + entities + summary) and clean OCR rank
+        above fragments and meta-stubs. Demonstrates corpus quality
+        rather than just chronology.
+      date — most-recent first (legacy behaviour).
     """
     try:
         db = get_db()
         # Over-fetch: assume up to ~30% of the recent corpus may be
-        # classifieds, plus padding for garbage-headline drops.
-        oversample = max((limit + offset) * 2, (limit + offset) + 200)
+        # classifieds, plus padding for garbage-headline drops. For
+        # `relevance` sort we need a wider candidate pool so the
+        # quality re-rank has real choices; pull in chronological order
+        # from Firestore (cheapest server-side sort), then re-sort
+        # client-side.
+        if sort_by == 'relevance':
+            oversample = max((limit + offset) * 6, 600)
+        else:
+            oversample = max((limit + offset) * 2, (limit + offset) + 200)
         articles_ref = (
             db.db.collection('articles')
             .order_by('publication_date', direction='DESCENDING')
@@ -119,8 +204,10 @@ def list_articles(limit: int = 100, offset: int = 0):
                 continue
             data['content_preview'] = (data.get('content') or '')[:200]
             keepers.append(data)
-            if len(keepers) >= limit + offset:
-                break
+
+        if sort_by == 'relevance':
+            keepers.sort(key=_quality_sort_key, reverse=True)
+        # else: already in publication_date DESC order from Firestore
 
         return {"articles": keepers[offset:offset + limit]}
     except Exception as e:
@@ -230,7 +317,11 @@ def search_keyword(request: dict):
     keyword = request.get('keyword') or request.get('query', '')
     limit = min(request.get('limit', 100), 1000)
     offset = max(request.get('offset', 0), 0)
-    sort_by = request.get('sort_by', 'date')
+    # Default = quality-aware ranking. Surfaces articles with full
+    # pipeline metadata (topic/sentiment/entities/summary) and clean
+    # OCR over fragments/meta-stubs. Old behaviour available via
+    # sort_by='date'.
+    sort_by = request.get('sort_by', 'relevance')
 
     if not keyword or len(keyword) < 1:
         raise HTTPException(400, "Keyword is required and must be at least 1 character")
@@ -258,7 +349,11 @@ def search_keyword(request: dict):
             article['entities'] = filter_and_normalize_entities(article.get('entities', []))
             articles_list.append(article)
 
-        if sort_by == 'date':
+        if sort_by == 'relevance':
+            # Quality-aware: rich-metadata + clean-OCR articles first, then
+            # break ties by most recent.
+            articles_list.sort(key=_quality_sort_key, reverse=True)
+        elif sort_by == 'date':
             articles_list.sort(key=lambda x: _date_sort_key(x, ascending=False), reverse=True)
         elif sort_by == 'date_asc':
             articles_list.sort(key=lambda x: _date_sort_key(x, ascending=True))
@@ -304,8 +399,9 @@ def search_entity(request: dict):
             article['entities'] = filter_and_normalize_entities(article.get('entities', []))
             articles_list.append(article)
 
-        # Default to most-recent first, None-safe.
-        articles_list.sort(key=lambda x: _date_sort_key(x, ascending=False), reverse=True)
+        # Default to quality-aware ranking — same as keyword search:
+        # rich-metadata + clean-OCR articles bubble up, then date desc.
+        articles_list.sort(key=_quality_sort_key, reverse=True)
 
         return {
             "articles": articles_list,

@@ -33,9 +33,13 @@ interface SearchPanelProps {
    * into the panel's internal state when it changes by reference.
    */
   externalFilters?: Partial<SearchFilters> | null;
+  /** True once a search has produced results — hides the suggested-keywords
+   *  panel so the same dense "first impression" doesn't keep showing under
+   *  the actual results. */
+  hasResults?: boolean;
 }
 
-const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, onQueryChange, externalFilters }) => {
+const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, onQueryChange, externalFilters, hasResults }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   // Date bounds come from /data-version so we never silently exclude
@@ -46,7 +50,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState('date');
+  const [sortBy, setSortBy] = useState('relevance');
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [showSaved, setShowSaved] = useState(false);
 
@@ -440,9 +444,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
               >
+                <option value="relevance">Best matches</option>
                 <option value="date">Newest first</option>
                 <option value="date_asc">Oldest first</option>
-                <option value="relevance">Most relevant</option>
                 <option value="frequency">Most mentions</option>
                 <option value="sentiment">Most positive</option>
                 <option value="sentiment_asc">Most negative</option>
@@ -461,10 +465,11 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ onResults, onFiltersChange, o
         </div>
       )}
 
-      {/* Suggestions only show when the user hasn't searched OR drawer is
-          closed AND no query — keeps the page from being a wall of pills
-          on first load. Reduced from 16 → 8 to lower visual weight. */}
-      {suggestions.length > 0 && !showFilters && !query && (
+      {/* Suggestions only show on the EMPTY-state landing — i.e. no query,
+          no filters drawer open, no results yet. Once results are on
+          screen the suggestions become visual noise: the user has clearly
+          formed an intent. Reduced from 16 → 8 to lower visual weight. */}
+      {suggestions.length > 0 && !showFilters && !query && !hasResults && (
         <div className="suggestions-panel">
           <h4>Suggested keywords</h4>
           <div className="suggestion-tags">
