@@ -209,7 +209,6 @@ const CorpusAnalytics: React.FC = () => (
   <>
     <div className="analytics-card full-width"><WordCountDistribution /></div>
     <div className="analytics-card full-width"><PageDistribution /></div>
-    <div className="analytics-card full-width"><SourceDistribution /></div>
   </>
 );
 

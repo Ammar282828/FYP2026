@@ -39,11 +39,13 @@ function isoForDate(d: Date): string {
 }
 
 function colorFor(count: number, max: number): string {
-  if (count === 0) return 'var(--bg-tertiary)';
+  // Even zero-article days get a faint tint so empty cells blend with low-volume
+  // ones rather than reading as data gaps.
+  if (count === 0) return 'rgba(79, 70, 229, 0.08)';
   // Log scale so a few high-volume days don't wash out the rest.
   const intensity = Math.log10(1 + count) / Math.log10(1 + max);
-  // Blend from very pale to deep indigo (matches our primary).
-  const alpha = 0.15 + intensity * 0.85;
+  // Lifted floor (was 0.15) so low-volume days sit closer to the rest of the ramp.
+  const alpha = 0.32 + intensity * 0.68;
   return `rgba(79, 70, 229, ${alpha.toFixed(3)})`;
 }
 
@@ -88,14 +90,27 @@ const CalendarHeatmap: React.FC<Props> = ({ onDayClick }) => {
         </div>
       </div>
       <p className="chart-caption">
-        One cell per day; darker = more articles. Light gray = no articles published.
+        One cell per day; darker = more articles published.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {yearGroups.map(({ year, days, max }) => {
-          // Build a 7-row grid from Jan 1 → Dec 31. We pad the leading Sundays.
+          // Build a 7-row grid spanning the year's actual coverage window. Trim
+          // the grid to the last month with data so years that are only partly
+          // in scope (e.g. Jan 1991) don't render long stretches of empty cells.
           const start = new Date(Date.UTC(year, 0, 1));
-          const end = new Date(Date.UTC(year, 11, 31));
+          let lastMonthWithData = 11;
+          for (let m = 11; m >= 0; m--) {
+            const monthStart = new Date(Date.UTC(year, m, 1));
+            const monthEnd = new Date(Date.UTC(year, m + 1, 0));
+            let hasAny = false;
+            for (let d = new Date(monthStart); d <= monthEnd; d = new Date(d.getTime() + 86400000)) {
+              if ((days.get(isoForDate(d)) ?? 0) > 0) { hasAny = true; break; }
+            }
+            if (hasAny) { lastMonthWithData = m; break; }
+            if (m === 0) lastMonthWithData = 0;
+          }
+          const end = new Date(Date.UTC(year, lastMonthWithData + 1, 0));
           const cells: { date: Date; count: number }[] = [];
           // Pad leading days so column-0 is always a Sunday.
           const startDay = start.getUTCDay();

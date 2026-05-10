@@ -1004,7 +1004,7 @@ def browse_advertisements(
     try:
         from datetime import datetime as dt, timezone
 
-        limit = min(max(limit, 1), 2000)
+        limit = min(max(limit, 1), 5000)
         db = get_firestore_db()
 
         # Pull from cache; falls back to a fresh stream the first time.

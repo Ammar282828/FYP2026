@@ -317,10 +317,15 @@ def get_topics():
             t = dict(t)  # shallow copy so we don't mutate the JSON cache
             if live_counts is not None:
                 t['count'] = int(live_counts.get(t.get('topic_id'), 0))
+            # Drop legacy BERTopic placeholders that no live article carries
+            # (their underscore-string names like "00_kgs_grams_oil_40 kgs"
+            # were retired when the curated taxonomy took over).
+            if t.get('count', 0) == 0:
+                continue
             topics_out.append(t)
 
         return {
-            "topic_count": topics_data['total_topics'],
+            "topic_count": len(topics_out),
             "topics": topics_out,
             "source": topics_data.get('source', 'Unknown'),
             "counts_source": "live-snapshot" if live_counts is not None else "json",

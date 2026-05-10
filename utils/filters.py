@@ -220,19 +220,26 @@ def _gemini_extract_date(image_path: str) -> Optional[str]:
     if img.mode != 'RGB':
         img = img.convert('RGB')
     width, height = img.size
-    crop = img.crop((0, 0, width, int(height * 0.25)))
-    # Cap the crop's long edge — flash doesn't need 6000px to read a
-    # date, and shipping the original byte-for-byte slows the round-trip.
-    if max(crop.size) > 1600:
-        ratio = 1600 / max(crop.size)
+    # Crop top 30% — masthead is up there, but Dawn prints the date below
+    # the title bar and the previous 25% crop was clipping it on the
+    # phone-photo aspect ratios used by the team.
+    crop = img.crop((0, 0, width, int(height * 0.30)))
+    # 2.5-pro reads small Dawn print better than flash; cap the long edge
+    # to keep round-trip time reasonable.
+    if max(crop.size) > 2400:
+        ratio = 2400 / max(crop.size)
         crop = crop.resize((int(crop.width * ratio), int(crop.height * ratio)), Image.LANCZOS)
 
+    # Anchoring the prompt to the actual corpus window stops the model
+    # hallucinating off-decade dates (flash was returning 1950 / 1999
+    # on these mastheads).
     prompt = (
-        "Read the publication date printed on this newspaper masthead. "
+        "This is a Dawn newspaper masthead from 1990 or January 1991. "
+        "Read the publication date printed on the masthead. "
         "Return ONLY the date in YYYY-MM-DD format. If no date is visible "
         "or you can't read it, return exactly the word NONE. No other text."
     )
-    model = create_model(api_key, 'gemini-2.5-flash')
+    model = create_model(api_key, 'gemini-2.5-pro')
     resp = model.generate_content([prompt, crop])
     raw = (getattr(resp, 'text', '') or '').strip()
     m = _re.search(r'\b(19[89]\d|20\d{2})-(\d{1,2})-(\d{1,2})\b', raw)

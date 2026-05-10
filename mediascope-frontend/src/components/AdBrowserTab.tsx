@@ -204,6 +204,11 @@ const AdBrowserTab: React.FC = () => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [selectedAd, setSelectedAd]       = useState<Advertisement | null>(null);
   const [total, setTotal]                 = useState(0);
+  // Page size for the ad grid. We load the full result set once (1.7k+ ads
+  // is small JSON) and render in 100-card pages so the DOM stays light and
+  // initial render isn't blocked sorting + laying out 1000+ cards.
+  const PAGE_SIZE = 100;
+  const [pageCount, setPageCount]         = useState(1);
   const [analytics, setAnalytics]         = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
@@ -267,13 +272,20 @@ const AdBrowserTab: React.FC = () => {
       );
     });
 
+  // Total ad count in the archive (pre-filter). Shown in the header so users
+  // can see how much they're hiding when the strict filter culls
+  // image-less / classified-style entries.
+  const [archiveTotal, setArchiveTotal] = useState(0);
+
   const loadAds = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE}/ads/browse`, { params: { limit: 2000 } });
+      const response = await axios.get(`${API_BASE}/ads/browse`, { params: { limit: 5000 } });
       const filtered = filterAds(response.data.ads);
       setAds(filtered);
       setTotal(filtered.length);
+      setArchiveTotal(response.data.total ?? response.data.ads?.length ?? 0);
+      setPageCount(1);
     } catch (error) {
       console.error('Error loading ads:', error);
     } finally {
@@ -308,6 +320,8 @@ const AdBrowserTab: React.FC = () => {
       const filtered = filterAds(response.data.ads, 'loose');
       setAds(filtered);
       setTotal(filtered.length);
+      setArchiveTotal(response.data.total ?? response.data.ads?.length ?? filtered.length);
+      setPageCount(1);
     } catch (error) {
       console.error('Error searching ads:', error);
     } finally {
@@ -342,6 +356,8 @@ const AdBrowserTab: React.FC = () => {
         const filtered = filterAds(r.data.ads || [], 'loose');
         setAds(filtered);
         setTotal(filtered.length);
+        setArchiveTotal(r.data.total ?? r.data.ads?.length ?? filtered.length);
+        setPageCount(1);
       })
       .catch(err => console.error('Failed to drill into category:', err))
       .finally(() => setLoading(false));
@@ -885,7 +901,11 @@ const AdBrowserTab: React.FC = () => {
               </select>
             </form>
             <div className="results-count">
-              {total > 0 && <span>Found {total} advertisement{total !== 1 ? 's' : ''}</span>}
+              {total > 0 && (
+                <span>
+                  Showing {Math.min(PAGE_SIZE * pageCount, total).toLocaleString()} of {total.toLocaleString()} advertisement{total !== 1 ? 's' : ''}
+                </span>
+              )}
             </div>
           </div>
 
@@ -931,7 +951,10 @@ const AdBrowserTab: React.FC = () => {
                         default:             return dateOf(b).localeCompare(dateOf(a));
                       }
                     });
-                    return sorted;
+                    // Render only the visible page slice — sorting still
+                    // applies across the whole result set, but the DOM
+                    // only carries 100·pageCount cards.
+                    return sorted.slice(0, PAGE_SIZE * pageCount);
                   })().map((ad) => {
                     const catLabel = ad.category || (typeof ad.analysis === 'object' ? ad.analysis?.brand?.category : '') || '';
                     const brandLabel = ad.brand || (typeof ad.analysis === 'object' ? ad.analysis?.brand?.name : '') || '';
@@ -1016,6 +1039,25 @@ const AdBrowserTab: React.FC = () => {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {ads.length > PAGE_SIZE * pageCount && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPageCount(c => c + 1)}
+                    style={{
+                      padding: '8px 22px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Show more ({Math.min(PAGE_SIZE, ads.length - PAGE_SIZE * pageCount)} of {ads.length - PAGE_SIZE * pageCount} remaining)
+                  </button>
                 </div>
               )}
             </div>

@@ -19,6 +19,10 @@ interface SearchResultsSummaryProps {
   filters?: SearchFilters;
   articles?: any[];
   onFilterRemove?: (key: string) => void;
+  // Optional separate "loaded vs total" so the header can read
+  // "Showing 1,000 of 38,021" when the backend paginates a much bigger
+  // result set than the page is rendering.
+  displayedCount?: number;
 }
 
 const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
@@ -26,7 +30,8 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
   query,
   filters,
   articles = [],
-  onFilterRemove
+  onFilterRemove,
+  displayedCount,
 }) => {
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -80,7 +85,11 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
   return (
     <div className="search-results-summary">
       <div className="summary-header">
-        <h3>Search Results: {totalResults} articles found</h3>
+        <h3>
+          {displayedCount !== undefined && displayedCount < totalResults
+            ? `Search Results: showing ${displayedCount.toLocaleString()} of ${totalResults.toLocaleString()} articles`
+            : `Search Results: ${totalResults.toLocaleString()} article${totalResults !== 1 ? 's' : ''} found`}
+        </h3>
         {!summary && (
           <button
             onClick={generateSummary}

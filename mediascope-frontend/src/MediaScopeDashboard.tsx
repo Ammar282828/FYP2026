@@ -37,7 +37,7 @@ import ProfilePanel from './components/ProfilePanel';
 import { useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
 import { API_BASE } from './config';
-import { useDateBounds } from './hooks/useDataVersion';
+import { useDateBounds, useDataVersion } from './hooks/useDataVersion';
 import { useQueryState } from './hooks/useQueryState';
 import DateRangePicker from './components/ui/DateRangePicker';
 import ErrorBoundary from './components/ui/ErrorBoundary';
@@ -217,8 +217,11 @@ const MediaScopeDashboard: React.FC = () => {
     // a meaningful slice of the archive.
     try {
       const response = await axios.get(`${API_BASE}/articles`, { params: { limit: 1000 } });
+      // `total` reflects the actual count returned by the API (the true
+      // corpus total is reported separately via data-version and passed
+      // to the summary header as `displayedCount` vs `totalResults`).
       setSearchResults({
-        total: response.data.articles.length,
+        total: response.data.total ?? response.data.articles.length,
         articles: response.data.articles
       });
     } catch (error) {
@@ -386,6 +389,7 @@ const MediaScopeDashboard: React.FC = () => {
               <div className="search-results">
                 <SearchResultsSummary
                   totalResults={searchResults.total}
+                  displayedCount={(searchResults.articles || []).length}
                   filters={searchFilters}
                   articles={searchResults.articles || []}
                   onFilterRemove={(key) => {

@@ -379,13 +379,20 @@ const OCRTab: React.FC = () => {
                   </button>
 
                   {uploadedFile && (
-                    <button
-                      onClick={handleStartOCR}
-                      disabled={processing}
-                      className="process-btn"
-                    >
-                      {processing ? 'Processing...' : 'Start OCR Processing'}
-                    </button>
+                    <>
+                      <button
+                        onClick={handleStartOCR}
+                        disabled={processing}
+                        className="process-btn"
+                      >
+                        {processing ? 'Processing — this takes 2–5 min…' : 'Start OCR Processing'}
+                      </button>
+                      {processing && (
+                        <p style={{ marginTop: '0.6rem', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                          Running region detection, OCR, and metadata extraction. The page reloads automatically when finished — please don't refresh.
+                        </p>
+                      )}
+                    </>
                   )}
                 </>
               ) : (

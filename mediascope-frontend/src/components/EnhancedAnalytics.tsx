@@ -965,6 +965,10 @@ export const TopicTrendsOverTime: React.FC = () => {
         'uncategorised',
       ]);
       const isPlaceholder = (name: string) => /^topic\s*\d{3,}$/i.test(name.trim());
+      // Dedupe by lowercased label so the same canonical topic written
+      // in different cases (or with surrounding whitespace) doesn't show
+      // up as two separate dropdown entries.
+      const canonicalName: Record<string, string> = {};
       const topicTotals: Record<string, number> = {};
       trendsData.forEach((periodData: any) => {
         periodData.topics.forEach((topic: any) => {
@@ -972,22 +976,38 @@ export const TopicTrendsOverTime: React.FC = () => {
           if (!name) return;
           if (isPlaceholder(name)) return;
           if (HIDE_TOPICS.has(name.toLowerCase())) return;
-          topicTotals[name] = (topicTotals[name] || 0) + topic.count;
+          const key = name.toLowerCase();
+          if (!canonicalName[key]) canonicalName[key] = name;
+          topicTotals[key] = (topicTotals[key] || 0) + topic.count;
         });
       });
 
-      // Sort topics by total article count descending
+      // Apply the same ≥30-article floor TopicSentimentOverTime uses, so
+      // both dropdowns end up listing the same topics. Without this, the
+      // trends chart was showing long-tail topics that the sentiment
+      // dropdown filtered out — the inconsistency confused users.
       const sortedTopics = Object.entries(topicTotals)
+        .filter(([, total]) => total >= 30)
         .sort((a, b) => b[1] - a[1])
-        .map(([raw, total]) => ({ raw, label: toReadableTopicName(raw), total }));
+        .map(([key, total]) => {
+          const raw = canonicalName[key] || key;
+          return { raw, label: toReadableTopicName(raw), total };
+        });
 
-      // Transform to recharts format: one object per period
+      // Transform to recharts format: one object per period.
+      // Map any case-variant of the topic_name back to the canonical
+      // dropdown label so per-period counts merge into the same line.
       const allTopicNames = new Set(sortedTopics.map(t => t.raw));
       const transformed = trendsData.map((periodData: any) => {
         const point: any = { period: periodData.period };
         allTopicNames.forEach(name => { point[name] = 0; });
         periodData.topics.forEach((topic: any) => {
-          if (topic.topic_name) point[topic.topic_name] = topic.count;
+          const raw = (topic.topic_name || '').trim();
+          if (!raw) return;
+          const canonical = canonicalName[raw.toLowerCase()] || raw;
+          if (allTopicNames.has(canonical)) {
+            point[canonical] = (point[canonical] || 0) + topic.count;
+          }
         });
         return point;
       });
@@ -1298,7 +1318,7 @@ export const TopicSentimentOverTime: React.FC = () => {
               {topics.map((topic, idx) => {
                 const active = selectedTopicIds.has(topic.topic_id);
                 const color = SENT_COLORS[idx % SENT_COLORS.length];
-                const label = toReadableTopicName(topic.keywords?.[0] || `Topic ${topic.topic_id}`);
+                const label = toReadableTopicName(topic.name || topic.label || topic.keywords?.[0] || `Topic ${topic.topic_id}`);
                 return (
                   <button
                     key={topic.topic_id}
@@ -1341,7 +1361,7 @@ export const TopicSentimentOverTime: React.FC = () => {
                     if (name && name.startsWith('t_')) {
                       const tid = parseInt(name.replace('t_', ''));
                       const t = topics.find(t => t.topic_id === tid);
-                      const label = t ? toReadableTopicName(t.keywords?.[0] || `Topic ${tid}`) : name;
+                      const label = t ? toReadableTopicName(t.name || t.label || t.keywords?.[0] || `Topic ${tid}`) : name;
                       return [typeof value === 'number' ? value.toFixed(3) : value, label];
                     }
                     return [value, name];
@@ -1353,7 +1373,7 @@ export const TopicSentimentOverTime: React.FC = () => {
                     if (value && value.startsWith('t_')) {
                       const tid = parseInt(value.replace('t_', ''));
                       const t = topics.find(t => t.topic_id === tid);
-                      return t ? toReadableTopicName(t.keywords?.[0] || `Topic ${tid}`) : value;
+                      return t ? toReadableTopicName(t.name || t.label || t.keywords?.[0] || `Topic ${tid}`) : value;
                     }
                     return value;
                   }}
