@@ -225,10 +225,32 @@ const AdBrowserTab: React.FC = () => {
    * (e.g. the brand chart uses colorForKey() for stable per-brand colors)
    * we honour it slot-by-slot.
    */
+  /** Click an analytics chart row → search the ads grid for it.
+   *  Switches to Browse view, fills the search box with the row label,
+   *  and triggers the search. Used for categories / brands / styles so
+   *  the analytics page is a real navigation surface, not a static chart.
+   */
+  const handleAnalyticsRowClick = (label: string) => {
+    if (!label) return;
+    const cleaned = label.replace(/_/g, ' ').trim();
+    setSearchKeyword(cleaned);
+    setActiveView('browse');
+    setLoading(true);
+    axios.post(`${API_BASE}/ads/search`, { keyword: cleaned, limit: 2000 })
+      .then(r => {
+        const filtered = filterAds(r.data.ads || [], 'loose');
+        setAds(filtered);
+        setTotal(filtered.length);
+      })
+      .catch(err => console.error('Failed to drill into category:', err))
+      .finally(() => setLoading(false));
+  };
+
   const renderHorizontalBars = (
     data: Record<string, number>,
     maxBars = 12,
-    colors?: string[]
+    colors?: string[],
+    clickable = false
   ) => {
     const entries = Object.entries(data)
       .sort(([, a], [, b]) => b - a)
@@ -237,12 +259,20 @@ const AdBrowserTab: React.FC = () => {
     if (!entries.length) return <p className="no-data">No data yet.</p>;
     // Height scales with row count so 6 rows don't stretch like 20 rows do.
     const height = Math.max(180, entries.length * 26 + 20);
+    const onBarClick = clickable
+      ? (e: any) => {
+          // Recharts passes the data point as the first arg; pull the name.
+          const name = e?.activePayload?.[0]?.payload?.name || e?.name;
+          if (name) handleAnalyticsRowClick(String(name));
+        }
+      : undefined;
     return (
       <ResponsiveContainer width="100%" height={height}>
         <BarChart
           data={entries}
           layout="vertical"
           margin={{ top: 5, right: 24, left: 8, bottom: 5 }}
+          onClick={onBarClick}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
           <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
@@ -254,7 +284,11 @@ const AdBrowserTab: React.FC = () => {
             interval={0}
           />
           <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'var(--bg-secondary)' }} />
-          <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+          <Bar
+            dataKey="value"
+            radius={[0, 3, 3, 0]}
+            cursor={clickable ? 'pointer' : undefined}
+          >
             {entries.map((_, idx) => (
               <Cell
                 key={idx}
@@ -365,12 +399,15 @@ const AdBrowserTab: React.FC = () => {
         </div>
 
         <div className="analytics-grid">
-          {/* Category distribution */}
+          {/* Category distribution — clickable. Click a bar to drill
+              into that category in the Browse view. */}
           <div className="analytics-card wide">
             <h3 className="analytics-card-title">Category Distribution</h3>
-            <p className="analytics-card-subtitle">Top product / service categories across all stored ads.</p>
+            <p className="analytics-card-subtitle">
+              Top product / service categories. <em>Click any bar to see those ads.</em>
+            </p>
             {Object.keys(analytics.categories).length
-              ? renderHorizontalBars(analytics.categories, 15)
+              ? renderHorizontalBars(analytics.categories, 15, undefined, true)
               : <p className="no-data">No data yet.</p>}
           </div>
 
@@ -401,16 +438,19 @@ const AdBrowserTab: React.FC = () => {
               : <p className="no-data">No data yet.</p>}
           </div>
 
-          {/* Top brands — colored by stable per-key hash so a brand's color
-              stays put across renders even as new brands are added. */}
+          {/* Top brands — clickable, colored by stable per-key hash so a
+              brand's color stays put across renders. */}
           <div className="analytics-card wide">
             <h3 className="analytics-card-title">Top Brands</h3>
-            <p className="analytics-card-subtitle">Most-mentioned brands in the ad corpus.</p>
+            <p className="analytics-card-subtitle">
+              Most-mentioned brands. <em>Click any bar to see ads from that brand.</em>
+            </p>
             {Object.keys(analytics.brands).length
               ? renderHorizontalBars(
                   analytics.brands,
                   20,
-                  Object.keys(analytics.brands).slice(0, 20).map(k => colorForKey(k))
+                  Object.keys(analytics.brands).slice(0, 20).map(k => colorForKey(k)),
+                  true
                 )
               : <p className="no-data">No data yet.</p>}
           </div>

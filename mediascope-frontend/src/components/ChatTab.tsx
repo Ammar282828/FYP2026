@@ -19,11 +19,15 @@ interface Message {
   sources?: Source[];
 }
 
+// Sample prompts for the empty state. Each one is chosen because the
+// archive has substantial coverage of the topic — asking about something
+// the corpus doesn't have (e.g. "events in 1995") would correctly return
+// "no matching articles" and look broken to a first-time visitor.
 const SAMPLE_QUESTIONS = [
   'What happened during the 1990 election?',
   'Who was Benazir Bhutto?',
-  'What were the major political events in Pakistan in 1991?',
-  'Tell me about the Gulf War coverage.',
+  'What was the Gulf War coverage like in late 1990?',
+  'What were the headlines in January 1991?',
 ];
 
 const ChatTab: React.FC = () => {

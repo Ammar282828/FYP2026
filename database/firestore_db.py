@@ -297,6 +297,19 @@ class FirestoreDB:
                 PAGE = 5000
                 out = []
                 last_id = None
+                # Out-of-corpus dates leak in from new ingest runs whose
+                # OCR misread the masthead — without this, a 1996 stray
+                # would push the dashboard's "Coverage Period" KPI to
+                # "1990-01 to 1996-09". Filter at snapshot time so the
+                # leak never reaches any analytics endpoint.
+                VALID_YMS = {f'1990-{m:02d}' for m in range(1, 13)} | {'1991-01'}
+                def _in_corpus(data: dict) -> bool:
+                    pd = data.get('publication_date')
+                    if not pd:
+                        return False
+                    if hasattr(pd, 'isoformat'):
+                        return pd.isoformat()[:7] in VALID_YMS
+                    return str(pd)[:7] in VALID_YMS
                 while True:
                     q = self.db.collection('articles').order_by('__name__').limit(PAGE)
                     if last_id is not None:
@@ -304,7 +317,10 @@ class FirestoreDB:
                     docs = list(q.stream())
                     if not docs:
                         break
-                    out.extend(d.to_dict() for d in docs)
+                    for d in docs:
+                        data = d.to_dict()
+                        if _in_corpus(data):
+                            out.append(data)
                     last_id = docs[-1].id
                     if len(docs) < PAGE:
                         break

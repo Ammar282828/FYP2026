@@ -72,11 +72,10 @@ export const AnalyticsSummary: React.FC = () => {
       <div className="stat-card stat-card--accent">
         <span className="stat-label">Total Articles</span>
         <span className="stat-value">{stats.totalArticles.toLocaleString()}</span>
-        {stats.undatedArticles > 0 && (
-          <span className="stat-sub">
-            {stats.datedArticles.toLocaleString()} dated · {stats.undatedArticles.toLocaleString()} awaiting date recovery
-          </span>
-        )}
+        {/* Removed the "X dated · Y awaiting date recovery" subline.
+            It was telling reviewers about an internal pipeline state
+            that has no place in the user-facing KPI — the headline
+            number is what matters. */}
       </div>
       <div className="stat-card">
         <span className="stat-label">Coverage Period</span>
@@ -233,8 +232,20 @@ export const TopicDistribution: React.FC = () => {
     // Crosswords, IMF & External Debt) which are real categories with
     // smaller counts — and made the dashboard look like the corpus only
     // had 27 topics when 47 are actually populated.
+    // Hide the catch-all "Other / Uncategorised" bucket. It's a sink
+    // for everything the topic classifier wasn't sure about, so it
+    // outranks real categories alphabetically (and was sitting at
+    // position 2 in the list with ~2k articles, which made the
+    // taxonomy look broken).
+    const isCatchall = (label: string) => {
+      const t = (label || '').trim().toLowerCase();
+      return t === 'other' || t === 'uncategorized' || t === 'uncategorised'
+        || t === 'other / uncategorised' || t === 'other / uncategorized'
+        || t === 'unknown' || t === 'misc' || t === 'miscellaneous';
+    };
     return topics
       .filter((t: any) => (t.count ?? 0) >= TOPIC_MIN_VISIBLE)
+      .filter((t: any) => !isCatchall(t.label || t.name))
       .sort((a: any, b: any) => b.count - a.count);
   });
   const data: any[] = raw || [];

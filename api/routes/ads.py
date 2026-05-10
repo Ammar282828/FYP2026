@@ -1120,14 +1120,13 @@ def _get_ads_cached(db) -> list:
     out = []
     for doc in db.db.collection('advertisements').stream():
         a = doc.to_dict()
-        # House-promo filter at read-time. Even after periodic DB
-        # cleanup, the September ingest keeps producing Dawn / Herald
-        # masthead detections because Gemini sometimes labels a
-        # newspaper-supplement promo as a "commercial ad". Skip them
-        # here so they never reach the UI; the underlying docs stay
-        # in Firestore for forensic purposes but are invisible to
-        # /browse, /search, and /analytics/summary.
-        if _is_house_promo(a):
+        # Read-time filters. Underlying Firestore docs stay for
+        # forensic purposes; only the UI-facing path strips them.
+        if _is_house_promo(a):           # Dawn/Herald self-promos
+            continue
+        if _has_illegible_brand(a):      # brand="[ILLEGIBLE]"
+            continue
+        if not _ad_in_valid_date(a):     # date outside 1990 + Jan-91
             continue
         a['id'] = doc.id
         # Datetime → str (json-safe)
@@ -1168,6 +1167,42 @@ def _is_house_promo(ad: dict) -> bool:
         if token in iden and len(iden) < 50:
             return True
     return False
+
+
+# Valid publication-date window for the corpus. Anything outside is
+# either an OCR misread or a stray ingested-from-elsewhere doc; we
+# hide them from every UI surface.
+_VALID_AD_YEAR_MONTHS = {f'1990-{m:02d}' for m in range(1, 13)} | {'1991-01'}
+
+
+def _ad_in_valid_date(ad: dict) -> bool:
+    """Filter out ads whose date is outside the corpus window.
+
+    Catches the 1996/1995 stray bars that polluted the Monthly Ad
+    Volume chart — those came from OCR-misread dates that the date
+    cleanup deleted from the article corpus but left in `ads`.
+    """
+    pd = ad.get('publication_date')
+    if not pd:
+        return False  # no date → can't trust it
+    try:
+        if hasattr(pd, 'isoformat'):
+            ym = pd.isoformat()[:7]
+        else:
+            ym = str(pd)[:7]
+    except Exception:
+        return False
+    return ym in _VALID_AD_YEAR_MONTHS
+
+
+# Brand strings that are pure OCR noise when sorted alphabetically the
+# user sees these at the top of "Brand A → Z" because [ comes before A.
+_ILLEGIBLE_BRAND_RE = re.compile(r'\[\s*(illegible|unreadable|unclear|no\s+visible)', re.I)
+
+
+def _has_illegible_brand(ad: dict) -> bool:
+    brand = (ad.get('brand') or '').strip()
+    return bool(_ILLEGIBLE_BRAND_RE.search(brand)) or brand in ('[]', '[ ]', '[—]', '[-]')
 
 
 def _ad_quality_score(ad: dict) -> int:
@@ -1263,7 +1298,18 @@ def get_ad_analytics():
         return cached
     try:
         db = get_firestore_db()
-        ads_docs = list(db.db.collection('advertisements').stream())
+        # Apply the same UI filters that /browse and /search use, so
+        # `total_ads` here matches the count the user sees in the grid.
+        # Previously /summary said 2,818 while /browse showed ~1,000;
+        # the difference was Dawn/Herald promos + ILLEGIBLE-brand ads
+        # + 1996-stray dates being counted in summary but hidden from
+        # the grid.
+        ads_docs = [
+            d for d in db.db.collection('advertisements').stream()
+            if not _is_house_promo(d.to_dict() or {})
+            and not _has_illegible_brand(d.to_dict() or {})
+            and _ad_in_valid_date(d.to_dict() or {})
+        ]
 
         if not ads_docs:
             return {

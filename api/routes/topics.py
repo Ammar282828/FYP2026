@@ -281,18 +281,49 @@ def get_topic_by_id(topic_id: int):
 
 
 @router.get("/")
-# returns all topics from the JSON file (no Firestore queries needed for the list)
 def get_topics():
+    """Return all topics with LIVE article counts.
+
+    The taxonomy structure (topic_id, name, keywords) comes from the
+    JSON file; the per-topic `count` is computed from the current
+    article snapshot so the chip in the UI matches what the topic
+    detail page actually has. Previously the JSON-baked counts drifted
+    after every ingest run, so a chip showing 1,048 articles led to a
+    detail page with 312.
+    """
     try:
         topics_data = load_topics_data()
-
         if not topics_data:
             raise HTTPException(400, "Topics data not available. Topic model needs to be extracted.")
 
+        # Compute live per-topic counts from the snapshot (skips
+        # low_quality articles, same as every other endpoint).
+        from collections import Counter
+        try:
+            db = get_firestore_db()
+            articles = db._get_articles_snapshot()
+            live_counts = Counter(
+                a.get('topic_id') for a in articles
+                if not a.get('low_quality') and a.get('topic_id') is not None
+            )
+        except Exception as e:
+            # If the snapshot is unavailable, fall back to JSON counts —
+            # better stale than empty.
+            print(f"[topics list] live count failed, using JSON: {e}")
+            live_counts = None
+
+        topics_out = []
+        for t in topics_data['topics']:
+            t = dict(t)  # shallow copy so we don't mutate the JSON cache
+            if live_counts is not None:
+                t['count'] = int(live_counts.get(t.get('topic_id'), 0))
+            topics_out.append(t)
+
         return {
             "topic_count": topics_data['total_topics'],
-            "topics": topics_data['topics'],
-            "source": topics_data.get('source', 'Unknown')
+            "topics": topics_out,
+            "source": topics_data.get('source', 'Unknown'),
+            "counts_source": "live-snapshot" if live_counts is not None else "json",
         }
 
     except HTTPException:
@@ -486,12 +517,21 @@ def get_topic_sentiment_over_time(
 
 @router.get("/{topic_id}/articles")
 def get_topic_articles(topic_id: int):
-    """Return all articles belonging to a topic, sorted by date descending."""
+    """Return all articles belonging to a topic, sorted by date descending.
+
+    Uses the shared snapshot to skip low-quality articles. Previously
+    streamed Firestore directly, which (a) included articles flagged
+    `low_quality` and (b) hit the snapshot's count by limit(1000),
+    leaving a discrepancy with the topic-list chip and the AI summary.
+    """
     try:
         db = get_firestore_db()
         articles = []
-        for doc in db.db.collection('articles').where('topic_id', '==', topic_id).limit(1000).stream():
-            data = doc.to_dict()
+        for data in db._get_articles_snapshot():
+            if data.get('low_quality'):
+                continue
+            if data.get('topic_id') != topic_id:
+                continue
             pub = data.get('publication_date')
             articles.append({
                 'id': data.get('id'),
@@ -507,7 +547,14 @@ def get_topic_articles(topic_id: int):
 
 @router.get("/{topic_id}/summary")
 def get_topic_summary(topic_id: int):
-    """Generate an AI summary for a topic using its articles."""
+    """Generate an AI summary for a topic using its articles.
+
+    Uses the same snapshot + low_quality filter as /articles so the
+    sample size matches what the user sees in the article list. The
+    summary itself feeds Gemini at most 200 sample articles to keep
+    the prompt size bounded; the displayed `article_count` is the full
+    matching count, not the sample size, to match the chip / list.
+    """
     try:
         topics_data = load_topics_data()
         topic_info = None
@@ -518,9 +565,17 @@ def get_topic_summary(topic_id: int):
                     break
 
         db = get_firestore_db()
-        articles = []
-        for doc in db.db.collection('articles').where('topic_id', '==', topic_id).limit(200).stream():
-            articles.append(doc.to_dict())
+        all_for_topic = [
+            a for a in db._get_articles_snapshot()
+            if a.get('topic_id') == topic_id and not a.get('low_quality')
+        ]
+        # Sort recent-first, then take up to 200 for the prompt
+        all_for_topic.sort(
+            key=lambda a: (a.get('publication_date') or ''),
+            reverse=True,
+        )
+        full_count = len(all_for_topic)
+        articles = all_for_topic[:200]
 
         if not articles:
             return {"summary": "No articles found for this topic.", "article_count": 0}
@@ -530,8 +585,12 @@ def get_topic_summary(topic_id: int):
         sentiment_dist = dict(Counter(sentiments))
         sample_headlines = [a.get('headline', '') for a in articles[:10]]
 
+        # Report the FULL matching count to the model (and downstream
+        # API consumers), so the AI summary doesn't claim "this is from
+        # 200 articles" when the topic actually has 1,048. The 200 is
+        # just the prompt-size cap, not the topic size.
         context = f"Topic Keywords: {', '.join(keywords)}\n"
-        context += f"Total Articles: {len(articles)}\n"
+        context += f"Total Articles: {full_count} (analysing the {len(articles)} most recent)\n"
         context += f"Sentiment Distribution: {sentiment_dist}\n"
         context += "Sample Headlines:\n"
         for i, h in enumerate(sample_headlines, 1):
@@ -553,7 +612,11 @@ Be specific and analytical. Do not repeat the headlines verbatim."""
         response = model.generate_content(prompt)
         return {
             "summary": response.text,
-            "article_count": len(articles),
+            # Full count, not the 200-article prompt sample, so the
+            # frontend can show "AI summary of 1,048 articles" instead
+            # of the misleading "200 articles".
+            "article_count": full_count,
+            "sample_size": len(articles),
             "keywords": keywords
         }
     except Exception as e:
