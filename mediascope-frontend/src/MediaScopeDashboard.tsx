@@ -399,7 +399,10 @@ const MediaScopeDashboard: React.FC = () => {
                     });
                   }}
                 />
-                <SearchTimeline articles={searchResults.articles || []} />
+                {/* SearchTimeline removed per user feedback — the
+                    "results over time" sparkline duplicated info already
+                    present in the calendar heatmap and crowded the search
+                    page above the actual results. */}
                 <ArticleList
                   articles={searchResults.articles || []}
                   onArticleDeleted={loadArticles}

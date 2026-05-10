@@ -287,14 +287,37 @@ class FirestoreDB:
                 return []
 
             def _scan():
-                return [doc.to_dict() for doc in self.db.collection('articles').stream()]
+                # Paginated scan: an unindexed `.stream()` over the whole
+                # `articles` collection now hits Firestore's server-side
+                # query timeout (~60s) once we pass ~30k docs, and the
+                # SDK's retry path crashes with an AttributeError on the
+                # resulting 503. Page through in chunks of 5k ordered by
+                # __name__ so each page is a small, fresh query.
+                from google.cloud.firestore_v1.base_query import FieldFilter  # noqa
+                PAGE = 5000
+                out = []
+                last_id = None
+                while True:
+                    q = self.db.collection('articles').order_by('__name__').limit(PAGE)
+                    if last_id is not None:
+                        q = q.start_after({'__name__': last_id})
+                    docs = list(q.stream())
+                    if not docs:
+                        break
+                    out.extend(d.to_dict() for d in docs)
+                    last_id = docs[-1].id
+                    if len(docs) < PAGE:
+                        break
+                return out
 
             try:
                 t0 = time.time()
                 # 4243+ docs with full article content takes ~30s end-to-end
                 # over the wire; give the first load enough headroom to
                 # actually finish so subsequent requests can serve from cache.
-                articles = self._run_with_deadline(_scan, deadline_seconds=90, label='articles_snapshot')
+                # Paginated scan above means each page is fast — 90s is
+                # plenty for 30k+ docs split into 5k pages.
+                articles = self._run_with_deadline(_scan, deadline_seconds=180, label='articles_snapshot')
                 self._articles_snapshot = articles
                 self._articles_snapshot_ts = time.time()
                 print(f"[SNAPSHOT] Loaded {len(articles)} articles from Firestore in {time.time() - t0:.2f}s")
@@ -414,6 +437,12 @@ class FirestoreDB:
 
         results_with_score = []
         for data in articles:
+            # Skip OCR-noise articles flagged by the cleanup script.
+            # Their headlines are typically pure "[ILLEGIBLE]" or share
+            # one short fragment across many docs, which dominated the
+            # search ranking for short queries.
+            if data.get('low_quality'):
+                continue
             headline = (data.get('headline') or '').lower()
             content = (data.get('content') or '').lower()
             combined = headline + ' ' + content
@@ -451,6 +480,8 @@ class FirestoreDB:
 
         results = []
         for data in articles:
+            if data.get('low_quality'):
+                continue
             entities = data.get('entities') or []
             if not isinstance(entities, list):
                 continue
@@ -480,6 +511,8 @@ class FirestoreDB:
 
             monthly_counts = {}
             for data in articles:
+                if data.get('low_quality'):
+                    continue
                 pub_date = data.get('publication_date')
                 if pub_date:
                     if isinstance(pub_date, str):
@@ -562,10 +595,24 @@ class FirestoreDB:
                 'also', 'just', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
                 'between', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'up', 'down',
                 'out', 'over', 'off', 'any', 'being', 'having', 'doing', 'one', 'two', 'three', 'four',
-                'five', 'six', 'seven', 'eight', 'nine', 'ten', 'said', 'page', 'continued', 'back'
+                'five', 'six', 'seven', 'eight', 'nine', 'ten', 'said', 'page', 'continued', 'back',
+                # OCR-noise tokens — without these, "illegible" was the #1
+                # keyword by a wide margin (35k+ mentions from every
+                # [ILLEGIBLE] placeholder in the corpus).
+                'illegible', 'unreadable', 'unclear', 'unintelligible', 'visible', 'placeholder',
+                # Generic/structural words that dominate the chart with
+                # zero analytical value — equivalent of "stopwords for
+                # historians".
+                'against', 'people', 'first', 'last', 'years', 'year', 'time', 'today', 'yesterday',
+                'tomorrow', 'week', 'month', 'months', 'days', 'made', 'make', 'take', 'taken',
+                'including', 'according', 'told', 'told', 'told',
             }
 
+            # Skip flagged-low-quality articles entirely so their
+            # placeholder-heavy bodies don't poison the keyword counts.
             for data in articles:
+                if data.get('low_quality'):
+                    continue
                 content = data.get('content', '') + ' ' + data.get('headline', '')
                 words = content.lower().split()
 
@@ -594,8 +641,70 @@ class FirestoreDB:
             print(f"[ERROR] Keyword extraction failed: {e}")
             return []
 
+    # Common spaCy false-positives we never want as top entities. These
+    # are short, generic tokens the NER tags as ORG/GPE/PERSON when they're
+    # really role descriptors, fragments of longer phrases, or OCR'd noise.
+    # Adding to this list filters them out at normalization time, which is
+    # cheaper than running another scrub pass over the whole corpus.
+    _ENTITY_BLOCKLIST = frozenset({
+        # OCR-noise tokens (kept out of every chart)
+        'illegible', 'unreadable', 'unclear',
+
+        # Role/byline descriptors that get tagged PERSON/ORG
+        'joint', 'joint director', 'staff reporter', 'correspondent',
+
+        # Wire-service names that cluster into PERSON spuriously
+        'reuter', 'reuters', 'afp', 'app', 'ap', 'ppi', 'ipa', 'dpa', 'xinhua', 'tass',
+        'pti', 'unb',
+
+        # Almost always part of a longer org name (Anjuman-i-…-Islam, etc.)
+        'islam',
+
+        # The newspaper itself — appearing in mastheads & bylines on every page
+        # blows up the chart with self-references that aren't useful "topics".
+        'dawn', 'the dawn', 'dawn newspaper', 'dawn islamabad bureau',
+        'dawn lahore bureau', 'dawn karachi bureau', 'lahore bureau',
+        'islamabad bureau', 'karachi bureau', 'herald',
+
+        # Generic government/legal nouns spaCy promotes to ORG. They tell
+        # you nothing about *which* org and crowd out real names like PPP.
+        'government', 'federal government', 'state', 'press', 'house',
+        'parliament',  # use 'national assembly' / 'senate' instead
+        'cabinet',
+        'ministry',  # too generic without the specific ministry suffix
+
+        # Date words / weekdays that occasionally slip through DATE filter
+        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+        'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+    })
+
+    # Names that NER consistently mis-types — keep them but route to the
+    # correct type. Map is keyed by lowercased entity text and yields
+    # (canonical_text, intended_type). Helpful when one famous person's
+    # surname is also a major city (Bhutto → Larkana / Sukkur in Sindh).
+    # Currently only used for display normalization; the type-fix is a
+    # separate pass we'll add when the NER quality work begins.
+    _ENTITY_PERSON_TO_GPE = frozenset({
+        'larkana', 'sukkur',  # Sindh cities mis-classed as PERSON when
+                              # appearing alongside Bhutto in articles.
+        'mohajirs',           # ethnic group → NORP, not PERSON
+        'pia',                # Pakistan International Airlines → ORG
+    })
+
     def _normalize_entity_name(self, entity_text: str) -> str:
-        entity_lower = entity_text.lower()
+        entity_lower = entity_text.lower().strip()
+
+        # Strip leading articles spaCy keeps in the entity span:
+        # "the Pakistan International Airlines" → "Pakistan International Airlines"
+        for prefix in ('the ', 'a ', 'an '):
+            if entity_lower.startswith(prefix):
+                entity_lower = entity_lower[len(prefix):]
+                entity_text = entity_text[len(prefix):]
+                break
+
+        # Drop generic-noise tokens before any normalization runs.
+        if entity_lower in self._ENTITY_BLOCKLIST:
+            return ''  # caller filters empty strings out via the len(entity_text) < 3 check
 
         normalization_map = {
             'pakist': 'pakistan',
@@ -789,7 +898,25 @@ class FirestoreDB:
                     if end_date and pub_date and pub_date > end_date:
                         continue
 
+                # Skip flagged-low-quality articles: their entities are
+                # often spaCy artefacts from heavy [ILLEGIBLE] noise (e.g.
+                # "ILLEGIBLE" itself extracted as ORG, fragmented byline
+                # cities double-counted). Including them inflates the top
+                # entity chart with garbage and pushes real names down.
+                if data.get('low_quality'):
+                    continue
+
                 entities = data.get('entities', [])
+
+                # PER-ARTICLE DEDUP: previously we incremented `count` for
+                # every mention, so a story with "Karachi" five times added
+                # 5 to Karachi's total. The result was the dateline city
+                # (always one mention per dateline + many in the body)
+                # dwarfing every other entity. Now count each entity at
+                # most once per article — the chart now reflects "how many
+                # *distinct articles* mention X", which is the question
+                # users actually want answered.
+                seen_in_article = set()
 
                 for entity in entities:
                     entity_text = entity.get('text', '')
@@ -801,12 +928,33 @@ class FirestoreDB:
                     if len(entity_text) < 3 or entity_text.isdigit():
                         continue
 
+                    # NER mis-types: the chunk of names below routinely
+                    # arrive tagged PERSON when they're really cities (in
+                    # Sindh, near Bhutto's hometown) or orgs (PIA). When
+                    # filtering by entity_type=PERSON, drop them so they
+                    # don't pollute the "Top People" chart. They still
+                    # appear under the corrected type when caller asks
+                    # for ORG / GPE specifically (or no filter).
+                    if (entity_type_val == 'PERSON'
+                            and entity_text.lower() in self._ENTITY_PERSON_TO_GPE):
+                        continue
+
                     if entity_type and entity_type_val != entity_type:
                         continue
 
                     normalized_text = self._normalize_entity_name(entity_text)
 
+                    # Normalizer returns '' for blocklisted tokens
+                    # ("Joint", "Reuter", weekday names, etc.) — drop them.
+                    if not normalized_text or len(normalized_text) < 3:
+                        continue
+
                     entity_key = (normalized_text, entity_type_val)
+
+                    # Only count this entity once per article.
+                    if entity_key in seen_in_article:
+                        continue
+                    seen_in_article.add(entity_key)
 
                     if entity_key not in entity_counts:
                         entity_counts[entity_key] = {

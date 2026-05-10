@@ -12,6 +12,52 @@ from utils.filters import filter_and_normalize_entities
 # Topic IDs that are purely classified ads — tenders, job listings
 _CLASSIFIED_TOPIC_IDS = {4, 5}
 
+
+# Dawn dateline prefix: "ISLAMABAD, Jan 12: ..." or
+# "By Our Staff Reporter\nKARACHI, Jan 13: ..." (sometimes with a parenthetical
+# region: "KARACHI (NNI), Jan 13: ..."). Strip it before display because:
+#   - Every article repeats the city/date in the body, so the search-result
+#     cards all start "ISLAMABAD, Jan 12:" and the actual lede is buried.
+#   - The byline ("By Our Staff Reporter") is the same across ~33% of the
+#     corpus and is noise, not signal.
+# We KEEP the original `content` in the API response untouched — only the
+# `content_preview` (and full-content read endpoint) strips. That way the
+# dateline still shows up in the article-detail full-text view if anyone
+# wants it, but lists and previews are clean.
+_DATELINE_RE = re.compile(
+    r'^\s*'
+    # optional byline line ("By X / By Our Staff Reporter / From Y") —
+    # the model produces these in many forms; one or two lines is plenty.
+    r'(?:(?:by|from)\s+[^\n]{1,80}\n){0,2}'
+    # the dateline city in ALL CAPS, optional parenthetical (NNI),
+    # optional comma, then month + day, optional year, then a colon.
+    r'[A-Z][A-Z\-/\s]{2,40}'
+    r'(?:\s*\([A-Z][A-Z\-/\s]{0,20}\))?'
+    r'\s*,?\s+'
+    r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*'
+    r'\.?\s+\d{1,2}'
+    r'(?:\s*,\s*\d{4})?'
+    r'\s*:\s*',
+    re.IGNORECASE,
+)
+
+
+def _strip_dateline(text: str) -> str:
+    """Remove the leading "CITY, Mon DD:" dateline (and optional byline).
+
+    Returns text unchanged when no dateline is found, so this is safe to
+    apply to every article — non-dateline-prefixed bodies pass through
+    untouched.
+    """
+    if not text:
+        return text
+    return _DATELINE_RE.sub('', text, count=1).lstrip()
+
+
+def _make_preview(content: str, length: int = 200) -> str:
+    """content_preview = first `length` chars AFTER stripping the dateline."""
+    return _strip_dateline(content or '')[:length]
+
 # Headline keywords that indicate a classified ad regardless of topic
 _CLASSIFIED_KEYWORDS = [
     'tender', 'situation vacant', 'job opportunity', 'vacancy',
@@ -156,6 +202,48 @@ except ImportError:
     _create_gemini_model = None
 
 
+# Pick a Gemini key for runtime API calls (chat, summary, entity bio).
+# History: this used to read only `GEMINI_API_KEY` (a single key set in
+# .env). On this deployment that key points at a project where Vertex AI
+# billing is disabled, so every chat call returned 403 PERMISSION_DENIED.
+# The OCR ingest path already rotates through `GEMINI_API_KEYS` (the
+# fresh Vertex Express keys) — pick from the same pool so chat works
+# whenever ingest works. Fallback to the legacy single key keeps
+# backwards compatibility on dev machines that haven't migrated yet.
+import itertools
+_GEMINI_KEY_POOL: list = []
+_GEMINI_KEY_CYCLE = None
+
+def _refresh_gemini_pool():
+    global _GEMINI_KEY_POOL, _GEMINI_KEY_CYCLE
+    rotation = (os.getenv("GEMINI_API_KEYS") or "").strip()
+    keys = [k.strip() for k in rotation.split(",") if k.strip()]
+    primary = (os.getenv("GEMINI_API_KEY") or "").strip()
+    # Prefer rotation pool. Use legacy single-key only when no rotation
+    # is configured — that way a misconfigured-billing legacy key never
+    # silently steals requests away from a healthy rotation pool.
+    if keys:
+        _GEMINI_KEY_POOL = keys
+    elif primary:
+        _GEMINI_KEY_POOL = [primary]
+    else:
+        _GEMINI_KEY_POOL = []
+    _GEMINI_KEY_CYCLE = itertools.cycle(_GEMINI_KEY_POOL) if _GEMINI_KEY_POOL else None
+
+_refresh_gemini_pool()
+
+def _pick_gemini_key():
+    """Return the next key from the rotation pool. Re-reads env once if
+    the pool is empty so changes to GEMINI_API_KEYS without a restart
+    are picked up on the first call after the change."""
+    global _GEMINI_KEY_CYCLE
+    if _GEMINI_KEY_CYCLE is None:
+        _refresh_gemini_pool()
+    if _GEMINI_KEY_CYCLE is None:
+        return None
+    return next(_GEMINI_KEY_CYCLE)
+
+
 router = APIRouter(prefix="/api", tags=["articles"])
 
 
@@ -235,7 +323,15 @@ def list_articles(
                 continue
             if _is_garbage_headline(data.get('headline') or ''):
                 continue
-            data['content_preview'] = (data.get('content') or '')[:200]
+            # Hide low-quality OCR victims (article body had >5
+            # [ILLEGIBLE] markers or >20% of words were placeholders).
+            # The `low_quality` flag is set by scripts/cleanup_quality.py
+            # at ingest-time / on demand. Articles aren't deleted because
+            # they're sometimes recoverable on a re-OCR pass; they're
+            # just hidden from default browse + search.
+            if data.get('low_quality'):
+                continue
+            data['content_preview'] = _make_preview(data.get('content') or '')
             keepers.append(data)
 
         # Apply requested sort to whatever we pulled.
@@ -299,8 +395,18 @@ def on_this_day(month: Optional[int] = None, day: Optional[int] = None, limit: i
     """Return articles published on today's month/day across archive years."""
     from datetime import datetime as _dt
     now = _dt.utcnow()
+    # Bounds check — caller-supplied month/day was previously trusted
+    # blindly, so on-this-day?month=99&day=99 raised an unhandled
+    # ValueError 500. Validate before we use them anywhere.
     m = int(month or now.month)
     d = int(day or now.day)
+    if not (1 <= m <= 12):
+        raise HTTPException(400, f"month must be 1-12, got {m}")
+    if not (1 <= d <= 31):
+        raise HTTPException(400, f"day must be 1-31, got {d}")
+    # Cap limit so a caller can't make us scan + materialise 100k articles
+    # for a single page render.
+    limit = max(1, min(int(limit or 10), 100))
     try:
         db = get_db()
         docs = db.db.collection('articles').order_by(
@@ -312,7 +418,7 @@ def on_this_day(month: Optional[int] = None, day: Optional[int] = None, limit: i
             if pd and hasattr(pd, 'month') and pd.month == m and pd.day == d:
                 if _is_classified(data):
                     continue
-                data['content_preview'] = (data.get('content') or '')[:200]
+                data['content_preview'] = _make_preview(data.get('content') or '')
                 hits.append(data)
                 if len(hits) >= limit:
                     break
@@ -329,6 +435,11 @@ def get_article(article_id: str):
         article = db.get_article(article_id)
         if not article:
             raise HTTPException(404, "Article not found")
+        # Strip the leading "CITY, Mon DD:" dateline so the displayed body
+        # starts at the actual lede. Original is preserved on disk; only
+        # the API response is cleaned.
+        if article.get('content'):
+            article['content'] = _strip_dateline(article['content'])
         return article
     except HTTPException:
         raise
@@ -347,6 +458,8 @@ def get_article_full(article_id: str):
             raise HTTPException(404, "Article not found")
 
         article['entities'] = filter_and_normalize_entities(article.get('entities', []))
+        if article.get('content'):
+            article['content'] = _strip_dateline(article['content'])
 
         return {"article": article}
     except HTTPException:
@@ -389,7 +502,7 @@ def search_keyword(request: dict):
 
         articles_list = []
         for article in articles:
-            article['content_preview'] = article.get('content', '')[:200]
+            article['content_preview'] = _make_preview(article.get('content') or '')
             article['entities'] = filter_and_normalize_entities(article.get('entities', []))
             articles_list.append(article)
 
@@ -439,7 +552,7 @@ def search_entity(request: dict):
 
         articles_list = []
         for article in articles:
-            article['content_preview'] = article.get('content', '')[:200]
+            article['content_preview'] = _make_preview(article.get('content') or '')
             article['entities'] = filter_and_normalize_entities(article.get('entities', []))
             articles_list.append(article)
 
@@ -469,7 +582,7 @@ def generate_article_summary(article_id: str):
         if not genai:
             raise HTTPException(500, "Google Generative AI package not installed")
 
-        gemini_key = os.getenv("GEMINI_API_KEY")
+        gemini_key = _pick_gemini_key()
         if not gemini_key:
             raise HTTPException(500, "GEMINI_API_KEY not configured")
 
@@ -540,7 +653,7 @@ def get_related_articles(article_id: str):
         for aid in other_ids:
             a = db.get_article(aid)
             if a and not _is_classified(a):
-                a['content_preview'] = (a.get('content') or '')[:200]
+                a['content_preview'] = _make_preview(a.get('content') or '')
                 pub = a.get('publication_date')
                 if pub and hasattr(pub, 'isoformat'):
                     a['publication_date'] = pub.isoformat()
@@ -645,12 +758,20 @@ def ask_archive(request: dict):
         raise HTTPException(400, "question is required")
     if not genai:
         raise HTTPException(500, "google-generativeai package not installed")
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = _pick_gemini_key()
     if not gemini_key:
         raise HTTPException(500, "GEMINI_API_KEY not configured")
 
-    max_context = min(int(request.get("max_context", 12)), 20)
+    # Coerce safely — `int()` on a string like "abc" would crash with
+    # ValueError and 500 instead of giving the caller a 400.
+    raw_max = request.get("max_context", 12)
+    try:
+        max_context = max(1, min(int(raw_max), 20))
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"max_context must be an integer 1-20, got {raw_max!r}")
     history = request.get("history") or []
+    if not isinstance(history, list):
+        raise HTTPException(400, "history must be a list of {role, content} turns")
     # Default to flash because gemini-2.5-pro is heavily quota-throttled
     # on the trial-tier project — sending the request to pro reliably
     # 429s after ~14s and then we fall back, doubling latency. flash is
@@ -782,7 +903,7 @@ Answer:"""
             # Bigger excerpt — 2.5-pro has a huge context window; the
             # synthesis is dramatically better with the actual article
             # body instead of a 500-char teaser.
-            excerpt = (a.get('content') or a.get('content_preview') or '').strip()
+            excerpt = _strip_dateline(a.get('content') or a.get('content_preview') or '').strip()
             if len(excerpt) > 1500:
                 excerpt = excerpt[:1500] + '…'
             blocks.append(
@@ -874,7 +995,7 @@ def generate_entity_bio(entity_text: str):
     """Generate a short AI bio for an entity based on articles mentioning it."""
     if not genai:
         raise HTTPException(500, "google-generativeai package not installed")
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = _pick_gemini_key()
     if not gemini_key:
         raise HTTPException(500, "GEMINI_API_KEY not configured")
 
@@ -894,7 +1015,7 @@ def generate_entity_bio(entity_text: str):
             else:
                 date_str = str(pd)[:10]
             headline = (a.get('headline') or '').strip()
-            excerpt = (a.get('content') or a.get('content_preview') or '')[:400].strip()
+            excerpt = _strip_dateline(a.get('content') or a.get('content_preview') or '')[:400].strip()
             blocks.append(f"({date_str}) {headline}\n{excerpt}")
 
         prompt = f"""Based ONLY on the Dawn newspaper (Pakistan, 1990-1992) articles below, write a 3-4 sentence factual profile of "{entity}" — who or what they are, their role in these articles, and the main events they were associated with. Do not invent details that are not in the articles.

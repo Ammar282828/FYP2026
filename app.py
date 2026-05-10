@@ -13,9 +13,13 @@ from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 
-from api.routes import articles, analytics, topics, newspapers, ads, stories, auth, bookmarks, config as config_routes
-
+# Load .env BEFORE we import any route module — those modules read
+# env vars at import time (JWT_SECRET in auth, key pools in articles,
+# etc.), so loading .env afterwards meant the literal-defaulted values
+# stuck for the lifetime of the process.
 load_dotenv()
+
+from api.routes import articles, analytics, topics, newspapers, ads, stories, auth, bookmarks, config as config_routes
 
 app = FastAPI(title="MediaScope API", version="2.0")
 

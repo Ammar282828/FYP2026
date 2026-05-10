@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import uuid
+from firebase_admin import firestore as _fs_admin
 from database.firestore_db import get_firestore_db
 from api.routes.auth import get_current_user, get_optional_user
 
@@ -82,11 +83,15 @@ def add_bookmark(req: BookmarkRequest, user=Depends(get_current_user)):
     db.db.collection('bookmarks').document(bookmark_id).set(bookmark_doc)
 
     # Increment user bookmark count
+    # Atomic increment — read-modify-write was racy (two concurrent
+    # bookmarks would both read 0 and both write 1 instead of 2).
     user_ref = db.db.collection('users').document(user['user_id'])
-    user_doc = user_ref.get()
-    if user_doc.exists:
-        current_count = user_doc.to_dict().get('bookmark_count', 0)
-        user_ref.update({'bookmark_count': current_count + 1})
+    try:
+        user_ref.update({'bookmark_count': _fs_admin.Increment(1)})
+    except Exception:
+        # Brand-new user without the field yet: fall back to a single
+        # write that creates the doc with the count = 1.
+        user_ref.set({'bookmark_count': 1}, merge=True)
 
     return {"id": bookmark_id, "status": "bookmarked"}
 
@@ -144,8 +149,16 @@ def remove_bookmark(bookmark_id: str, user=Depends(get_current_user)):
     user_ref = db.db.collection('users').document(user['user_id'])
     user_doc = user_ref.get()
     if user_doc.exists:
-        current_count = user_doc.to_dict().get('bookmark_count', 0)
-        user_ref.update({'bookmark_count': max(0, current_count - 1)})
+        # Atomic decrement; clamp to 0 in a follow-up read only if the
+        # increment puts us negative (race-safe — Firestore handles the
+        # write atomically, the floor is just defensive).
+        user_ref.update({'bookmark_count': _fs_admin.Increment(-1)})
+        try:
+            after = user_ref.get().to_dict() or {}
+            if (after.get('bookmark_count') or 0) < 0:
+                user_ref.update({'bookmark_count': 0})
+        except Exception:
+            pass
 
     return {"status": "removed"}
 
@@ -173,8 +186,16 @@ def remove_bookmark_by_article(article_id: str, user=Depends(get_current_user)):
     user_ref = db.db.collection('users').document(user['user_id'])
     user_doc = user_ref.get()
     if user_doc.exists:
-        current_count = user_doc.to_dict().get('bookmark_count', 0)
-        user_ref.update({'bookmark_count': max(0, current_count - 1)})
+        # Atomic decrement; clamp to 0 in a follow-up read only if the
+        # increment puts us negative (race-safe — Firestore handles the
+        # write atomically, the floor is just defensive).
+        user_ref.update({'bookmark_count': _fs_admin.Increment(-1)})
+        try:
+            after = user_ref.get().to_dict() or {}
+            if (after.get('bookmark_count') or 0) < 0:
+                user_ref.update({'bookmark_count': 0})
+        except Exception:
+            pass
 
     return {"status": "removed"}
 
@@ -206,7 +227,16 @@ def get_bookmark_ids(user=Depends(get_current_user)):
     """Get all bookmarked article IDs for the current user (for bulk checking)."""
     db = get_firestore_db()
 
-    bookmarks = db.db.collection('bookmarks').where('user_id', '==', user['user_id']).stream()
+    # Hard cap: a runaway client (or compromised account that scripted
+    # 100k bookmarks) would OOM the backend on this unfiltered stream.
+    # 10k is more than any human will ever bookmark; if we ever need
+    # more, paginate.
+    bookmarks = (
+        db.db.collection('bookmarks')
+        .where('user_id', '==', user['user_id'])
+        .limit(10_000)
+        .stream()
+    )
     ids = [doc.to_dict().get('article_id') for doc in bookmarks]
 
     return {"article_ids": ids}

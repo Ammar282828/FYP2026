@@ -106,6 +106,20 @@ const AdBrowserTab: React.FC = () => {
   const [analytics, setAnalytics]         = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
+  // Per-ad rotation overrides (0/90/180/270) applied client-side when the
+  // upstream crop came out misoriented. iPhone EXIF tags are unreliable on
+  // some scans, so the ingest pipeline can't always auto-detect; this lets
+  // the user nudge a single card without us needing to re-ingest.
+  const [rotations, setRotations] = useState<Record<string, number>>({});
+  const cycleRotation = (id: string) =>
+    setRotations((prev) => ({ ...prev, [id]: ((prev[id] || 0) + 90) % 360 }));
+
+  // Sort options for the ads grid. "date-desc" matches the original
+  // (most recent first); "brand-asc" was the user-requested addition for
+  // browsing by company alphabetically.
+  type AdSort = 'date-desc' | 'date-asc' | 'brand-asc' | 'category-asc';
+  const [sortBy, setSortBy] = useState<AdSort>('date-desc');
+
   useEffect(() => {
     loadAds();
   }, []);
@@ -123,17 +137,30 @@ const AdBrowserTab: React.FC = () => {
     'public notice', 'court notice',
   ];
 
-  const filterAds = (raw: Advertisement[]) =>
+  // Two filter modes:
+  //   strict (default browse): hide tender/vacancy noise, hide blank-brand,
+  //     hide ads with no usable text — surfaces only the polished commercial
+  //     ads in the default grid.
+  //   loose (search results):  user explicitly typed a query, so respect it.
+  //     Still drop entries with no image (nothing to show), but don't filter
+  //     by brand-blank or excluded keywords — searching for "tender" should
+  //     return tender notices if that's what they want.
+  const filterAds = (raw: Advertisement[], mode: 'strict' | 'loose' = 'strict') =>
     raw.filter(ad => {
       const id = (ad.identifier || '').trim();
       const desc = (ad.description || '').trim();
       const brand = (ad.brand || '').trim().toLowerCase();
       const blanks = ['unknown', 'not available', 'n/a', ''];
       const combined = `${id} ${desc}`.toLowerCase();
+      if (!ad.image_url) return false;
+      if (mode === 'loose') {
+        // Search mode: keep almost everything, only require image and
+        // some text content so the card actually renders something.
+        return id.length > 0 || desc.length > 0;
+      }
       const isExcluded = EXCLUDED_KEYWORDS.some(kw => combined.includes(kw));
       return (
         !isExcluded &&
-        ad.image_url &&
         (id.length > 3 || desc.length > 10) &&
         !blanks.includes(brand)
       );
@@ -171,7 +198,13 @@ const AdBrowserTab: React.FC = () => {
     setLoading(true);
     try {
       const response = await axios.post(`${API_BASE}/ads/search`, { keyword: searchKeyword, limit: 2000 });
-      const filtered = filterAds(response.data.ads);
+      // Loose filter for explicit searches — see filterAds comment.
+      // Previously we ran the strict filter on search results too, which
+      // dropped legitimate matches whose brand was blank or whose text
+      // happened to contain "required" / "tender" — so users typed e.g.
+      // "Toshiba" and got an empty grid because Firestore had a Toshiba
+      // ad with brand="Unknown".
+      const filtered = filterAds(response.data.ads, 'loose');
       setAds(filtered);
       setTotal(filtered.length);
     } catch (error) {
@@ -679,7 +712,7 @@ const AdBrowserTab: React.FC = () => {
             <form onSubmit={handleSearch} className="search-form">
               <input
                 type="text"
-                placeholder="Search advertisements by keyword..."
+                placeholder="Search by brand, product, or any text in the ad…"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 className="search-input"
@@ -692,6 +725,18 @@ const AdBrowserTab: React.FC = () => {
               >
                 Clear
               </button>
+              <select
+                className="ad-sort-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as AdSort)}
+                aria-label="Sort advertisements"
+                title="Sort advertisements"
+              >
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+                <option value="brand-asc">Brand A → Z</option>
+                <option value="category-asc">Category A → Z</option>
+              </select>
             </form>
             <div className="results-count">
               {total > 0 && <span>Found {total} advertisement{total !== 1 ? 's' : ''}</span>}
@@ -712,7 +757,36 @@ const AdBrowserTab: React.FC = () => {
                 </div>
               ) : (
                 <div className="ads-grid">
-                  {ads.map((ad) => {
+                  {(() => {
+                    // Apply the user's chosen sort. Done client-side so
+                    // sorting is instant and doesn't roundtrip the 1.7k+
+                    // result set. Brand/category sort use the same label
+                    // resolution as the card render below so what you see
+                    // is what you sort on.
+                    const labelOf = (ad: any, kind: 'brand' | 'cat') => {
+                      const fromAnalysis = (typeof ad.analysis === 'object'
+                        ? ad.analysis?.brand?.[kind === 'brand' ? 'name' : 'category']
+                        : '') || '';
+                      const direct = kind === 'brand' ? ad.brand : ad.category;
+                      const v = (direct || fromAnalysis || '').toString().trim().toLowerCase();
+                      // Push blank/unknown to the end so alphabetical
+                      // browsing surfaces real brands first.
+                      return v && v !== 'unknown' && v !== 'n/a' ? v : '~~~zzz_unknown';
+                    };
+                    const dateOf = (ad: any) => ad.publication_date || '';
+                    const sorted = [...ads].sort((a, b) => {
+                      switch (sortBy) {
+                        case 'date-asc':     return dateOf(a).localeCompare(dateOf(b));
+                        case 'brand-asc':    return labelOf(a, 'brand').localeCompare(labelOf(b, 'brand'))
+                                                    || dateOf(b).localeCompare(dateOf(a));
+                        case 'category-asc': return labelOf(a, 'cat').localeCompare(labelOf(b, 'cat'))
+                                                    || dateOf(b).localeCompare(dateOf(a));
+                        case 'date-desc':
+                        default:             return dateOf(b).localeCompare(dateOf(a));
+                      }
+                    });
+                    return sorted;
+                  })().map((ad) => {
                     const catLabel = ad.category || (typeof ad.analysis === 'object' ? ad.analysis?.brand?.category : '') || '';
                     const brandLabel = ad.brand || (typeof ad.analysis === 'object' ? ad.analysis?.brand?.name : '') || '';
                     return (
@@ -725,20 +799,50 @@ const AdBrowserTab: React.FC = () => {
                           // the parent URL or usable coordinates.
                           const box = pctBox(ad.coordinates);
                           const clip = clipStyle(box.left, box.top, box.width, box.height);
+                          const rot = rotations[ad.id] || 0;
+                          // Stop click-propagation so rotating doesn't open
+                          // the modal — the user just wants to flip the crop.
+                          const rotateBtn = (
+                            <button
+                              type="button"
+                              className="ad-rotate-btn"
+                              aria-label="Rotate this ad 90°"
+                              title="Rotate 90°"
+                              onClick={(e) => { e.stopPropagation(); cycleRotation(ad.id); }}
+                            >
+                              ⟳
+                            </button>
+                          );
+                          // CSS rotate is applied to the image element. We
+                          // keep the wrapper unrotated so the card layout
+                          // stays put — the rotated content overflows but
+                          // overflow:hidden on .ad-card-image clips it.
+                          const rotStyle = rot ? { transform: `rotate(${rot}deg)`, transformOrigin: 'center' } : undefined;
                           if (ad.newspaper_image_url && clip) {
                             return (
-                              <div
-                                className="ad-card-image"
-                                role="img"
-                                aria-label={ad.identifier || 'Advertisement'}
-                                style={{ backgroundImage: `url(${ad.newspaper_image_url})`, ...clip }}
-                              />
+                              <div className="ad-card-image-wrap">
+                                <div
+                                  className="ad-card-image"
+                                  role="img"
+                                  aria-label={ad.identifier || 'Advertisement'}
+                                  style={{ backgroundImage: `url(${ad.newspaper_image_url})`, ...clip, ...rotStyle }}
+                                />
+                                {rotateBtn}
+                              </div>
                             );
                           }
                           if (ad.image_url) {
                             return (
-                              <div className="ad-card-image">
-                                <img src={ad.image_url} alt={ad.identifier || 'Advertisement'} loading="lazy" />
+                              <div className="ad-card-image-wrap">
+                                <div className="ad-card-image">
+                                  <img
+                                    src={ad.image_url}
+                                    alt={ad.identifier || 'Advertisement'}
+                                    loading="lazy"
+                                    style={rotStyle}
+                                  />
+                                </div>
+                                {rotateBtn}
                               </div>
                             );
                           }
@@ -790,22 +894,44 @@ const AdBrowserTab: React.FC = () => {
               {(() => {
                 // Modal mirrors the card's logic — clipped slice of the
                 // parent image when available, legacy pre-cut crop otherwise.
+                // Rotation state is shared with the grid via `rotations`,
+                // so flipping a card and then opening it shows the same
+                // orientation; users can also rotate from inside the modal.
                 const box = pctBox(selectedAd.coordinates);
                 const clip = clipStyle(box.left, box.top, box.width, box.height);
+                const rot = rotations[selectedAd.id] || 0;
+                const rotStyle = rot ? { transform: `rotate(${rot}deg)`, transformOrigin: 'center' } : undefined;
+                const rotateBtn = (
+                  <button
+                    type="button"
+                    className="ad-rotate-btn ad-rotate-btn--modal"
+                    aria-label="Rotate ad 90°"
+                    title="Rotate 90°"
+                    onClick={() => cycleRotation(selectedAd.id)}
+                  >
+                    ⟳
+                  </button>
+                );
                 if (selectedAd.newspaper_image_url && clip) {
                   return (
-                    <div
-                      className="modal-ad-image"
-                      role="img"
-                      aria-label={selectedAd.identifier || 'Advertisement'}
-                      style={{ backgroundImage: `url(${selectedAd.newspaper_image_url})`, ...clip }}
-                    />
+                    <div className="modal-ad-image-wrap">
+                      <div
+                        className="modal-ad-image"
+                        role="img"
+                        aria-label={selectedAd.identifier || 'Advertisement'}
+                        style={{ backgroundImage: `url(${selectedAd.newspaper_image_url})`, ...clip, ...rotStyle }}
+                      />
+                      {rotateBtn}
+                    </div>
                   );
                 }
                 if (selectedAd.image_url) {
                   return (
-                    <div className="modal-ad-image">
-                      <img src={selectedAd.image_url} alt={selectedAd.identifier || 'Advertisement'} />
+                    <div className="modal-ad-image-wrap">
+                      <div className="modal-ad-image">
+                        <img src={selectedAd.image_url} alt={selectedAd.identifier || 'Advertisement'} style={rotStyle} />
+                      </div>
+                      {rotateBtn}
                     </div>
                   );
                 }

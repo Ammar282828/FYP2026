@@ -140,6 +140,11 @@ def articles_by_day():
         articles = db._get_articles_snapshot()
         counts: Counter = Counter()
         for data in articles:
+            # Calendar heatmap should reflect *visible* articles, not the
+            # raw doc count — otherwise the days with the most OCR-noise
+            # junk light up brightest, which is exactly the wrong signal.
+            if data.get('low_quality'):
+                continue
             pub = data.get('publication_date')
             if not pub:
                 continue
@@ -293,8 +298,12 @@ def keyword_trend(request: dict):
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
 
-        articles_stream = db.db.collection('articles').limit(1000).stream()
-        articles = [doc.to_dict() for doc in articles_stream]
+        # Was `.limit(1000).stream()` — silently returned an arbitrary
+        # 1k subset of the corpus (now 36k+), so trend charts were
+        # showing ~3% of the actual signal. Use the snapshot like every
+        # other analytics endpoint so the answer reflects the whole
+        # corpus and avoids the SDK retry crash on full-collection scans.
+        articles = db._get_articles_snapshot()
 
         trends = {}
         for keyword in keywords[:5]:
@@ -372,22 +381,31 @@ def get_keyword_sentiment_over_time(
 ):
     """Get average sentiment for articles containing a keyword over time"""
     try:
-        from datetime import datetime as dt
+        from datetime import datetime as dt, timezone
         from collections import defaultdict
 
         db = get_firestore_db()
-        articles_query = db.db.collection('articles')
 
-        if start_date:
-            articles_query = articles_query.where('publication_date', '>=', dt.fromisoformat(start_date))
-        if end_date:
-            articles_query = articles_query.where('publication_date', '<=', dt.fromisoformat(end_date))
+        # Use the shared snapshot rather than streaming the live
+        # collection — the live `.stream()` hits the SDK retry crash
+        # past ~30k docs (same bug as topics + articles snapshot).
+        articles = db._get_articles_snapshot()
+
+        sd = dt.fromisoformat(start_date) if start_date else None
+        ed = dt.fromisoformat(end_date) if end_date else None
+        def _naive(d):
+            if d is None: return None
+            if hasattr(d, 'tzinfo') and d.tzinfo is not None:
+                return d.astimezone(timezone.utc).replace(tzinfo=None)
+            return d
+        sd, ed = _naive(sd), _naive(ed)
 
         period_sentiments = defaultdict(list)
         keyword_lower = keyword.lower()
 
-        for article_doc in articles_query.stream():
-            article = article_doc.to_dict()
+        for article in articles:
+            if article.get('low_quality'):
+                continue
             pub_date = article.get('publication_date')
             sentiment_score = article.get('sentiment_score')
             content = article.get('content', '') + ' ' + article.get('headline', '')
@@ -403,8 +421,12 @@ def get_keyword_sentiment_over_time(
             else:
                 try:
                     date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
-                except:
+                except Exception:
                     continue
+
+            date_naive = _naive(date_obj)
+            if sd and date_naive < sd: continue
+            if ed and date_naive > ed: continue
 
             if granularity == 'year':
                 period = date_obj.strftime('%Y')

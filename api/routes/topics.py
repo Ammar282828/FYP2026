@@ -322,21 +322,42 @@ def get_topic_trends_over_time(
             from collections import defaultdict
 
             db = get_firestore_db()
-            articles_query = db.db.collection('articles')
 
-            if start_date:
-                articles_query = articles_query.where('publication_date', '>=', dt.fromisoformat(start_date))
-            if end_date:
-                articles_query = articles_query.where('publication_date', '<=', dt.fromisoformat(end_date))
+            # Use the snapshot the analytics endpoints share rather than
+            # streaming the live `articles` collection. Two reasons:
+            #  1) `.stream()` over the full ~36k-doc collection now hits
+            #     Firestore's server-side query timeout (~60s), and the
+            #     google-cloud-firestore 2.27 retry path crashes on the
+            #     503 with `'_UnaryStreamMultiCallable' object has no
+            #     attribute '_retry'`. Same bug we patched in
+            #     firestore_db._get_articles_snapshot.
+            #  2) The snapshot is already loaded for the other analytics
+            #     endpoints; reusing it makes this query ~50ms once warm
+            #     instead of 30+s every call.
+            articles = db._get_articles_snapshot()
+
+            # Filter the snapshot in-process for the date range.
+            sd = dt.fromisoformat(start_date) if start_date else None
+            ed = dt.fromisoformat(end_date) if end_date else None
+            # Strip tz so date-string comparisons against tz-naive bounds
+            # don't raise. Snapshot dates are tz-aware; bounds aren't.
+            from datetime import timezone
+            def _naive(d):
+                if d is None: return None
+                if hasattr(d, 'tzinfo') and d.tzinfo is not None:
+                    return d.astimezone(timezone.utc).replace(tzinfo=None)
+                return d
+            sd, ed = _naive(sd), _naive(ed)
 
             time_topic_counts = defaultdict(lambda: defaultdict(int))
 
-            for article_doc in articles_query.stream():
-                article_data = article_doc.to_dict()
+            for article_data in articles:
                 pub_date = article_data.get('publication_date')
                 topic_label = article_data.get('topic_label', '')
 
                 if not pub_date or not topic_label or topic_label == 'Uncategorized':
+                    continue
+                if article_data.get('low_quality'):
                     continue
 
                 if hasattr(pub_date, 'strftime'):
@@ -344,8 +365,12 @@ def get_topic_trends_over_time(
                 else:
                     try:
                         date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
-                    except:
+                    except Exception:
                         continue
+
+                date_naive = _naive(date_obj)
+                if sd and date_naive < sd: continue
+                if ed and date_naive > ed: continue
 
                 if granularity == 'year':
                     period = date_obj.strftime('%Y')
@@ -389,21 +414,27 @@ def get_topic_sentiment_over_time(
         cache_key = f"topic_sentiment_{granularity}_{topic_id}_{start_date}_{end_date}"
 
         def _compute():
-            from datetime import datetime as dt
+            from datetime import datetime as dt, timezone
             from collections import defaultdict
 
             db = get_firestore_db()
-            articles_query = db.db.collection('articles')
+            # Same fix as trends-over-time above: read from the shared
+            # snapshot rather than re-streaming the live collection (which
+            # times out on the SDK retry path past ~30k docs).
+            articles = db._get_articles_snapshot()
 
-            if start_date:
-                articles_query = articles_query.where('publication_date', '>=', dt.fromisoformat(start_date))
-            if end_date:
-                articles_query = articles_query.where('publication_date', '<=', dt.fromisoformat(end_date))
+            sd = dt.fromisoformat(start_date) if start_date else None
+            ed = dt.fromisoformat(end_date) if end_date else None
+            def _naive(d):
+                if d is None: return None
+                if hasattr(d, 'tzinfo') and d.tzinfo is not None:
+                    return d.astimezone(timezone.utc).replace(tzinfo=None)
+                return d
+            sd, ed = _naive(sd), _naive(ed)
 
             period_topic_sentiments = defaultdict(lambda: defaultdict(list))
 
-            for article_doc in articles_query.stream():
-                article = article_doc.to_dict()
+            for article in articles:
                 pub_date = article.get('publication_date')
                 article_topic_id = article.get('topic_id')
                 sentiment_score = article.get('sentiment_score')
@@ -412,14 +443,20 @@ def get_topic_sentiment_over_time(
                     continue
                 if topic_id is not None and article_topic_id != topic_id:
                     continue
+                if article.get('low_quality'):
+                    continue
 
                 if hasattr(pub_date, 'strftime'):
                     date_obj = pub_date
                 else:
                     try:
                         date_obj = dt.fromisoformat(str(pub_date).replace('Z', '+00:00'))
-                    except:
+                    except Exception:
                         continue
+
+                date_naive = _naive(date_obj)
+                if sd and date_naive < sd: continue
+                if ed and date_naive > ed: continue
 
                 if granularity == 'year':
                     period = date_obj.strftime('%Y')

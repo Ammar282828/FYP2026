@@ -8,6 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime, timedelta
+import os
 import uuid
 import jwt
 import bcrypt
@@ -16,8 +17,20 @@ from database.firestore_db import get_firestore_db
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 security = HTTPBearer(auto_error=False)
 
-# JWT config
-JWT_SECRET = "mediascope-secret-key-2026"
+# JWT config — read from env, fall back to a (logged) random secret on
+# dev machines that haven't set one. The hardcoded literal that lived
+# here previously was visible in source control and let anyone who saw
+# the repo forge tokens for any user.
+import secrets as _secrets
+JWT_SECRET = (os.getenv("JWT_SECRET") or "").strip()
+if not JWT_SECRET:
+    JWT_SECRET = _secrets.token_urlsafe(48)
+    print(
+        "[AUTH WARNING] JWT_SECRET not set in environment — generated an "
+        "ephemeral one for this process. Set JWT_SECRET in .env to keep "
+        "sessions valid across restarts.",
+        flush=True,
+    )
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 72
 
@@ -78,7 +91,19 @@ def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(securi
         return None
     try:
         return decode_token(credentials.credentials)
-    except:
+    except jwt.ExpiredSignatureError:
+        # Common, not a bug — user's session expired. Don't spam logs.
+        return None
+    except jwt.InvalidTokenError as e:
+        # Tampered or wrong-signature token: log so we can spot
+        # mass-forgery attempts. Don't 401 — caller might still be OK
+        # to serve as anonymous.
+        print(f"[AUTH] invalid token rejected: {e}", flush=True)
+        return None
+    except Exception as e:
+        # Anything else (network blip on a JWT-aware backend, etc.) —
+        # surface it once instead of silently swallowing.
+        print(f"[AUTH WARN] unexpected token decode failure: {e!r}", flush=True)
         return None
 
 

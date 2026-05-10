@@ -33,17 +33,70 @@ def _detect_transport(api_key: str) -> str:
 
 # ─── Vertex (new google-genai SDK) ────────────────────────────────────────────
 
+# Vertex AI quotas are per-region per-project — cycling regions
+# multiplies effective throughput because each region has its own
+# Dynamic Shared Quota slice. Default ['us-central1'] keeps legacy
+# single-region behaviour; set GEMINI_VERTEX_REGIONS=us-central1,us-east1,...
+# to rotate. Five common Vertex regions all support Gemini Pro/Flash.
+_DEFAULT_REGIONS = ('us-central1',)
+_ENV_REGIONS = os.getenv('GEMINI_VERTEX_REGIONS', '').strip()
+VERTEX_REGIONS: tuple = (
+    tuple(r.strip() for r in _ENV_REGIONS.split(',') if r.strip())
+    if _ENV_REGIONS else _DEFAULT_REGIONS
+)
+
+
 class _VertexModel:
-    """Mimics the legacy `GenerativeModel` interface using google-genai + Vertex Express."""
+    """Mimics the legacy `GenerativeModel` interface using google-genai + Vertex Express.
+
+    Region rotation: holds one Client per configured region and
+    round-robins per call. Combined with the existing key rotation in
+    pipeline.py, the effective throughput is (#keys × #regions) before
+    project DSQ saturates. Threadsafe via a per-instance lock.
+    """
 
     def __init__(self, api_key: str, model_name: str, safety_settings=None):
         from google import genai
         from google.genai import types as _types
+        import threading
         self._genai = genai
         self._types = _types
-        self._client = genai.Client(vertexai=True, api_key=api_key)
+        self._api_key = api_key
+        # Build one client per region. With Vertex Express (api_key auth)
+        # we can't pass `location=` directly — the SDK rejects it. Instead
+        # we point each client at the regional endpoint via
+        # `http_options.base_url`. Vertex Express exposes its REST API
+        # under `https://<region>-aiplatform.googleapis.com` and routes
+        # accordingly. Empty regions list ⇒ legacy single-region client.
+        self._regions = VERTEX_REGIONS
+        self._clients = [self._build_client(r) for r in self._regions]
+        self._region_idx = 0
+        self._region_lock = threading.Lock()
+        # Backwards compat: callers that read `_client` get the first one.
+        self._client = self._clients[0]
         self._model_name = model_name
         self._safety_settings = self._convert_safety(safety_settings)
+
+    def _build_client(self, region: str):
+        from google import genai
+        # us-central1 is also the default-global endpoint, so we don't
+        # need to override it; this avoids touching paths that work today.
+        if region == 'us-central1':
+            return genai.Client(vertexai=True, api_key=self._api_key)
+        # Regional Vertex REST endpoint
+        base = f'https://{region}-aiplatform.googleapis.com'
+        return genai.Client(
+            vertexai=True,
+            api_key=self._api_key,
+            http_options=self._types.HttpOptions(base_url=base),
+        )
+
+    def _next_client(self):
+        """Round-robin pick of a regional client. Threadsafe."""
+        with self._region_lock:
+            c = self._clients[self._region_idx]
+            self._region_idx = (self._region_idx + 1) % len(self._clients)
+            return c
 
     def _convert_safety(self, safety_settings):
         """Translate legacy {HarmCategory: HarmBlockThreshold} dict to new-SDK list."""
@@ -108,7 +161,11 @@ class _VertexModel:
             timeout=int(kwargs.get('timeout', _DEFAULT_TIMEOUT) * 1000),  # ms
         )
         config = self._types.GenerateContentConfig(**cfg_kwargs) if cfg_kwargs else None
-        response = self._client.models.generate_content(
+        # Pick a regional client per call so consecutive requests rotate
+        # us-central1 → us-east1 → us-east4 → … When one region 429s on
+        # quota, the next call automatically tries a different region.
+        client = self._next_client()
+        response = client.models.generate_content(
             model=self._model_name,
             contents=contents,
             config=config,

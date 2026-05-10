@@ -1032,3 +1032,73 @@
   color: var(--paper-cream) !important;
   transform: none;
 }
+
+/* ─── Rotate button (per-ad orientation override) ─────────────────────── */
+/* Wrapper holds the image and the floating ⟳ button. Position:relative so
+   the button can absolute-position itself. Overflow hidden because rotated
+   images would otherwise spill past the card's rounded corners. */
+.ad-card-image-wrap,
+.modal-ad-image-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* Floating button in the top-right of the image. Stays subtle until the
+   card is hovered so it doesn't dominate the dense grid. */
+.ad-rotate-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.15));
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary, #222);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+
+.ad-card:hover .ad-rotate-btn,
+.ad-rotate-btn:focus-visible,
+.ad-rotate-btn--modal {
+  /* Always visible inside the modal — the user has clearly opened it for
+     a closer look so the affordance should be obvious. */
+  opacity: 1;
+}
+
+.ad-rotate-btn:hover {
+  background: rgba(255, 255, 255, 1);
+  transform: rotate(45deg);
+}
+
+.ad-rotate-btn--modal {
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+}
+
+/* Sort dropdown lives inside the same row as Search / Clear buttons. */
+.ad-sort-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.2));
+  border-radius: 6px;
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #222);
+  font-size: 14px;
+  cursor: pointer;
+}
+.ad-sort-select:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}

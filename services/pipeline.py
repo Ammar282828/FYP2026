@@ -68,7 +68,13 @@ def _load_gemini_keys() -> tuple:
 class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_API_KEYS: tuple = _load_gemini_keys()
-    GEMINI_MODEL: str = "gemini-3.1-pro-preview"
+    # Default OCR model. gemini-3.1-pro-preview was the best multimodal
+    # but is single-region (us-central1 only) and severely RPM-capped on
+    # trial-tier projects, which corrupted ingests by losing per-region
+    # OCR calls to 429s. gemini-2.5-pro is published in every Vertex
+    # region so we can multiply throughput via region rotation, and the
+    # OCR-quality delta is negligible. Override via OCR_MODEL env var.
+    GEMINI_MODEL: str = os.getenv("OCR_MODEL", "gemini-2.5-pro")
     
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
@@ -294,24 +300,51 @@ class ImageProcessor:
         )
 
     def _generate(self, prompt_parts):
-        """Call generate_content, rotating keys on quota errors."""
+        """Call generate_content, rotating keys on quota errors and
+        retrying with exponential backoff if every key is 429.
+
+        Behaviour change vs original: instead of giving up after one
+        full pass through the key list, we keep retrying. After a full
+        cycle of 429s we sleep `429_BACKOFF * 2^cycle` seconds (capped
+        at GEMINI_429_MAX_BACKOFF), then start the rotation again. This
+        prevents partial-extraction poisoning when the project's
+        per-minute quota is briefly saturated — the call WILL eventually
+        land instead of falling back to whole-page OCR or returning 0
+        articles.
+        """
+        import time as _time
+        backoff = float(os.getenv('GEMINI_429_BACKOFF', '8'))         # seconds
+        max_backoff = float(os.getenv('GEMINI_429_MAX_BACKOFF', '60'))
+        max_retries = int(os.getenv('GEMINI_429_MAX_RETRIES', '20'))   # cycles
         keys_tried = 0
-        while keys_tried < len(self._keys):
+        cycles = 0
+        while True:
             try:
                 return self.model.generate_content(
                     prompt_parts,
                     safety_settings=self.safety_settings
                 )
             except Exception as e:
-                if any(x in str(e).lower() for x in ['quota', '429', 'rate', '403', 'permission', 'leaked']):
-                    keys_tried += 1
-                    if keys_tried < len(self._keys):
-                        self._rotate_key()
-                    else:
-                        print(f"  [ERROR] All API keys exhausted quota")
-                        raise
-                else:
+                msg = str(e).lower()
+                is_quota = any(x in msg for x in ['quota', '429', 'rate', '403', 'permission', 'leaked'])
+                if not is_quota:
                     raise
+                keys_tried += 1
+                if keys_tried < len(self._keys):
+                    self._rotate_key()
+                    continue
+                # Full cycle exhausted — back off and retry instead of
+                # raising. This is what stops partial-extraction
+                # poisoning when quota is briefly saturated.
+                cycles += 1
+                if cycles > max_retries:
+                    print(f"  [ERROR] All API keys exhausted after {cycles} cycles — giving up")
+                    raise
+                wait = min(backoff * (2 ** (cycles - 1)), max_backoff)
+                print(f"  [WAIT] All keys 429d. Cycle {cycles}/{max_retries}, sleeping {wait:.0f}s before retry…")
+                _time.sleep(wait)
+                keys_tried = 0
+                self._rotate_key()
     
     # Map of 3-letter month abbreviations to numeric month, used by the
     # ``Mon_DD_YY_pN`` filename pattern below. The Dawn 1990–1992 corpus is
@@ -499,6 +532,23 @@ If a field cannot be read confidently, write UNKNOWN for that field."""
             print("  [INFO] Rotating landscape image to portrait")
             image = image.rotate(90, expand=True)
 
+        # iPhone EXIF orientation tags are unreliable on transferred /
+        # app-saved photos: the flag often says "no rotation needed" even
+        # when the page was photographed upside-down or 90° off. The
+        # landscape→portrait check above only catches the gross 90° case;
+        # papers shot upside-down in portrait still come through inverted,
+        # which means every ad cropped from that page is also upside-down.
+        # Use Tesseract OSD on a downsampled copy to detect rotation, then
+        # rotate the original to match. OSD is fast (<1s on a 1024px copy)
+        # and confidence-gated so we only act when we're sure.
+        try:
+            image = self._auto_orient_with_osd(image)
+        except Exception as e:
+            # Never let orientation detection fail an ingest — if Tesseract
+            # isn't available or OSD couldn't read the page (sparse text,
+            # photo of a cover image), keep the existing orientation.
+            print(f"  [INFO] OSD orientation skipped: {e}")
+
         if image.mode != 'RGB':
             image = image.convert('RGB')
 
@@ -512,6 +562,61 @@ If a field cannot be read confidently, write UNKNOWN for that field."""
         image = enhancer.enhance(1.1)
 
         return image
+
+    # Confidence threshold for trusting Tesseract's orientation guess.
+    # Below this we leave the page alone — OSD can return spurious 90/180
+    # results on sparse pages (photos, ads, mostly-white sections) and a
+    # wrong rotation is worse than no rotation since downstream OCR will
+    # then read text upside-down.
+    _OSD_MIN_CONFIDENCE = 2.0
+
+    def _auto_orient_with_osd(self, image: Image.Image) -> Image.Image:
+        """Use Tesseract OSD to detect 0/90/180/270° rotation and correct it.
+
+        Runs on a downsampled copy for speed. Only rotates when Tesseract
+        reports both a non-zero rotation AND a confidence above
+        ``_OSD_MIN_CONFIDENCE``. Falls back to the input image on any
+        failure (Tesseract missing, OSD couldn't classify, etc.).
+        """
+        import pytesseract  # local import keeps optional dep lazy
+
+        # Downsample for OSD speed — accuracy is fine at 1024px long edge.
+        long_edge = max(image.width, image.height)
+        if long_edge > 1024:
+            scale = 1024 / long_edge
+            small = image.resize(
+                (max(1, int(image.width * scale)), max(1, int(image.height * scale))),
+                Image.LANCZOS,
+            )
+        else:
+            small = image
+
+        try:
+            osd = pytesseract.image_to_osd(small, output_type=pytesseract.Output.DICT)
+        except pytesseract.TesseractError:
+            # Sparse pages → "Too few characters." OSD raises rather than
+            # returning low confidence; treat as "leave it alone".
+            return image
+        except Exception:
+            return image
+
+        rotate = int(osd.get('rotate', 0)) or 0
+        confidence = float(osd.get('orientation_conf', 0.0) or 0.0)
+
+        if rotate == 0:
+            return image
+        if confidence < self._OSD_MIN_CONFIDENCE:
+            print(
+                f"  [INFO] OSD says rotate {rotate}° but confidence {confidence:.2f} "
+                f"is below threshold {self._OSD_MIN_CONFIDENCE} — leaving as-is"
+            )
+            return image
+
+        # Tesseract's `rotate` is the angle to rotate the image
+        # COUNTER-clockwise to make it upright. PIL's `image.rotate(angle)`
+        # also rotates counter-clockwise, so the values match directly.
+        print(f"  [INFO] OSD: rotating page {rotate}° (confidence {confidence:.1f})")
+        return image.rotate(rotate, expand=True)
 
     # Cap the long edge of any image we ship to Gemini. Phone scans are
     # 4032×3024 (≈6-12 MB JPEG) which the Vertex Express endpoint accepts

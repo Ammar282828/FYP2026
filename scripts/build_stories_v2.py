@@ -137,23 +137,46 @@ def _article_features(article: dict) -> List[str]:
 # ───────────────────────── I/O ──────────────────────────────────────────
 
 def fetch_all_articles(db) -> List[dict]:
-    """Pull every article. Apply garbage filters in-memory."""
-    print('Fetching articles…')
+    """Pull every article. Apply garbage filters in-memory.
+
+    Pages by __name__ in 5k chunks instead of one giant `.stream()`.
+    The single-stream version hangs on the SDK retry bug once the
+    collection passes ~30k docs (same fix as
+    firestore_db._get_articles_snapshot and the topics endpoints).
+    """
+    print('Fetching articles (paginated)…')
     docs = []
-    for d in db.db.collection('articles').stream():
-        a = d.to_dict()
-        if _is_classified(a):
-            continue
-        if _is_garbage_headline(a.get('headline') or ''):
-            continue
-        # Body must have substance
-        wc = a.get('word_count') or len((a.get('content') or '').split())
-        if wc < 80:
-            continue
-        # Need a date for date-window logic
-        if not a.get('publication_date'):
-            continue
-        docs.append(a)
+    PAGE = 5000
+    last_id = None
+    seen = 0
+    while True:
+        q = db.db.collection('articles').order_by('__name__').limit(PAGE)
+        if last_id is not None:
+            q = q.start_after({'__name__': last_id})
+        page = list(q.stream())
+        if not page:
+            break
+        for d in page:
+            a = d.to_dict()
+            if a.get('low_quality'):
+                continue
+            if _is_classified(a):
+                continue
+            if _is_garbage_headline(a.get('headline') or ''):
+                continue
+            # Body must have substance
+            wc = a.get('word_count') or len((a.get('content') or '').split())
+            if wc < 80:
+                continue
+            # Need a date for date-window logic
+            if not a.get('publication_date'):
+                continue
+            docs.append(a)
+        seen += len(page)
+        last_id = page[-1].id
+        print(f'  scanned {seen}, kept {len(docs)}', flush=True)
+        if len(page) < PAGE:
+            break
     print(f'  {len(docs)} articles after filters')
     return docs
 
@@ -345,21 +368,62 @@ def _gemini_title(prompt: str, key: str, model_name: str = 'gemini-2.5-flash') -
 
 def clear_existing_stories(db) -> None:
     print('Clearing existing stories…')
+
+    # Delete stories in batches. Single-doc delete on 500+ stories used
+    # to take ~minutes; batched commits cut it to seconds.
     docs = list(db.db.collection('stories').stream())
-    for d in docs:
-        d.reference.delete()
+    if docs:
+        b = db.db.batch(); n = 0
+        for d in docs:
+            b.delete(d.reference); n += 1
+            if n % 400 == 0:
+                b.commit(); b = db.db.batch()
+        b.commit()
     print(f'  Deleted {len(docs)} stories')
+
+    # Clearing story_id from articles previously did a full
+    # `db.collection("articles").stream()` of all ~36k docs, then
+    # filtered in-process. That hits the SDK retry bug on large
+    # collections and hangs forever. Use a where() filter so Firestore
+    # only sends back the docs that actually have a story_id set.
+    from google.cloud.firestore_v1.base_query import FieldFilter
     n = 0
-    batch = db.db.batch()
-    for d in db.db.collection('articles').stream():
-        if d.to_dict().get('story_id'):
-            batch.update(d.reference, {'story_id': None})
+    b = db.db.batch()
+    try:
+        # Articles with any non-null story_id. We can't use `!=` on a
+        # field that may be missing; fall back to ordering-by-key
+        # pagination if this query errors.
+        q = db.db.collection('articles').where(filter=FieldFilter('story_id', '>', ''))
+        for d in q.stream():
+            b.update(d.reference, {'story_id': None})
             n += 1
             if n % 400 == 0:
-                batch.commit()
-                batch = db.db.batch()
-    if n % 400:
-        batch.commit()
+                b.commit(); b = db.db.batch()
+        if n % 400:
+            b.commit()
+    except Exception as e:
+        # Fallback: paginate articles by __name__ in chunks of 5k —
+        # same pattern firestore_db._get_articles_snapshot uses to
+        # dodge the SDK's full-collection-scan crash.
+        print(f'  story_id where-query failed ({e}); falling back to paginated scan')
+        last_id = None
+        while True:
+            qq = db.db.collection('articles').order_by('__name__').limit(5000)
+            if last_id is not None:
+                qq = qq.start_after({'__name__': last_id})
+            page = list(qq.stream())
+            if not page: break
+            for d in page:
+                if d.to_dict().get('story_id'):
+                    b.update(d.reference, {'story_id': None})
+                    n += 1
+                    if n % 400 == 0:
+                        b.commit(); b = db.db.batch()
+            last_id = page[-1].id
+            if len(page) < 5000: break
+        if n % 400:
+            b.commit()
+
     print(f'  Cleared story_id from {n} articles')
 
 

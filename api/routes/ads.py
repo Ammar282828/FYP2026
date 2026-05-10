@@ -6,11 +6,34 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from typing import Optional, List
 import os
 import uuid
+import time
+import threading
 from datetime import datetime
 import json
 import requests
 import re
 from database.firestore_db import get_firestore_db
+
+
+# Process-local cache for the analytics summary. The endpoint streams
+# the entire ads collection (~2.5k docs with heavy `analysis` blobs),
+# which costs ~12s end-to-end. Most users hit the page repeatedly while
+# scrolling around — a 5-minute cache cuts that to <50ms after the
+# first load. Invalidates implicitly on TTL; ingest writes don't push
+# updates because freshness within a 5-minute window doesn't matter for
+# this dashboard.
+_ADS_SUMMARY_CACHE_TTL = 300  # seconds
+_ads_summary_cache = {'value': None, 'ts': 0.0}
+_ads_summary_lock = threading.Lock()
+
+
+# Same-pattern cache for the ads-list / ads-browse endpoints, which also
+# stream the whole collection. They paginate client-side so the server
+# always returns the full set anyway. 60s TTL is enough that a fresh
+# load is cheap but new ingests appear within a minute.
+_ADS_LIST_CACHE_TTL = 60
+_ads_list_cache = {}  # keyed by query signature
+_ads_list_lock = threading.Lock()
 
 try:
     import google.generativeai as genai
@@ -887,25 +910,65 @@ def _attach_newspaper_image_urls(db, ads: list) -> None:
     saves a region that's mostly whitespace with a sliver of text, leaving the
     cached crop visually empty. The frontend can re-derive a clean crop from
     the parent newspaper image + the stored coordinate %s, but it needs the
-    parent's image URL to do that. This helper batches the lookups by unique
-    newspaper_id so we make at most ~N/200 reads instead of one per ad.
+    parent's image URL to do that.
+
+    Performance history: previously this did one *sequential* Firestore
+    `.get()` per unique newspaper_id, which on a 2,000-ad page meant
+    ~1,400 round-trips and 600+ seconds wall time (worse than the
+    article snapshot scan we paged earlier). Two changes:
+      1. Process-local persistent cache so identical ads visiting the
+         endpoint reuse newspaper-id lookups across requests, not just
+         within one request.
+      2. Concurrent fetches via ThreadPoolExecutor — gRPC bear the
+         per-call latency just fine in parallel, so 16 workers cut the
+         60s cold-cache pull to ~6s.
     """
     ids = sorted({(ad.get('newspaper_id') or '').strip() for ad in ads})
     ids = [i for i in ids if i]
     if not ids:
         return
-    cache: dict[str, str] = {}
-    # Firestore .get() can take individual doc refs; do a small batch loop.
-    for nid in ids:
-        try:
-            snap = db.db.collection('newspapers').document(nid).get()
-            if snap.exists:
-                cache[nid] = (snap.to_dict() or {}).get('image_url') or ''
-        except Exception:
-            cache[nid] = ''
+
+    # Reuse cross-request lookups so the second visit to /browse is fast
+    # even if the per-query cache missed.
+    global _NP_IMG_URL_CACHE
+    cache = _NP_IMG_URL_CACHE
+    missing = [i for i in ids if i not in cache]
+
+    if missing:
+        from concurrent.futures import ThreadPoolExecutor
+        def _one(nid):
+            try:
+                snap = db.db.collection('newspapers').document(nid).get()
+                return nid, ((snap.to_dict() or {}).get('image_url') or '') if snap.exists else ''
+            except Exception:
+                return nid, ''
+        # 16 workers is a sweet spot for Firestore gRPC: enough parallelism
+        # to mask per-call latency, low enough to avoid rate limits.
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            for nid, url in ex.map(_one, missing):
+                cache[nid] = url
+
+        # Bound the cache. Newspaper image URLs never change post-upload,
+        # so eviction is purely about memory not freshness — drop the
+        # oldest insertions once we pass 10k entries. Without this the
+        # cache grows linearly with newspaper-id space (currently ~4k,
+        # but no upper limit as ingest continues).
+        _MAX_CACHE = 10_000
+        if len(cache) > _MAX_CACHE:
+            # Trim from the oldest insertions (Python 3.7+ dict ordering
+            # preserves insertion order). Pop until we're back at limit.
+            for k in list(cache.keys())[: len(cache) - _MAX_CACHE]:
+                cache.pop(k, None)
+
     for ad in ads:
         nid = (ad.get('newspaper_id') or '').strip()
         ad['newspaper_image_url'] = cache.get(nid, '')
+
+
+# Process-local cache of newspaper_id → image_url. Newspaper image URLs
+# never change after upload, so this can grow unbounded without staleness
+# concerns. Cap at 10k entries to be safe.
+_NP_IMG_URL_CACHE: dict = {}
 
 
 @router.get("/browse")
@@ -925,7 +988,19 @@ def browse_advertisements(
 
     Cap is now 1000 per page (was 200). Asking for `limit=2000` returns
     the whole collection in one shot — small enough for the client.
+
+    A second-tier response cache keyed by query signature avoids
+    re-running the filter loop and the per-newspaper image-URL fetch
+    on identical repeat requests (the AdBrowser page issues the same
+    `limit=2000` query on every navigation back to the tab — without
+    this, that hit cost ~13s of newspaper-image lookups).
     """
+    cache_key = f'browse:{limit}:{offset}:{start_date}:{end_date}:{category}'
+    now_ts = time.time()
+    with _ads_list_lock:
+        hit = _ads_list_cache.get(cache_key)
+        if hit and now_ts - hit['ts'] < _ADS_LIST_CACHE_TTL:
+            return hit['value']
     try:
         from datetime import datetime as dt, timezone
 
@@ -979,13 +1054,22 @@ def browse_advertisements(
         # accurate crops from the source image.
         _attach_newspaper_image_urls(db, page)
 
-        return {
+        result = {
             "ads": page,
             "total": total,           # full filtered count (was: page-only count)
             "shown": len(page),
             "limit": limit,
             "offset": offset,
         }
+        with _ads_list_lock:
+            _ads_list_cache[cache_key] = {'value': result, 'ts': time.time()}
+            # Trim cache: keep only the 24 most recent keys so it doesn't
+            # grow unbounded across many filter combinations.
+            if len(_ads_list_cache) > 24:
+                oldest = sorted(_ads_list_cache.items(), key=lambda kv: kv[1]['ts'])[:len(_ads_list_cache) - 24]
+                for k, _ in oldest:
+                    _ads_list_cache.pop(k, None)
+        return result
 
     except Exception as e:
         raise HTTPException(500, f"Error browsing ads: {str(e)}")
@@ -1142,6 +1226,11 @@ def get_ad_analytics():
     Returns category distribution, brand frequency, sentiment breakdown,
     visual style breakdown, and monthly volume timeline.
     """
+    # Cache check first — see _ads_summary_cache comment above.
+    now = time.time()
+    cached = _ads_summary_cache.get('value')
+    if cached is not None and now - _ads_summary_cache.get('ts', 0) < _ADS_SUMMARY_CACHE_TTL:
+        return cached
     try:
         db = get_firestore_db()
         ads_docs = list(db.db.collection('advertisements').stream())
@@ -1170,40 +1259,52 @@ def get_ad_analytics():
             if not isinstance(analysis, dict):
                 continue
 
+            # All `.lower()` calls below need defensive `or ''` because
+            # Firestore can store explicit None values for these fields
+            # when an analysis run partially failed. Without this, one
+            # bad ad blows up the whole aggregator.
+
             # Category
             cat = (
                 ad.get('category')
-                or (analysis.get('brand') or {}).get('category', '')
+                or ((analysis.get('brand') or {}).get('category') if isinstance(analysis.get('brand'), dict) else None)
                 or 'other'
             )
-            cat = cat.strip().lower() or 'other'
+            cat = (cat or '').strip().lower() or 'other'
+            # Hide "[NO VISIBLE TEXT]" / "[ILLEGIBLE]" pseudo-categories.
+            if cat.startswith('[') and cat.endswith(']'):
+                cat = 'other'
             categories[cat] = categories.get(cat, 0) + 1
 
             # Brand name
             brand = (
                 ad.get('brand')
-                or (analysis.get('brand') or {}).get('name', '')
+                or ((analysis.get('brand') or {}).get('name') if isinstance(analysis.get('brand'), dict) else None)
                 or ''
             )
             if brand:
-                brand = brand.strip()
-                brands[brand] = brands.get(brand, 0) + 1
+                brand = (brand or '').strip()
+                # Filter Dawn/Herald house promos and bracketed placeholders.
+                bl = brand.lower()
+                if (bl in {'dawn','the dawn','dawn newspaper','herald','the herald'}
+                        or bl.startswith('[') or bl.startswith('the dawn')):
+                    pass
+                else:
+                    brands[brand] = brands.get(brand, 0) + 1
 
             # Sentiment
-            sentiment = (analysis.get('assessment') or {}).get('sentiment', '').lower()
+            sentiment = ((analysis.get('assessment') or {}).get('sentiment') or '').lower()
             if sentiment in ('positive', 'neutral', 'negative'):
                 sentiments[sentiment] = sentiments.get(sentiment, 0) + 1
 
             # Design style
-            style = (analysis.get('visualAnalysis') or {}).get('designStyle', '')
-            if style:
-                style = style.strip().lower()
+            style = ((analysis.get('visualAnalysis') or {}).get('designStyle') or '').strip().lower()
+            if style and not style.startswith('['):
                 design_styles[style] = design_styles.get(style, 0) + 1
 
             # Emotional appeal
-            appeal = (analysis.get('advertisingStrategy') or {}).get('emotionalAppeal', '')
-            if appeal:
-                appeal = appeal.strip().lower()
+            appeal = ((analysis.get('advertisingStrategy') or {}).get('emotionalAppeal') or '').strip().lower()
+            if appeal and not appeal.startswith('['):
                 emotional_appeals[appeal] = emotional_appeals.get(appeal, 0) + 1
 
             # Monthly volume (YYYY-MM)
@@ -1216,7 +1317,7 @@ def get_ad_analytics():
         # Sort brands by frequency, keep top 30
         top_brands = dict(sorted(brands.items(), key=lambda x: x[1], reverse=True)[:30])
 
-        return {
+        result = {
             "total_ads": len(ads_docs),
             "categories": dict(sorted(categories.items(), key=lambda x: x[1], reverse=True)),
             "brands": top_brands,
@@ -1225,6 +1326,10 @@ def get_ad_analytics():
             "emotional_appeals": dict(sorted(emotional_appeals.items(), key=lambda x: x[1], reverse=True)),
             "monthly_volume": dict(sorted(monthly_volume.items()))
         }
+        with _ads_summary_lock:
+            _ads_summary_cache['value'] = result
+            _ads_summary_cache['ts'] = time.time()
+        return result
 
     except Exception as e:
         raise HTTPException(500, f"Error computing analytics: {str(e)}")
