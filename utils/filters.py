@@ -78,14 +78,38 @@ def filter_and_normalize_entities(entities) -> List[Dict]:
 
 
 def extract_date_from_image(image_path: str) -> Optional[str]:
-    # tries to find the date on a newspaper image using OCR
-    # looks at the top part where dates usually are
+    """Try to read the publication date off the masthead.
+
+    Two-pass strategy:
+      1. Tesseract on the top 25% of the image. Cheap and fast — works
+         on plain typography. Falls through to step 2 on no match.
+      2. Gemini-Vision on the same crop. Catches fancy mastheads,
+         angled scans, and partial occlusion that Tesseract chokes on.
+
+    Returns YYYY-MM-DD on success, None on total miss (UI then prompts
+    the user to enter the date manually).
+    """
     try:
         try:
             import pytesseract
-            from PIL import Image
+            from PIL import Image, ImageOps
+            try:
+                from pillow_heif import register_heif_opener
+                register_heif_opener()
+            except Exception:
+                pass
 
             img = Image.open(image_path)
+            # Apply EXIF rotation BEFORE cropping — iPhone photos often
+            # carry an EXIF orientation tag that PIL ignores by default,
+            # so the "top" of the image was actually the side and we
+            # were OCR'ing rotated text.
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
             width, height = img.size
             # Look at top 25% of image where mastheads/dates usually are
             top_section = img.crop((0, 0, width, int(height * 0.25)))
@@ -154,7 +178,68 @@ def extract_date_from_image(image_path: str) -> Optional[str]:
         except ImportError:
             pass
 
-        return None
+        # Tesseract pass found nothing — fall back to Gemini Vision on
+        # the same crop. Gemini reads stylised mastheads, angled scans,
+        # and partial occlusion that Tesseract gives up on. ~$0.001 per
+        # call on flash, well worth it for a single uploaded page.
+        try:
+            return _gemini_extract_date(image_path)
+        except Exception as e:
+            print(f"Gemini date fallback failed: {e}")
+            return None
     except Exception as e:
         print(f"Date extraction error: {e}")
         return None
+
+
+def _gemini_extract_date(image_path: str) -> Optional[str]:
+    """Ask Gemini-Vision for the masthead date. Returns YYYY-MM-DD or None."""
+    import os
+    import re as _re
+    try:
+        from PIL import Image, ImageOps
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except Exception:
+            pass
+        from services.gemini_adapter import create_model
+    except Exception:
+        return None
+
+    keys = (os.getenv('GEMINI_API_KEYS') or '').strip()
+    api_key = (keys.split(',')[0].strip() if keys else os.getenv('GEMINI_API_KEY') or '').strip()
+    if not api_key:
+        return None
+
+    img = Image.open(image_path)
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    width, height = img.size
+    crop = img.crop((0, 0, width, int(height * 0.25)))
+    # Cap the crop's long edge — flash doesn't need 6000px to read a
+    # date, and shipping the original byte-for-byte slows the round-trip.
+    if max(crop.size) > 1600:
+        ratio = 1600 / max(crop.size)
+        crop = crop.resize((int(crop.width * ratio), int(crop.height * ratio)), Image.LANCZOS)
+
+    prompt = (
+        "Read the publication date printed on this newspaper masthead. "
+        "Return ONLY the date in YYYY-MM-DD format. If no date is visible "
+        "or you can't read it, return exactly the word NONE. No other text."
+    )
+    model = create_model(api_key, 'gemini-2.5-flash')
+    resp = model.generate_content([prompt, crop])
+    raw = (getattr(resp, 'text', '') or '').strip()
+    m = _re.search(r'\b(19[89]\d|20\d{2})-(\d{1,2})-(\d{1,2})\b', raw)
+    if not m:
+        return None
+    yr, mo, dy = (int(x) for x in m.groups())
+    if not (1990 <= yr <= 1995 and 1 <= mo <= 12 and 1 <= dy <= 31):
+        # Reject obvious hallucinations — corpus is 1990-1992
+        return None
+    return f'{yr:04d}-{mo:02d}-{dy:02d}'
