@@ -1315,19 +1315,46 @@ class NLPProcessor:
         os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
-        import torch
-        torch.set_num_threads(4)
+        # torch + transformers are heavy multi-GB installs that the
+        # academic-tier deployment doesn't always have. Make them
+        # optional: when unavailable, fall back to VADER (lexicon-based)
+        # for sentiment, which is what the bulk-ingest path uses anyway.
+        try:
+            import torch
+            torch.set_num_threads(4)
+            self._torch_ok = True
+        except ImportError:
+            print("[INFO] torch not installed — sentiment will use VADER fallback")
+            self._torch_ok = False
 
         print("Loading spaCy model...")
         self.nlp = spacy.load(config.SPACY_MODEL)
 
-        print("Loading sentiment analysis model...")
-        self.sentiment_analyzer = pipeline(
-            "sentiment-analysis",
-            model=config.SENTIMENT_MODEL,
-            device=-1,
-            top_k=None
-        )
+        if self._torch_ok:
+            try:
+                print("Loading sentiment analysis model...")
+                self.sentiment_analyzer = pipeline(
+                    "sentiment-analysis",
+                    model=config.SENTIMENT_MODEL,
+                    device=-1,
+                    top_k=None
+                )
+            except Exception as e:
+                print(f"[WARNING] transformer sentiment failed ({e}); falling back to VADER")
+                self.sentiment_analyzer = None
+                self._torch_ok = False
+        else:
+            self.sentiment_analyzer = None
+
+        # VADER fallback — lightweight, no external models, ships with
+        # vaderSentiment. Loaded only if torch isn't available.
+        self._vader = None
+        if not self._torch_ok:
+            try:
+                from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+                self._vader = SentimentIntensityAnalyzer()
+            except ImportError:
+                print("[WARNING] neither torch nor vaderSentiment installed — sentiment will be neutral")
 
         # Load topic taxonomy for Gemini-based classification
         self.topics_taxonomy = self._load_topics_taxonomy()
@@ -1405,22 +1432,37 @@ class NLPProcessor:
             except Exception as exc:
                 print(f"[SENTIMENT] Gemini failed: {exc}; falling back to RoBERTa")
 
-        # Legacy RoBERTa path (also the fallback).
+        # Legacy RoBERTa path (also the fallback). VADER kicks in when
+        # torch isn't installed.
         snippet = text[:1000]
-        results = self.sentiment_analyzer(snippet)[0]
-        label_map = {'negative': -1, 'neutral': 0, 'positive': 1}
-        top_result = max(results, key=lambda x: x['score'])
-        label = top_result['label'].lower()
-        score = 0.0
-        for r in results:
-            lbl = r['label'].lower()
-            score += label_map.get(lbl, 0) * r['score']
-        return {
-            'score': round(score, 3),
-            'label': label,
-            'confidence': round(top_result['score'], 3),
-            'method': 'roberta',
-        }
+        if self.sentiment_analyzer is not None:
+            results = self.sentiment_analyzer(snippet)[0]
+            label_map = {'negative': -1, 'neutral': 0, 'positive': 1}
+            top_result = max(results, key=lambda x: x['score'])
+            label = top_result['label'].lower()
+            score = 0.0
+            for r in results:
+                lbl = r['label'].lower()
+                score += label_map.get(lbl, 0) * r['score']
+            return {
+                'score': round(score, 3),
+                'label': label,
+                'confidence': round(top_result['score'], 3),
+                'method': 'roberta',
+            }
+        if self._vader is not None:
+            v = self._vader.polarity_scores(snippet)
+            score = v['compound']
+            label = 'positive' if score > 0.1 else ('negative' if score < -0.1 else 'neutral')
+            return {
+                'score': round(score, 3),
+                'label': label,
+                'confidence': round(abs(score), 3) or 0.5,
+                'method': 'vader',
+            }
+        # Last resort: nothing installed, return neutral so the pipeline
+        # doesn't crash on a single-article OCR upload.
+        return {'score': 0.0, 'label': 'neutral', 'confidence': 0.0, 'method': 'none'}
 
     def assign_topic(self, text: str) -> Dict:
         """Classify article text into a topic.

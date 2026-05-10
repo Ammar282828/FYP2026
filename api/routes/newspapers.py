@@ -215,6 +215,17 @@ def process_local_folder(request: dict):
 # runs OCR processing on an uploaded newspaper
 @router.post("/ocr/process")
 def trigger_ocr_processing(request: dict):
+    """
+    Process a single uploaded newspaper image.
+
+    Uses the SAME lightweight pipeline as /tmp/bulk_ingest.py: ImageProcessor
+    for OCR + ad detection, services.sentiment_gemini for sentiment, and
+    services.topics_gemini for topic classification. The legacy
+    MediaScopePipeline path needed torch + spaCy for entity extraction;
+    this path delegates everything to Gemini and matches what the running
+    bulk-ingest workers produce, so single-page uploads land with the same
+    article schema as the corpus.
+    """
     file_id = request.get('file_id')
     file_path = request.get('file_path')
     publication_date = request.get('publication_date')
@@ -233,36 +244,118 @@ def trigger_ocr_processing(request: dict):
         if not file_path:
             raise HTTPException(404, f"File not found for file_id: {file_id}")
 
-    active_pipeline = _init_pipeline()
-
-    if not active_pipeline:
-        raise HTTPException(503, "OCR pipeline not available")
-
     parsed_date = None
     if publication_date:
         try:
             parsed_date = datetime.strptime(publication_date, '%Y-%m-%d')
-        except:
+        except Exception:
             pass
 
     try:
-        success = active_pipeline.process_single_newspaper(file_path, publication_date=parsed_date)
+        from services.pipeline import Config, ImageProcessor, MediaScopeDatabase
+        from services.sentiment_gemini import analyze_sentiment_gemini
+        from services.topics_gemini import classify_topics_batch_gemini
+        from PIL import Image
+        import uuid as _uuid
+        from concurrent.futures import ThreadPoolExecutor
 
-        if success:
-            return {
-                "file_id": file_id,
-                "file_path": file_path,
-                "status": "completed",
-                "message": "OCR processing completed successfully"
-            }
-        else:
-            return {
-                "file_id": file_id,
-                "file_path": file_path,
-                "status": "failed",
-                "message": "OCR processing failed"
-            }
+        config = Config()
+        ip = ImageProcessor(config)
+        db = MediaScopeDatabase(config)
+        db.connect()
+        api_key = (config.GEMINI_API_KEYS[0] if config.GEMINI_API_KEYS else config.GEMINI_API_KEY) or ''
+
+        raw = Image.open(file_path)
+        page_img = ip.enhance_image(raw)
+
+        # Metadata first — date + page from the masthead. If the user
+        # provided a publication_date in the request, it overrides what
+        # OCR finds (manual entry is more trustworthy than masthead OCR
+        # on a single-page upload).
+        meta = ip.extract_metadata(file_path, prepared_image=page_img)
+        pub_date = parsed_date or meta.get('date')
+        page_num = meta.get('page')
+
+        # Detect ads + extract articles in parallel — same fan-out as
+        # bulk_ingest.process_one. 600s/1200s timeouts mirror the
+        # production limits so a dense classifieds page can finish.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix='page') as ex:
+            f_ads = ex.submit(ip.detect_ads, page_img)
+            f_arts = ex.submit(ip.extract_articles, file_path, page_img)
+            ads = f_ads.result(timeout=600)
+            articles = f_arts.result(timeout=1200)
+
+        newspaper_id = db.insert_newspaper(
+            pub_date=pub_date, page_num=page_num,
+            section='Main', image_path=file_path,
+        )
+
+        n_ads = 0
+        if ads:
+            with ThreadPoolExecutor(max_workers=min(4, len(ads))) as ex:
+                analyses = list(ex.map(ip.analyze_ad_image, (a['image'] for a in ads)))
+            for ad, an in zip(ads, analyses):
+                ad['publication_date'] = pub_date
+                ad['page_number'] = page_num
+                ad['deep_analysis'] = an
+                if db.insert_ad(newspaper_id, ad):
+                    n_ads += 1
+
+        n_articles = 0
+        if articles:
+            article_texts = [(a.get('headline','') + '\n\n' + a.get('text','')) for a in articles]
+            try:
+                batch_topics = classify_topics_batch_gemini(article_texts, api_key=api_key)
+            except Exception:
+                batch_topics = [{} for _ in articles]
+
+            for art, top in zip(articles, batch_topics):
+                text_for_sent = (art.get('headline', '') + '\n\n' + art.get('text', ''))[:4000]
+                try:
+                    sent = analyze_sentiment_gemini(text_for_sent, api_key=api_key)
+                except Exception:
+                    sent = {'label': 'neutral', 'score': 0.0, 'confidence': 0.0}
+
+                article_data = {
+                    'id': str(_uuid.uuid4()),
+                    'newspaper_id': newspaper_id,
+                    'article_number': art.get('number'),
+                    'headline': art.get('headline', '')[:500],
+                    'content': art.get('text', ''),
+                    'word_count': art.get('word_count', 0),
+                    'bounding_box': None,
+                    'sentiment_score': sent.get('score', 0.0),
+                    'sentiment_label': sent.get('label', 'neutral'),
+                    'sentiment_method': 'gemini',
+                    'sentiment_confidence': sent.get('confidence'),
+                    'topic_id': top.get('topic_id'),
+                    'topic_label': top.get('topic_label'),
+                    'topic_method': 'gemini-curated',
+                    'topic_confidence': top.get('confidence'),
+                    'publication_date': pub_date,
+                    'page_number': page_num,
+                    'created_at': datetime.utcnow(),
+                }
+                # MediaScopeDatabase wraps FirestoreDB; the raw firestore
+                # client is two levels deep (db.db = FirestoreDB,
+                # db.db.db = google client). Mirrors bulk_ingest's `fs`.
+                db.db.db.collection('articles').document(article_data['id']).set(article_data)
+                n_articles += 1
+
+        return {
+            "file_id": file_id,
+            "file_path": file_path,
+            "newspaper_id": newspaper_id,
+            "publication_date": pub_date.isoformat() if pub_date and hasattr(pub_date, 'isoformat') else None,
+            "page_number": page_num,
+            "articles": n_articles,
+            "ads": n_ads,
+            "status": "completed",
+            "message": f"OCR completed: {n_articles} articles, {n_ads} ads",
+        }
     except Exception as e:
+        import traceback as _tb
+        print(f"[OCR /process] error: {e}\n{_tb.format_exc()}", flush=True)
         raise HTTPException(500, f"OCR processing error: {str(e)}")
 
 
