@@ -57,6 +57,32 @@ def list_stories(
             start_date=start_date,
             end_date=end_date
         )
+        # Hide stories whose title is just a topic name (e.g. "Pakistan
+        # Politics", "Crime & Violence"). These are weak fallback titles
+        # the clusterer assigns when AI titling is unavailable AND the
+        # cluster doesn't have enough distinct entities to stitch a
+        # narrative title — they masquerade as stories but are really
+        # just "small bag of articles in this topic that landed in the
+        # same week", which is what the Topics tab already shows.
+        TOPIC_TITLE_BLOCKLIST = {
+            'pakistan politics', 'crime & violence', 'tenders & classifieds',
+            'arts & culture', 'health & medicine', 'education', 'cricket',
+            'job listings', 'foreign relations', 'middle east',
+            'cold war & ussr', 'agriculture & commodities', 'other sports',
+            'budget & tax', 'currency & forex', 'stock market',
+            'industry & manufacturing', 'real estate & property', 'transport',
+            'shipping & trade', 'kashmir', 'afghanistan', 'defence & military',
+            'media & broadcasting', 'technology', 'telecom', 'legal notices',
+            'obituaries & condolences', 'puzzles & crosswords',
+            'nuclear programme', 'weather', 'consumer electronics',
+            'utilities (power & water)', 'automotive', 'imf & external debt',
+            'oil & energy markets', 'corporate finance', "women's issues",
+            'other / uncategorised', 'other / uncategorized', 'uncategorized',
+        }
+        stories = [
+            s for s in stories
+            if (s.get('title') or '').strip().lower() not in TOPIC_TITLE_BLOCKLIST
+        ]
         return {"stories": stories, "count": len(stories), "offset": offset, "limit": limit}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
