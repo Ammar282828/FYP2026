@@ -312,7 +312,11 @@ const StoriesTab: React.FC = () => {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
-          <RebuildStoriesButton onDone={loadStories} />
+          {/* Rebuild button removed: it's a destructive admin operation
+              (--clear wipes the stories collection then takes 30+ min
+              to rebuild via subprocess) and shouldn't be one click away
+              for a regular user. Run scripts/build_stories_v2.py from
+              the CLI when a rebuild is genuinely needed. */}
         </div>
 
         {loading ? (
