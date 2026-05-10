@@ -28,11 +28,13 @@ interface Preset {
   to: string;
 }
 
+// 1992 was a placeholder for future ingest. The corpus actually
+// covers 1990-01 through 1991-01 — picking "1992" returned an empty
+// result and confused users. Drop it; restore once we ingest 1992.
 const HISTORICAL_PRESETS: Preset[] = [
   { label: '1990', from: '1990-01-01', to: '1990-12-31' },
-  { label: '1991', from: '1991-01-01', to: '1991-12-31' },
-  { label: '1992', from: '1992-01-01', to: '1992-12-31' },
-  { label: 'Gulf War', from: '1990-08-02', to: '1991-02-28' },
+  { label: 'Jan 1991', from: '1991-01-01', to: '1991-01-31' },
+  { label: 'Gulf War', from: '1990-08-02', to: '1991-01-31' },
 ];
 
 export const DateRangePicker: React.FC<Props> = ({

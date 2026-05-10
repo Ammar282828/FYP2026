@@ -948,13 +948,31 @@ export const TopicTrendsOverTime: React.FC = () => {
       const response = await axios.get(`${API_BASE}/topics/trends-over-time`, { params });
       const trendsData = response.data.trends || [];
 
-      // Tally total articles per topic across all periods
+      // Tally total articles per topic across all periods.
+      // Filter out (a) placeholder "Topic 10000" labels that come from
+      // legacy BERTopic clusters never replaced with real names, and
+      // (b) Tenders & Classifieds + Job Listings, which dominate the
+      // chart but aren't editorial content the user wants to track.
+      const HIDE_TOPICS = new Set([
+        'tenders & classifieds',
+        'job listings',
+        'legal notices',
+        'obituaries & condolences',
+        'puzzles & crosswords',
+        'other / uncategorised',
+        'other / uncategorized',
+        'uncategorized',
+        'uncategorised',
+      ]);
+      const isPlaceholder = (name: string) => /^topic\s*\d{3,}$/i.test(name.trim());
       const topicTotals: Record<string, number> = {};
       trendsData.forEach((periodData: any) => {
         periodData.topics.forEach((topic: any) => {
-          if (topic.topic_name) {
-            topicTotals[topic.topic_name] = (topicTotals[topic.topic_name] || 0) + topic.count;
-          }
+          const name = (topic.topic_name || '').trim();
+          if (!name) return;
+          if (isPlaceholder(name)) return;
+          if (HIDE_TOPICS.has(name.toLowerCase())) return;
+          topicTotals[name] = (topicTotals[name] || 0) + topic.count;
         });
       });
 
@@ -1148,7 +1166,26 @@ export const TopicSentimentOverTime: React.FC = () => {
     const fetchTopics = async () => {
       try {
         const response = await axios.get(`${API_BASE}/topics/`);
-        const loaded = (response.data.topics || []).filter((t: any) => t.count >= 30);
+        // Same hide-list as TopicTrendsOverTime: skip placeholder
+        // "Topic 10000" labels and the non-editorial buckets
+        // (tenders, jobs, legal notices, obituaries) so the chart
+        // shows real news topics, not classifieds noise.
+        const HIDE_TOPICS = new Set([
+          'tenders & classifieds',
+          'job listings',
+          'legal notices',
+          'obituaries & condolences',
+          'puzzles & crosswords',
+          'other / uncategorised',
+          'other / uncategorized',
+          'uncategorized',
+          'uncategorised',
+        ]);
+        const isPlaceholder = (n: string) => /^topic\s*\d{3,}$/i.test((n || '').trim());
+        const loaded = (response.data.topics || [])
+          .filter((t: any) => t.count >= 30)
+          .filter((t: any) => !isPlaceholder(t.name || t.label || ''))
+          .filter((t: any) => !HIDE_TOPICS.has(((t.name || t.label || '') as string).toLowerCase()));
         setTopics(loaded);
         // Pre-select top 3
         setSelectedTopicIds(new Set(loaded.slice(0, 3).map((t: any) => t.topic_id as number)));

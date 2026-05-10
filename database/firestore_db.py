@@ -695,16 +695,45 @@ class FirestoreDB:
     })
 
     # Names that NER consistently mis-types — keep them but route to the
-    # correct type. Map is keyed by lowercased entity text and yields
-    # (canonical_text, intended_type). Helpful when one famous person's
-    # surname is also a major city (Bhutto → Larkana / Sukkur in Sindh).
-    # Currently only used for display normalization; the type-fix is a
-    # separate pass we'll add when the NER quality work begins.
+    # correct type. spaCy's en_core_web_sm tags Pakistani city names as
+    # PERSON because it sees them in surname-shaped contexts ("Mr Bhutto
+    # of Larkana" → both tagged PERSON). Adding to this set drops the
+    # wrong-type entry from the People chart; the GPE/ORG entry still
+    # surfaces under the correct filter.
     _ENTITY_PERSON_TO_GPE = frozenset({
-        'larkana', 'sukkur',  # Sindh cities mis-classed as PERSON when
-                              # appearing alongside Bhutto in articles.
-        'mohajirs',           # ethnic group → NORP, not PERSON
-        'pia',                # Pakistan International Airlines → ORG
+        # Sindh + Punjab cities mis-tagged PERSON
+        'larkana', 'sukkur', 'sialkot', 'nawabshah', 'hyderabad',
+        'multan', 'gujranwala', 'rawalpindi', 'peshawar', 'quetta',
+        'faisalabad', 'bahawalpur', 'gujrat', 'sahiwal', 'sargodha',
+        'mardan', 'mirpur', 'shikarpur', 'thatta', 'jacobabad',
+        # Ethnic groups that mis-tag PERSON instead of NORP
+        'mohajirs', 'pathans', 'baluchis', 'sindhis', 'punjabis',
+        # Orgs / acronyms that mis-tag PERSON
+        'pia', 'wapda', 'oic', 'unb',
+        # Common nouns that mis-tag PERSON in title-case context.
+        # "Bill" appears as PERSON because spaCy sees it in proper-noun
+        # position ("a Bill was tabled"); 99% of mentions in this corpus
+        # are about parliamentary bills, not people named Bill.
+        'bill', 'bills', 'budget', 'cabinet', 'committee',
+        'opposition', 'governor', 'speaker', 'minister', 'secretary',
+    })
+
+    # Surnames that collapse multiple distinct people into one chart
+    # entry when used alone. "Hussain" alone could be Saddam Hussein,
+    # Altaf Hussain (MQM), Mushahid Hussain, Iqbal Hussain — all of
+    # whom appear in Dawn coverage as separate full names. Drop the
+    # bare surname so the specific full names dominate the chart.
+    _AMBIGUOUS_SURNAMES = frozenset({
+        'hussain', 'hussein',          # Saddam / Altaf / Mushahid / etc.
+        'khan',                        # too many to list
+        'sharif',                      # Nawaz / Shahbaz / Mian
+        'bhutto',                      # Z.A. / Benazir / Mir Murtaza
+        'shah',                        # title-suffix as well
+        'ahmed', 'ahmad',
+        'malik',
+        'chaudhry', 'chowdhury',
+        'qureshi',
+        'siddiqui',
     })
 
     def _normalize_entity_name(self, entity_text: str) -> str:
@@ -955,6 +984,17 @@ class FirestoreDB:
                             and entity_text.lower() in self._ENTITY_PERSON_TO_GPE):
                         continue
 
+                    # Bare surnames collapse multiple distinct people
+                    # ("Hussain" → Saddam / Altaf / Mushahid Hussain).
+                    # Drop the surname-only mention so the full names
+                    # surface separately. The full-name version
+                    # ("Saddam Hussein") still counts because it has a
+                    # space and isn't in the blocklist.
+                    if (entity_type_val == 'PERSON'
+                            and ' ' not in entity_text
+                            and entity_text.lower() in self._AMBIGUOUS_SURNAMES):
+                        continue
+
                     if entity_type and entity_type_val != entity_type:
                         continue
 
@@ -1018,29 +1058,50 @@ class FirestoreDB:
                 headline = data.get('headline', '')
                 content = data.get('content', '')
 
-                filtered_entities = []
+                # Type-priority used to pick a single canonical type
+                # for each entity name. Without this, "Iraq" appears
+                # once as GPE and once as NORP and they're counted as
+                # two different entities, doubling Iraq+Kuwait pairs.
+                type_priority = {'PERSON': 5, 'ORG': 4, 'GPE': 3, 'LOC': 2, 'NORP': 1}
+
+                # Pass 1 — collect best-typed version of each unique
+                # normalised name in this article.
+                by_name = {}
                 for entity in entities:
                     entity_text = entity.get('text', '')
                     entity_type_val = entity.get('type', '')
 
+                    if not entity_type_val:
+                        continue
                     if entity_type_val in ['DATE', 'TIME', 'CARDINAL', 'ORDINAL', 'QUANTITY', 'MONEY', 'PERCENT']:
                         continue
-
                     if len(entity_text) < 3 or entity_text.isdigit():
                         continue
-
                     if entity_type and entity_type_val != entity_type:
                         continue
-
+                    # Reuse the same blocklist + surname-collapse the
+                    # top-entities chart uses so the relationship matrix
+                    # is consistent with the chart.
                     normalized_text = self._normalize_entity_name(entity_text)
-                    filtered_entities.append({
-                        'text': normalized_text,
-                        'type': entity_type_val,
-                        'original': entity_text
-                    })
+                    if not normalized_text or len(normalized_text) < 3:
+                        continue
+                    if (entity_type_val == 'PERSON'
+                            and normalized_text.lower() in self._ENTITY_PERSON_TO_GPE):
+                        continue
+                    if (entity_type_val == 'PERSON'
+                            and ' ' not in normalized_text
+                            and normalized_text.lower() in self._AMBIGUOUS_SURNAMES):
+                        continue
 
-                # Limit entities per article to avoid combinatorial explosion
-                filtered_entities = filtered_entities[:15]
+                    cur = by_name.get(normalized_text)
+                    if cur is None or type_priority.get(entity_type_val, 0) > type_priority.get(cur['type'], 0):
+                        by_name[normalized_text] = {
+                            'text': normalized_text,
+                            'type': entity_type_val,
+                            'original': entity_text,
+                        }
+
+                filtered_entities = list(by_name.values())[:15]
 
                 for e1, e2 in combinations(filtered_entities, 2):
                     if e1['text'] == e2['text']:
