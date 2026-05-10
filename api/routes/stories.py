@@ -347,23 +347,44 @@ def _rebuild_stories_bg(date_window: int, jaccard: float, clear: bool):
     })
     try:
         import subprocess, sys as _sys, os as _os
-        cmd = [_sys.executable, "scripts/build_stories.py",
-               "--date-window", str(date_window), "--jaccard", str(jaccard)]
+        # Switched from build_stories.py (v1) → build_stories_v2.py.
+        # v1 was the legacy raw-Jaccard clusterer that produced ~67%
+        # same-day duos with machine-stitched "Entity·Entity" titles
+        # (audited in the v2 docstring). v2 uses TF-IDF entity weighting
+        # + UNION-FIND with min cluster size 3 and a 45-day window.
+        # date_window / jaccard params are kept for API back-compat but
+        # mapped to v2's --window / --sim flags.
+        cmd = [
+            _sys.executable, "scripts/build_stories_v2.py",
+            "--window", str(date_window),
+            "--sim", str(max(jaccard, 0.20)),  # v2 cosine threshold; v1's 0.15 was too loose
+            "--min-size", "3",
+            "--max-titles", "200",
+        ]
         if clear:
             cmd.append("--clear")
         env = _os.environ.copy()
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=1800)
+        # v2 reads GEMINI_API_KEY (single key) for AI titles. If only the
+        # rotation pool is set, hand it the first key so titles get
+        # generated instead of falling back to "Entity·Entity·Entity".
+        if not env.get("GEMINI_API_KEY") and env.get("GEMINI_API_KEYS"):
+            env["GEMINI_API_KEY"] = env["GEMINI_API_KEYS"].split(",")[0].strip()
+        # v2 takes longer (paginated snapshot + AI titles) — bump the
+        # subprocess timeout to 1 hour from 30 min.
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=3600)
         if result.returncode != 0:
             _REBUILD_STATUS["last_error"] = (result.stderr or result.stdout)[-2000:]
         else:
-            # Parse something like "Created N stories" from stdout
+            # v2 prints "Created: N  Linked: M" — parse the Created
+            # number specifically.
             for line in (result.stdout or "").splitlines():
-                line = line.strip().lower()
-                if "stories created" in line or "created" in line and "stor" in line:
-                    for tok in line.split():
+                stripped = line.strip().lower()
+                if stripped.startswith("created:"):
+                    for tok in stripped.replace(":", " ").split():
                         if tok.isdigit():
                             _REBUILD_STATUS["stories_created"] = int(tok)
                             break
+                    break
     except Exception as e:
         _REBUILD_STATUS["last_error"] = str(e)
     finally:
