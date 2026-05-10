@@ -818,17 +818,25 @@ def ask_archive(request: dict):
                 _add(h, 'entity')
 
         # 3) Year hint → pull articles from that year for chronological context.
-        if years and len(candidates) < max_context * 2:
+        # Always run when a year is mentioned (was: only when candidates was
+        # under threshold). Without this, keyword + entity hits saturated the
+        # pool with off-year articles and the year search never executed —
+        # so "events in 1991?" returned only 1990 articles even though the
+        # corpus has 5k+ from Jan 1991.
+        if years:
             from datetime import datetime as _dt
             for yr in years[:1]:  # just the first year; usually one is plenty
                 try:
                     df = _dt(int(yr), 1, 1)
                     dt = _dt(int(yr), 12, 31, 23, 59, 59)
+                    # Larger pull (60 vs 40 before) — we may filter candidates
+                    # down to just this year's articles below, so we need
+                    # enough headroom to fill max_context after garbage drops.
                     yearq = (db.db.collection('articles')
                              .where('publication_date', '>=', df)
                              .where('publication_date', '<=', dt)
                              .order_by('publication_date', direction='DESCENDING')
-                             .limit(40))
+                             .limit(60))
                     for doc in yearq.stream():
                         _add(doc.to_dict(), 'year')
                 except Exception:
@@ -842,6 +850,27 @@ def ask_archive(request: dict):
             (a, srcs) for (a, srcs) in candidate_list
             if not _is_classified(a) and not _is_garbage_headline(a.get('headline') or '')
         ]
+
+        # If the question explicitly mentioned a year, restrict the
+        # candidate pool to articles from that year. Without this, a
+        # question about "1991" would still get 1990 articles ranked
+        # higher because keyword+entity overlap dominates the score.
+        # Soft-fall-back: if we'd filter to zero, keep the unfiltered
+        # pool so the LLM at least has *something* to work from.
+        if years:
+            wanted = {int(y) for y in years}
+            def _in_wanted_year(a):
+                pd = a.get('publication_date')
+                if pd is None: return False
+                if hasattr(pd, 'year'): return pd.year in wanted
+                # ISO string fallback
+                try:
+                    return int(str(pd)[:4]) in wanted
+                except Exception:
+                    return False
+            year_filtered = [(a, s) for (a, s) in candidate_list if _in_wanted_year(a)]
+            if year_filtered:
+                candidate_list = year_filtered
 
         # 4) Score: term overlap + quality
         ql_terms = set(keywords)
