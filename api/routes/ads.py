@@ -1120,6 +1120,15 @@ def _get_ads_cached(db) -> list:
     out = []
     for doc in db.db.collection('advertisements').stream():
         a = doc.to_dict()
+        # House-promo filter at read-time. Even after periodic DB
+        # cleanup, the September ingest keeps producing Dawn / Herald
+        # masthead detections because Gemini sometimes labels a
+        # newspaper-supplement promo as a "commercial ad". Skip them
+        # here so they never reach the UI; the underlying docs stay
+        # in Firestore for forensic purposes but are invisible to
+        # /browse, /search, and /analytics/summary.
+        if _is_house_promo(a):
+            continue
         a['id'] = doc.id
         # Datetime → str (json-safe)
         for k in ('publication_date', 'created_at'):
@@ -1138,6 +1147,27 @@ def _get_ads_cached(db) -> list:
     _ADS_CACHE = out
     _ADS_CACHE_AT = now
     return out
+
+
+def _is_house_promo(ad: dict) -> bool:
+    """True if the ad is a Dawn / Herald self-promo and should be hidden.
+
+    Catches partial brand strings ("ST WEEK (Pakistan Herald Publications)",
+    "Dawn Group of Newspapers", "Anonymous Company (via Dawn Newspaper P.O.
+    Box)") that the earlier exact-match deletion missed.
+    """
+    brand = (ad.get('brand') or '').lower()
+    iden = (ad.get('identifier') or '').lower()
+    if not brand and not iden:
+        return False
+    for token in ('dawn', 'herald'):
+        if token in brand:
+            return True
+        # Identifier is sometimes the only place the masthead leaks in
+        # (brand="" + identifier="DAWN SUPPLEMENT NATIONAL DAY").
+        if token in iden and len(iden) < 50:
+            return True
+    return False
 
 
 def _ad_quality_score(ad: dict) -> int:
