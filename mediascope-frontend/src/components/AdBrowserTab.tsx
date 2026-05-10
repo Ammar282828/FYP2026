@@ -96,6 +96,107 @@ interface AnalyticsData {
 // Palette imports come straight from theme/chartColors so any shift in
 // the dashboard's chart language propagates here automatically.
 
+
+// ── Compare ad periods ──────────────────────────────────────────────────────
+// Side-by-side category + brand + sentiment for two date ranges. Useful for
+// "what brands dominated coverage during the Gulf War vs after the 1990
+// election?" Defaults to a Gulf-War vs early-1990 split so the panel renders
+// something interesting on first paint.
+const ComparePeriodsPanel: React.FC<{ renderHorizontalBars: any }> = ({ renderHorizontalBars }) => {
+  const [aStart, setAStart] = useState('1990-06-01');
+  const [aEnd, setAEnd]     = useState('1990-08-31');
+  const [bStart, setBStart] = useState('1990-11-01');
+  const [bEnd, setBEnd]     = useState('1991-01-31');
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API_BASE}/ads/analytics/compare-periods`, {
+        params: {
+          period_a_start: aStart, period_a_end: aEnd,
+          period_b_start: bStart, period_b_end: bEnd,
+        },
+      });
+      setData(r.data);
+    } catch (e) {
+      console.error('Compare periods failed:', e);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const dateInput = (v: string, set: (s: string) => void) => (
+    <input
+      type="date" value={v} min="1990-01-01" max="1991-01-31"
+      onChange={e => set(e.target.value)}
+      className="date-input"
+      style={{ padding: '4px 8px', fontSize: 12 }}
+    />
+  );
+
+  const Block: React.FC<{ side: 'period_a' | 'period_b'; tint: string }> = ({ side, tint }) => {
+    const p = data?.[side];
+    if (!p) return null;
+    return (
+      <div className="analytics-card" style={{ borderTop: `3px solid ${tint}` }}>
+        <h4 className="analytics-card-title" style={{ marginBottom: 4 }}>
+          {p.label}
+        </h4>
+        <p className="analytics-card-subtitle" style={{ marginBottom: 8 }}>
+          <strong>{p.total_ads}</strong> ads in this window
+        </p>
+        <h5 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.7, margin: '8px 0 4px' }}>
+          Top categories
+        </h5>
+        {Object.keys(p.categories || {}).length
+          ? renderHorizontalBars(p.categories, 8)
+          : <p className="no-data">No data.</p>}
+        <h5 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.7, margin: '12px 0 4px' }}>
+          Top brands
+        </h5>
+        {Object.keys(p.brands || {}).length
+          ? renderHorizontalBars(p.brands, 10)
+          : <p className="no-data">No data.</p>}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <h3 className="analytics-card-title">Compare Periods</h3>
+      <p className="analytics-card-subtitle">
+        Pick two date ranges and see how the ad mix shifted between them.
+      </p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Period A</div>
+          <div style={{ display: 'flex', gap: 6 }}>{dateInput(aStart, setAStart)}<span style={{ alignSelf: 'center' }}>→</span>{dateInput(aEnd, setAEnd)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Period B</div>
+          <div style={{ display: 'flex', gap: 6 }}>{dateInput(bStart, setBStart)}<span style={{ alignSelf: 'center' }}>→</span>{dateInput(bEnd, setBEnd)}</div>
+        </div>
+        <button onClick={load} disabled={loading} className="search-btn">
+          {loading ? 'Loading…' : 'Compare'}
+        </button>
+      </div>
+      {loading
+        ? <p className="no-data">Loading…</p>
+        : data
+          ? <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Block side="period_a" tint="#8b3a1f" />
+              <Block side="period_b" tint="#3b2a1c" />
+            </div>
+          : <p className="no-data">No data.</p>}
+    </>
+  );
+};
+
+
 const AdBrowserTab: React.FC = () => {
   const [activeView, setActiveView]       = useState<'browse' | 'analytics'>('browse');
   const [ads, setAds]                     = useState<Advertisement[]>([]);
@@ -460,6 +561,11 @@ const AdBrowserTab: React.FC = () => {
             <h3 className="analytics-card-title">Monthly Ad Volume</h3>
             <p className="analytics-card-subtitle">How many ads we've extracted for each month of the archive.</p>
             {renderMonthlyChart(analytics.monthly_volume)}
+          </div>
+
+          {/* Compare periods */}
+          <div className="analytics-card full-width">
+            <ComparePeriodsPanel renderHorizontalBars={renderHorizontalBars} />
           </div>
         </div>
       </div>

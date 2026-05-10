@@ -1284,6 +1284,125 @@ def search_advertisements(request: dict):
         raise HTTPException(500, f"Error searching ads: {str(e)}")
 
 
+def _aggregate_ads(ads: list) -> dict:
+    """Reusable aggregator: takes a list of ad dicts, returns the same
+    shape get_ad_analytics returns. Pulled out so /analytics/summary and
+    /analytics/compare-periods share one source of truth.
+    """
+    categories: dict = {}
+    brands: dict = {}
+    sentiments: dict = {}
+    design_styles: dict = {}
+    emotional_appeals: dict = {}
+    monthly_volume: dict = {}
+    for ad in ads:
+        analysis = ad.get('analysis') or {}
+        if not isinstance(analysis, dict):
+            analysis = {}
+        cat = (
+            ad.get('category')
+            or ((analysis.get('brand') or {}).get('category') if isinstance(analysis.get('brand'), dict) else None)
+            or 'other'
+        )
+        cat = (cat or '').strip().lower() or 'other'
+        if cat.startswith('[') and cat.endswith(']'):
+            cat = 'other'
+        categories[cat] = categories.get(cat, 0) + 1
+        brand = (
+            ad.get('brand')
+            or ((analysis.get('brand') or {}).get('name') if isinstance(analysis.get('brand'), dict) else None)
+            or ''
+        )
+        if brand:
+            brand = (brand or '').strip()
+            bl = brand.lower()
+            if not (bl in {'dawn','the dawn','dawn newspaper','herald','the herald'}
+                    or bl.startswith('[') or bl.startswith('the dawn')):
+                brands[brand] = brands.get(brand, 0) + 1
+        sentiment = ((analysis.get('assessment') or {}).get('sentiment') or '').lower()
+        if sentiment in ('positive', 'neutral', 'negative'):
+            sentiments[sentiment] = sentiments.get(sentiment, 0) + 1
+        style = ((analysis.get('visualAnalysis') or {}).get('designStyle') or '').strip().lower()
+        if style and not style.startswith('['):
+            design_styles[style] = design_styles.get(style, 0) + 1
+        appeal = ((analysis.get('advertisingStrategy') or {}).get('emotionalAppeal') or '').strip().lower()
+        if appeal and not appeal.startswith('['):
+            emotional_appeals[appeal] = emotional_appeals.get(appeal, 0) + 1
+        pub = ad.get('publication_date')
+        if pub:
+            pub_str = pub.isoformat() if hasattr(pub, 'isoformat') else str(pub)
+            monthly_volume[pub_str[:7]] = monthly_volume.get(pub_str[:7], 0) + 1
+    return {
+        "total_ads": len(ads),
+        "categories": dict(sorted(categories.items(), key=lambda x: x[1], reverse=True)),
+        "brands": dict(sorted(brands.items(), key=lambda x: x[1], reverse=True)[:30]),
+        "sentiments": sentiments,
+        "design_styles": dict(sorted(design_styles.items(), key=lambda x: x[1], reverse=True)),
+        "emotional_appeals": dict(sorted(emotional_appeals.items(), key=lambda x: x[1], reverse=True)),
+        "monthly_volume": dict(sorted(monthly_volume.items())),
+    }
+
+
+@router.get("/analytics/compare-periods")
+def compare_ad_periods(
+    period_a_start: str,
+    period_a_end: str,
+    period_b_start: str,
+    period_b_end: str,
+):
+    """Side-by-side ad analytics for two date ranges.
+
+    Returns `period_a` and `period_b` blocks each shaped like
+    /analytics/summary so the frontend can render two identical
+    dashboards next to each other and read off how the brand /
+    category mix shifted between e.g. early 1990 and the Gulf War.
+    """
+    try:
+        from datetime import datetime as _dt
+        ranges = [
+            ('period_a', period_a_start, period_a_end),
+            ('period_b', period_b_start, period_b_end),
+        ]
+        # Pull from the cached ads list so we don't restream Firestore
+        # twice. The cache already strips Dawn/Herald promos, ILLEGIBLE
+        # brand ads, and out-of-corpus dates — same hygiene as /browse.
+        db = get_firestore_db()
+        all_ads = _get_ads_cached(db)
+        out: dict = {}
+        for label, start, end in ranges:
+            try:
+                sd = _dt.fromisoformat(start).date()
+                ed = _dt.fromisoformat(end).date()
+            except Exception:
+                raise HTTPException(400, f"{label}_start/{label}_end must be YYYY-MM-DD")
+            if ed < sd:
+                raise HTTPException(400, f"{label}: end before start")
+            window = []
+            for a in all_ads:
+                pub = a.get('publication_date')
+                if not pub:
+                    continue
+                ds = pub if isinstance(pub, str) else (pub.isoformat() if hasattr(pub, 'isoformat') else str(pub))
+                ds = ds[:10]
+                try:
+                    ddate = _dt.fromisoformat(ds).date()
+                except Exception:
+                    continue
+                if sd <= ddate <= ed:
+                    window.append(a)
+            out[label] = {
+                "label": f"{start} → {end}",
+                "start": start,
+                "end": end,
+                **_aggregate_ads(window),
+            }
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Compare error: {str(e)}")
+
+
 @router.get("/analytics/summary")
 def get_ad_analytics():
     """
