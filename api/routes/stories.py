@@ -47,11 +47,16 @@ def list_stories(
       start_date  YYYY-MM-DD — stories that started on or after this date
       end_date    YYYY-MM-DD — stories that ended on or before this date
     """
-    limit = min(limit, 100)
+    # Over-fetch generously: stories with AI narratives are sparse across
+    # the start_date-sorted DB query, and we need enough candidates that
+    # the post-filter sort surfaces all narrative-having stories first.
+    # Stories are small docs; pulling 800 in one shot is sub-second.
+    fetch_limit = 800
+    limit = min(limit, 200)
     try:
         db = get_db()
         stories = db.list_stories(
-            limit=limit,
+            limit=fetch_limit,
             offset=offset,
             topic_id=topic_id,
             start_date=start_date,
@@ -79,10 +84,26 @@ def list_stories(
             'oil & energy markets', 'corporate finance', "women's issues",
             'other / uncategorised', 'other / uncategorized', 'uncategorized',
         }
+        # Also hide entity-joined fallback titles. When the AI titler is
+        # unavailable (e.g. quota exhaustion) build_stories_v2 stitches a
+        # title from the cluster's top entities joined with " · " — e.g.
+        # "M. Salahuddin · Pakistan · Gmp". These read as broken to a
+        # reader; only show stories that actually got a Gemini-generated
+        # narrative title.
         stories = [
             s for s in stories
             if (s.get('title') or '').strip().lower() not in TOPIC_TITLE_BLOCKLIST
+            and ' · ' not in (s.get('title') or '')
         ]
+        # Sort: stories with an AI-generated narrative first (these are the
+        # ones we've curated for the demo), then by article_count desc so
+        # the biggest narratives surface to the top of the page.
+        stories.sort(key=lambda s: (
+            0 if (s.get('narrative') or '').strip() else 1,
+            -(s.get('article_count') or 0),
+        ))
+        # Trim down to the user's requested limit after filtering.
+        stories = stories[:limit]
         return {"stories": stories, "count": len(stories), "offset": offset, "limit": limit}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

@@ -480,22 +480,84 @@ def search_keyword(request: dict):
     # sort_by='date'.
     sort_by = request.get('sort_by', 'relevance')
 
-    if not keyword or len(keyword) < 1:
-        raise HTTPException(400, "Keyword is required and must be at least 1 character")
+    # Filters from the search panel — previously these were silently
+    # dropped here, so users could click "Topic = Pakistan Politics"
+    # and still get articles from other topics. Now they actually
+    # narrow the result set.
+    start_date_str = (request.get('start_date') or '').strip() or None
+    end_date_str = (request.get('end_date') or '').strip() or None
+    sentiment_filter = (request.get('sentiment') or '').strip().lower() or None
+    topic_filter = (request.get('topic') or '').strip() or None
+    entity_type_filter = (request.get('entity_type') or '').strip().upper() or None
 
-    if len(keyword) > 200:
+    has_filters = any([start_date_str, end_date_str, sentiment_filter,
+                       topic_filter, entity_type_filter])
+
+    # Allow filter-only queries (e.g. "all positive Pakistan Politics
+    # articles in March 1990"). Without a keyword we walk the snapshot
+    # and apply filters directly.
+    if not keyword:
+        if not has_filters:
+            raise HTTPException(400, "Provide a keyword or at least one filter")
+    elif len(keyword) > 200:
         raise HTTPException(400, "Keyword must be less than 200 characters")
 
     try:
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _coerce_date(v):
+            if v is None: return None
+            if hasattr(v, 'tzinfo'):
+                return v.replace(tzinfo=_tz.utc) if v.tzinfo is None else v
+            try:
+                d = _dt.fromisoformat(str(v).replace('Z', '+00:00'))
+                return d.replace(tzinfo=_tz.utc) if d.tzinfo is None else d
+            except Exception:
+                return None
+
+        sd = _coerce_date(start_date_str)
+        ed = _coerce_date(end_date_str)
+
         db = get_db()
-        # Pull a wider candidate pool than `limit` since we're about to
-        # filter out classifieds + garbage headlines, and we want enough
-        # left to actually fill the page.
-        articles = db.search_articles(keyword, limit=max(limit * 4, 200))
+        if keyword:
+            # Pull a wider candidate pool than `limit` since we're about to
+            # filter out classifieds + garbage headlines, and we want enough
+            # left to actually fill the page.
+            articles = db.search_articles(keyword, limit=max(limit * 8, 1000))
+        else:
+            # Filter-only mode: stream the full snapshot.
+            articles = list(db._get_articles_snapshot())
+
         articles = [
             a for a in articles
             if not _is_classified(a) and not _is_garbage_headline(a.get('headline') or '')
         ]
+
+        # Apply structured filters in Python.
+        if sd or ed or sentiment_filter or topic_filter or entity_type_filter:
+            filtered = []
+            for a in articles:
+                if sd or ed:
+                    pd = _coerce_date(a.get('publication_date'))
+                    if pd is None:
+                        continue
+                    if sd and pd < sd: continue
+                    if ed and pd > ed: continue
+                if sentiment_filter:
+                    if (a.get('sentiment_label') or '').lower() != sentiment_filter:
+                        continue
+                if topic_filter:
+                    if (a.get('topic_label') or '') != topic_filter:
+                        continue
+                if entity_type_filter:
+                    ents = a.get('entities') or []
+                    if not any(
+                        (isinstance(e, dict) and (e.get('type') or '').upper() == entity_type_filter)
+                        for e in ents
+                    ):
+                        continue
+                filtered.append(a)
+            articles = filtered
 
         total = len(articles)
         articles = articles[offset:offset + limit]

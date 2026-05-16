@@ -630,6 +630,14 @@ def generate_date_range_summary(request: dict):
         start_date_str = request.get("start_date", "1990-01-01")
         end_date_str = request.get("end_date", "2030-12-31")
         topic_filter = request.get("topic")
+        # New: caller can scope the summary to a specific result slice
+        # (e.g. the articles currently shown after a keyword search).
+        # Without this the endpoint just summarised the entire date
+        # window, which ignored whatever query the user actually ran.
+        article_ids = request.get("article_ids") or None
+        if article_ids:
+            article_ids = set(article_ids)
+        user_query = (request.get("query") or "").strip() or None
         
         # Convert string dates to timezone-aware datetime objects for filtering
         start_date = dt.fromisoformat(start_date_str.replace('Z', '+00:00'))
@@ -649,10 +657,33 @@ def generate_date_range_summary(request: dict):
         db = get_firestore_db()
         all_articles = db._get_articles_snapshot()
 
+        def _coerce_date(v):
+            """Snapshot stores publication_date as a mix of datetime and str
+            (Firestore restored vs older ingest writes). Normalise so the
+            range comparison doesn't crash when both shapes are present."""
+            if v is None:
+                return None
+            if hasattr(v, 'tzinfo'):
+                if v.tzinfo is None:
+                    return v.replace(tzinfo=timezone.utc)
+                return v
+            try:
+                d = dt.fromisoformat(str(v).replace('Z', '+00:00'))
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=timezone.utc)
+                return d
+            except Exception:
+                return None
+
         articles = []
         for data in all_articles:
-            pub_date = data.get('publication_date')
-            
+            # If the caller passed an explicit article_ids slice, only
+            # that slice counts — date/topic filters still apply on top
+            # so the summary text reflects the actual visible result set.
+            if article_ids is not None and data.get('id') not in article_ids:
+                continue
+            pub_date = _coerce_date(data.get('publication_date'))
+
             # Filter by date range in Python
             if pub_date and start_date <= pub_date <= end_date:
                 if topic_filter and data.get('topic_label') != topic_filter:
@@ -692,26 +723,49 @@ def generate_date_range_summary(request: dict):
         
         print(f"[AI-SUMMARY] Building context with {len(top_entities)} entities")
         
-        # Build context for Gemini
-        sample_articles = articles[:5]
+        # Build context for Gemini. Sample more headlines when we have
+        # a search query so the model has enough signal to anchor the
+        # summary to whatever the user actually searched for.
+        sample_n = 30 if (user_query or article_ids is not None) else 10
+        sample_articles = articles[:sample_n]
         context = f"Date Range: {start_date_str} to {end_date_str}\n"
-        context += f"Total Articles: {len(articles)}\n"
+        if user_query:
+            context += f"USER SEARCH QUERY: \"{user_query}\"\n"
+        if article_ids is not None:
+            context += "Scope: a filtered subset of the corpus (the articles the user has on screen).\n"
+        context += f"Total Articles in this slice: {len(articles)}\n"
         context += f"Sentiment Distribution: {dict(sentiment_counts)}\n"
-        context += f"Top Entities: {[e['entity'] for e in top_entities[:10]]}\n\n"
-        context += "Sample Headlines:\n"
+        context += f"Top Entities in this slice: {[e['entity'] for e in top_entities[:10]]}\n\n"
+        context += f"Sample Headlines (first {len(sample_articles)} of {len(articles)}):\n"
         for i, a in enumerate(sample_articles, 1):
             context += f"{i}. {a.get('headline', 'Untitled')}\n"
-        
+
         print("[AI-SUMMARY] Calling Gemini...")
         # Generate summary with Gemini (auto-detects key type)
         model = _create_gemini_model(GEMINI_API_KEY, 'gemini-2.5-flash')
-        
-        prompt = f"""You are analyzing newspaper articles from {start_date_str} to {end_date_str}.
+
+        if user_query:
+            prompt = f"""The user searched the Dawn 1990–Jan 1991 newspaper archive for: "{user_query}"
+
+These {len(articles)} articles are the search result for that query, drawn from {start_date_str} to {end_date_str}.
+
+{context}
+
+Write a 4–5 paragraph summary that **stays anchored to the query "{user_query}"** throughout. Specifically:
+1. Open by characterising what the corpus reveals ABOUT "{user_query}" — what was being reported, who was involved, what was at stake. Do NOT open with generic statements about Pakistani journalism or the period.
+2. Explain how "{user_query}" appears in this slice (sectors, brands, events, people) using concrete details from the sample headlines and top entities.
+3. Describe notable trends or angles in coverage of "{user_query}" (e.g. is it framed commercially, politically, scientifically?).
+4. Connect the visible entities to "{user_query}" — what role do they play in this slice?
+5. Close with the sentiment / tone of coverage on "{user_query}".
+
+Every paragraph must reference "{user_query}" explicitly or implicitly. Do not generalise to "Pakistani affairs", "Karachi", or "the 1990s" unless those are directly relevant to what was reported about "{user_query}"."""
+        else:
+            prompt = f"""You are analyzing newspaper articles from {start_date_str} to {end_date_str}.
 
 {context}
 
 Please provide a comprehensive summary (4-6 paragraphs) covering:
-1. Main themes and topics discussed
+1. Main themes and topics discussed in this slice
 2. Key events and developments
 3. Notable trends and patterns
 4. Significant entities and their roles

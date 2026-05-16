@@ -40,10 +40,18 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
   const generateSummary = async () => {
     setLoading(true);
     try {
+      // Pass the IDs of the articles actually displayed so the backend
+      // summarizes the search slice — not the whole corpus in the date
+      // window. Without this the summary ignored the search keyword.
+      const articleIds = (articles || [])
+        .map((a: any) => a.id)
+        .filter(Boolean);
       const response = await axios.post(`${API_BASE}/analytics/ai-summary`, {
         start_date: filters?.startDate || minBound,
         end_date: filters?.endDate || maxBound,
-        topic: filters?.topic
+        topic: filters?.topic,
+        article_ids: articleIds.length ? articleIds : undefined,
+        query,
       });
       setSummary(response.data.summary);
     } catch (error) {
@@ -87,7 +95,7 @@ const SearchResultsSummary: React.FC<SearchResultsSummaryProps> = ({
       <div className="summary-header">
         <h3>
           {displayedCount !== undefined && displayedCount < totalResults
-            ? `Search Results: showing ${displayedCount.toLocaleString()} of ${totalResults.toLocaleString()} articles`
+            ? `Search Results: showing ${displayedCount.toLocaleString()} articles`
             : `Search Results: ${totalResults.toLocaleString()} article${totalResults !== 1 ? 's' : ''} found`}
         </h3>
         {!summary && (

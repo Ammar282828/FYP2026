@@ -20,7 +20,7 @@ import {
 } from './components/AdvancedAnalytics';
 import { InteractiveKeywords, InteractiveEntityExplorer } from './components/ProfessionalAnalytics';
 import { ArticlesOverTime } from './components/AnalyticsCharts';
-import { WordCountDistribution, PageDistribution, SourceDistribution } from './components/CorpusAnalytics';
+import { WordCountDistribution, PageDistribution } from './components/CorpusAnalytics';
 import CalendarHeatmap from './components/CalendarHeatmap';
 import CompareTab from './components/CompareTab';
 import OCRTab from './components/OCRTab';
@@ -390,6 +390,7 @@ const MediaScopeDashboard: React.FC = () => {
                 <SearchResultsSummary
                   totalResults={searchResults.total}
                   displayedCount={(searchResults.articles || []).length}
+                  query={searchQuery}
                   filters={searchFilters}
                   articles={searchResults.articles || []}
                   onFilterRemove={(key) => {
@@ -545,9 +546,6 @@ const MediaScopeDashboard: React.FC = () => {
                   </div>
                   <div className="analytics-card full-width">
                     <ErrorBoundary label="Page distribution"><PageDistribution /></ErrorBoundary>
-                  </div>
-                  <div className="analytics-card full-width">
-                    <ErrorBoundary label="Source distribution"><SourceDistribution /></ErrorBoundary>
                   </div>
                 </>
               )}

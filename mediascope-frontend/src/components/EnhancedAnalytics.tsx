@@ -1205,7 +1205,11 @@ export const TopicSentimentOverTime: React.FC = () => {
         const loaded = (response.data.topics || [])
           .filter((t: any) => t.count >= 30)
           .filter((t: any) => !isPlaceholder(t.name || t.label || ''))
-          .filter((t: any) => !HIDE_TOPICS.has(((t.name || t.label || '') as string).toLowerCase()));
+          .filter((t: any) => !HIDE_TOPICS.has(((t.name || t.label || '') as string).toLowerCase()))
+          // Match Topic Trends ordering: biggest topics first. Without
+          // this the sentiment pills came back in topic_id order, which
+          // looked inconsistent next to the trends chart.
+          .sort((a: any, b: any) => (b.count || 0) - (a.count || 0));
         setTopics(loaded);
         // Pre-select top 3
         setSelectedTopicIds(new Set(loaded.slice(0, 3).map((t: any) => t.topic_id as number)));
@@ -1554,52 +1558,90 @@ export const EntitySentimentOverTime: React.FC = () => {
   );
 };
 
-// Keyword Sentiment Over Time - Track sentiment for keywords
+// Keyword Sentiment Over Time - Track sentiment for one or more keywords
 export const KeywordSentimentOverTime: React.FC = () => {
-  const [data, setData] = useState<any[]>([]);
-  const [keyword, setKeyword] = useState<string>('election');
-  const [inputValue, setInputValue] = useState<string>('election');
+  // Map of keyword → per-period series. We keep the union of all periods
+  // across keywords on the x-axis so two terms with different first-seen
+  // dates still line up correctly.
+  const [series, setSeries] = useState<Record<string, Record<string, number>>>({});
+  const [keywords, setKeywords] = useState<string[]>(['election']);
+  const [inputValue, setInputValue] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [granularity, setGranularity] = useState<'year' | 'month' | 'day'>('month');
 
   const QUICK_KEYWORDS = ['election', 'karachi', 'pakistan', 'india', 'kashmir', 'economy', 'government', 'army', 'war', 'cricket'];
 
-  // Load sentiment data
-  const loadSentiment = async (kw?: string) => {
-    const searchKw = kw !== undefined ? kw : keyword;
-    if (!searchKw) return;
+  // Newspaper-toned palette so multi-keyword lines blend with the rest of
+  // the analytics tabs instead of fighting them.
+  const COLORS = ['#8b3a1f', '#5a7a3e', '#a87a3e', '#3b2a1c', '#7a4a2c', '#c47b5a', '#a89378', '#6e5a3a', '#9c5a3c', '#8a7a62'];
 
+  // Fetch all currently-selected keywords in parallel and merge into one
+  // chart-friendly array indexed by period.
+  const loadAll = async () => {
+    if (keywords.length === 0) {
+      setSeries({});
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const params: any = { keyword: searchKw, granularity };
-      const response = await axios.get(`${API_BASE}/analytics/keyword-sentiment-over-time`, { params });
-      const trends = response.data.trends || [];
-      setData(trends.map((t: any) => ({
-        period: t.period,
-        sentiment: t.avg_sentiment,
-        count: t.article_count
-      })));
+      const responses = await Promise.all(
+        keywords.map(kw =>
+          axios.get(`${API_BASE}/analytics/keyword-sentiment-over-time`, { params: { keyword: kw, granularity } })
+            .then(r => [kw, r.data.trends || []] as [string, any[]])
+            .catch(() => [kw, []] as [string, any[]])
+        )
+      );
+      const next: Record<string, Record<string, number>> = {};
+      for (const [kw, trends] of responses) {
+        next[kw] = {};
+        for (const t of trends) {
+          if (typeof t.avg_sentiment === 'number') {
+            next[kw][t.period] = t.avg_sentiment;
+          }
+        }
+      }
+      setSeries(next);
     } catch (error) {
       console.error('Failed to load keyword sentiment:', error);
-      setData([]);
+      setSeries({});
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadSentiment();
+    loadAll();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [granularity, keyword]);
+  }, [granularity, keywords.join('|')]);
 
-  const handleSearch = () => {
-    setKeyword(inputValue.trim());
+  // Add a keyword (from typed input or quick pill). De-dupes and trims.
+  const addKeyword = (raw: string) => {
+    const kw = raw.trim().toLowerCase();
+    if (!kw || keywords.includes(kw)) return;
+    setKeywords([...keywords, kw]);
+  };
+  const removeKeyword = (kw: string) => {
+    setKeywords(keywords.filter(k => k !== kw));
   };
 
-  const handlePillClick = (kw: string) => {
-    setInputValue(kw);
-    setKeyword(kw);
-  };
+  // Build chart rows: union of all periods, each row carries every
+  // keyword's sentiment for that period (or undefined → recharts skips it).
+  const chartData = (() => {
+    const periods = new Set<string>();
+    for (const kw of keywords) {
+      for (const p of Object.keys(series[kw] || {})) periods.add(p);
+    }
+    const sorted = Array.from(periods).sort();
+    return sorted.map(period => {
+      const row: any = { period };
+      for (const kw of keywords) {
+        const v = series[kw]?.[period];
+        if (typeof v === 'number') row[kw] = v;
+      }
+      return row;
+    });
+  })();
 
   if (loading) return <SkeletonChart />;
 
@@ -1607,7 +1649,7 @@ export const KeywordSentimentOverTime: React.FC = () => {
     <div>
       <h3 style={{ marginBottom: '0.5rem' }}>Keyword Sentiment Over Time</h3>
       <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
-        Track sentiment changes for specific keywords across the archive
+        Track sentiment changes for one or more keywords across the archive — add multiple to compare.
       </p>
 
       {/* Control bar */}
@@ -1617,16 +1659,27 @@ export const KeywordSentimentOverTime: React.FC = () => {
         padding: '0.75rem 1rem', background: 'var(--bg-secondary)',
         borderRadius: '8px', border: '1px solid var(--border-color)'
       }}>
-        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Keyword:</label>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Add keyword:</label>
         <input
           type="text"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-          placeholder="Enter keyword..."
-          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)', minWidth: '160px' }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              addKeyword(inputValue);
+              setInputValue('');
+            }
+          }}
+          placeholder="Type and press Enter…"
+          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: 'var(--bg-primary)', minWidth: '180px' }}
         />
-        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Granularity:</label>
+        <button
+          onClick={() => { addKeyword(inputValue); setInputValue(''); }}
+          style={{ padding: '5px 16px', borderRadius: '6px', border: 'none', background: 'var(--primary-color)', color: 'white', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+        >
+          Add
+        </button>
+        <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginLeft: '0.6rem' }}>Granularity:</label>
         <select
           value={granularity}
           onChange={(e) => setGranularity(e.target.value as 'year' | 'month' | 'day')}
@@ -1636,28 +1689,44 @@ export const KeywordSentimentOverTime: React.FC = () => {
           <option value="month">Monthly</option>
           <option value="day">Daily</option>
         </select>
-        <button
-          onClick={handleSearch}
-          style={{
-            padding: '5px 16px', borderRadius: '6px', border: 'none',
-            background: 'var(--primary-color)', color: 'white',
-            fontSize: '13px', fontWeight: '600', cursor: 'pointer'
-          }}
-        >
-          Search
-        </button>
       </div>
+
+      {/* Selected keyword pills — click X to remove */}
+      {keywords.length > 0 && (
+        <div style={{ marginBottom: '0.8rem', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginRight: 6 }}>Showing:</span>
+          {keywords.map((kw, idx) => (
+            <span
+              key={kw}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px 4px 12px', borderRadius: '20px', fontSize: '12px',
+                background: COLORS[idx % COLORS.length], color: 'white', fontWeight: '600',
+              }}
+            >
+              {kw}
+              <button
+                onClick={() => removeKeyword(kw)}
+                aria-label={`Remove ${kw}`}
+                style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '14px', padding: 0, lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Quick-select keyword pills */}
       <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-        <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Quick select:</div>
+        <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Quick add:</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
           {QUICK_KEYWORDS.map(kw => {
-            const active = keyword === kw;
+            const active = keywords.includes(kw);
             return (
               <button
                 key={kw}
-                onClick={() => handlePillClick(kw)}
+                onClick={() => (active ? removeKeyword(kw) : addKeyword(kw))}
                 style={{
                   padding: '4px 12px', borderRadius: '20px', fontSize: '12px', cursor: 'pointer',
                   border: `2px solid ${active ? '#10b981' : 'var(--border-color)'}`,
@@ -1675,9 +1744,9 @@ export const KeywordSentimentOverTime: React.FC = () => {
       </div>
 
       {/* Chart */}
-      {data.length > 0 ? (
+      {chartData.length > 0 ? (
         <ResponsiveContainer width="100%" height={420}>
-          <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
+          <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" height={70} />
             <YAxis
@@ -1687,26 +1756,27 @@ export const KeywordSentimentOverTime: React.FC = () => {
             />
             <Tooltip
               contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '12px' }}
-              formatter={(value: any, name?: string) => {
-                if (name === 'sentiment') return [typeof value === 'number' ? value.toFixed(3) : value, 'Sentiment'];
-                return [value, 'Articles'];
-              }}
+              formatter={(value: any) => (typeof value === 'number' ? value.toFixed(3) : value)}
             />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
-            <Line
-              type="monotone"
-              dataKey="sentiment"
-              stroke="#10b981"
-              strokeWidth={2}
-              dot={{ r: 4 }}
-              activeDot={{ r: 6 }}
-              name={`"${keyword}" Sentiment`}
-            />
+            {keywords.map((kw, idx) => (
+              <Line
+                key={kw}
+                type="monotone"
+                dataKey={kw}
+                stroke={COLORS[idx % COLORS.length]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+                connectNulls
+                name={`"${kw}"`}
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       ) : (
         <div style={{ padding: '2rem', background: '#fef3c7', borderRadius: '8px', textAlign: 'center', fontSize: '13px' }}>
-          <strong>No sentiment data available for this keyword.</strong>
+          <strong>{keywords.length === 0 ? 'Add a keyword above to start.' : 'No sentiment data for the current selection.'}</strong>
         </div>
       )}
     </div>
